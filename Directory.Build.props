@@ -1,0 +1,44 @@
+<Project>
+
+  <PropertyGroup>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
+    <AnalysisLevel>latest-recommended</AnalysisLevel>
+    <Deterministic>true</Deterministic>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <!-- NU5127: native-only packages carry no lib/ assembly.
+         CS1591: XML doc coverage is a 1.0 gate, not a Wave-2 gate. -->
+    <NoWarn>$(NoWarn);NU5127;CS1591</NoWarn>
+    <IsPackable>false</IsPackable>
+    <NativeArtifactsDir>$(MSBuildThisFileDirectory)foundation\native\artifacts\</NativeArtifactsDir>
+  </PropertyGroup>
+
+  <!-- CI only: normalizes stored source paths. Must stay off locally or the debugger loses sources. -->
+  <PropertyGroup Condition="'$(GITHUB_ACTIONS)' == 'true'">
+    <ContinuousIntegrationBuild>true</ContinuousIntegrationBuild>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(IsPackable)' == 'true'">
+    <IsAotCompatible Condition="$([MSBuild]::IsTargetFrameworkCompatible('$(TargetFramework)', 'net8.0'))">true</IsAotCompatible>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <EnablePackageValidation>true</EnablePackageValidation>
+    <PublishRepositoryUrl>true</PublishRepositoryUrl>
+    <EmbedUntrackedSources>true</EmbedUntrackedSources>
+    <IncludeSymbols>true</IncludeSymbols>
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+    <Authors>Qavren Solutions LLC</Authors>
+    <Company>Qavren Solutions LLC</Company>
+    <Product>Qavren.Edge</Product>
+    <Copyright>Copyright (c) Qavren Solutions LLC</Copyright>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageProjectUrl>https://github.com/qavren-oss/qavren-edge</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/qavren-oss/qavren-edge</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageTags>sqlite;sqlite-vec;vector;maui;embedded</PackageTags>
+    <MinVerTagPrefix>v</MinVerTagPrefix>
+  </PropertyGroup>
+
+</Project>

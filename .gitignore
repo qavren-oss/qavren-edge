@@ -1,0 +1,24 @@
+bin/
+obj/
+out/
+*.user
+*.suo
+.vs/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Test output
+TestResults/
+coverage.*.xml
+*.trx
+
+# Packaging
+artifacts/
+*.nupkg
+*.snupkg
+
+# Native build (fetched sources, intermediates, and produced binaries)
+foundation/native/_deps/
+foundation/native/build/
+foundation/native/artifacts/

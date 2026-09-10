@@ -1,0 +1,10 @@
+name: native
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  placeholder:
+    runs-on: ubuntu-24.04
+    steps:
+      - run: echo "native.yml is a stub - replaced in Task 6.2"
