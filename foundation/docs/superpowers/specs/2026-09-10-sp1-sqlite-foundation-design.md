@@ -30,12 +30,12 @@ native build.
 | 4 | Native binding | Own generated `ISQLite3Provider` (checked-in code), not `dynamic_cdecl`, not an `e_sqlite3` drop-in. |
 | 5 | ONNX | Wrap `Microsoft.ML.OnnxRuntime` (never rebuild ORT). v1 ships embeddings **and** ORT GenAI chat. |
 | 6 | TFMs | `net10.0`, `net10.0-android`, `net10.0-ios`, `net10.0-maccatalyst`, `net10.0-windows10.0.19041.0`. |
-| 7 | Name | `Qavren.Edge.*`. Repo `qavren/qavren-edge`. |
+| 7 | Name | `Qavren.Edge.*`. Repo `qavren-oss/qavren-edge`. |
 | 8 | Reference consumer | In-repo MAUI sample + device test runner only. Real apps adopt after 1.0. |
 | 9 | Ingestion inputs | Text + Markdown chunkers, plus PDF/DOCX extraction. Images later. |
 | 10 | Encryption | SQLCipher variant (`Qavren.Edge.Sqlite.Native.Cipher`) ships in v1. |
 | 11 | License | MIT. |
-| 12 | Repo home | New GitHub org `qavren`. Reserve the `Qavren.` NuGet ID prefix. |
+| 12 | Repo home | GitHub org `qavren-oss` (created 2026-09-10; `qavren` was squatted). Reserve the `Qavren.` NuGet ID prefix. |
 | 13 | Hosting model | MS-native core (`IServiceCollection` + `IOptions<T>` + hosted services) with `Qavren.Edge.Maui` as a lifecycle bridge and `UseQavrenEdge()` sugar. |
 | 14 | CI runners | Public repo → GitHub-hosted macOS/Ubuntu/Windows runners are free. The Mac Mini is not on the critical path. |
 
@@ -524,7 +524,7 @@ not at runtime).
 
 Bootstrap:
 
-1. Create GitHub org `qavren` (manual, GUI). Then `gh repo create qavren/qavren-edge --public`.
+1. GitHub org `qavren-oss` exists (created 2026-09-10 via browser; `qavren` is a squatted user). Repo `qavren-oss/qavren-edge` created and pushed the same day.
 2. Request `Qavren.` NuGet ID prefix reservation (manual form).
 3. Governance files (dependabot, branch protection JSON, editorconfig,
    CODEOWNERS) come from `repo-template-dotnet10-aot`. `new-repo.ps1` accepts
