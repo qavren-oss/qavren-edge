@@ -70,7 +70,7 @@ task that implements it. If a reader diffing the spec against the plan finds a d
 21. **No `Microsoft.SourceLink.GitHub` PackageReference.** Source Link is bundled in the SDK and on by default since SDK 8. Set only `PublishRepositoryUrl`, `EmbedUntrackedSources`, `IncludeSymbols`, `SymbolPackageFormat=snupkg`. (Task 1.1)
 22. **`PackageValidationBaselineVersion` stays unset until 1.0.0 is on nuget.org** — with no baseline the validator fails the pack. `EnablePackageValidation` is on from day one. (Task 1.1)
 23. **§13 — no `-latest` runner labels anywhere.** The spec names `windows-latest`; every workflow in this plan pins `windows-2025`, `ubuntu-24.04`, `macos-15` and (for the Apple device lanes) `macos-15-intel` instead. `-latest` labels move: `macos-latest` is now ARM64 macOS 26, and `windows-latest` now maps to a VS 2026 image. A moving label would silently change the toolchain the native build and the device lanes run on. (Task 6.2.)
-24. **One generated provider variant for every TFM: upstream's `provider_internal_funcptrs.cs`** (`FEATURE_FUNCPTRS/callingconv`, `FEATURE_LOADEXTENSION/false`, `FEATURE_WIN32DIR/false`), with only the `SQLITE_DLL` constant and the reported library name substituted. Reason: our native is compiled with `SQLITE_OMIT_LOAD_EXTENSION`, so `sqlite3_enable_load_extension` is not exported — and `SqliteConnection.Deactivate()` calls it on **every** pooled connection return. A `FEATURE_LOADEXTENSION/true` variant would `DllImport` a missing entry point and throw `EntryPointNotFoundException` on every pool return; the `false` variant returns `SQLITE_ERROR` without P/Invoking, and MDS ignores the return value. Known limitation this accepts: `sqlite3_win32_set_directory` returns `SQLITE_ERROR` (nothing in Microsoft.Data.Sqlite calls it). (Tasks 2.2, 3.2)
+24. **One generated provider variant for every TFM: upstream's `provider_internal_funcptrs.cs`** (`FEATURE_FUNCPTRS/callingconv`, `FEATURE_LOADEXTENSION/false`, `FEATURE_WIN32DIR/false`), with only the `SQLITE_DLL` constant and the reported library name substituted. Reason: our native is compiled with `SQLITE_OMIT_LOAD_EXTENSION`, so neither `sqlite3_load_extension` nor `sqlite3_enable_load_extension` is exported (confirmed with `dumpbin /exports` against the Task 3.3 build). The `false` variant stubs `sqlite3_load_extension` to `SQLITE_ERROR` without P/Invoking. **Correction (Wave 3, checked against `dotnet/efcore` `release/10.0` `SqliteConnection.cs`):** the `false` variant does *not* stub `sqlite3_enable_load_extension` — upstream leaves that one a live `DllImport`, and this repo's generated file keeps it. Two claims previously made here were wrong: `SqliteConnection.Deactivate()` calls it **only** under `if (_extensionsEnabled)`, not on every pooled return, and MDS does **not** ignore the result — both `Deactivate()` and `EnableExtensions()` pass it to `SqliteException.ThrowExceptionForRC`. Net effect: nothing throws unless an app opts in via `EnableExtensions(true)`/`LoadExtension`, and then it surfaces as `EntryPointNotFoundException` rather than a clean `SqliteException`. Task 7.1 owns the remedy; dropping `SQLITE_OMIT_LOAD_EXTENSION` is not one. Known limitation this accepts: `sqlite3_win32_set_directory` returns `SQLITE_ERROR` (nothing in Microsoft.Data.Sqlite calls it). (Tasks 2.2, 3.2)
 25. **The `.slnx` is written once, in Wave 1, listing every project this plan creates.** It is a root file with a single owner, so parallel tasks never contend for it. **It will not build end-to-end until Wave 9**; every earlier verification targets an explicit `.csproj` path.
 26. **Wave membership is decided by the BUILD GRAPH, not by the folder list.** Disjoint folders are necessary but not sufficient: a task whose verify command runs `dotnet build`/`dotnet run` on project P transitively compiles every `ProjectReference` of P, so it will read source files a sibling task is midway through writing. The rule this plan enforces, and the reason waves 3–11 look the way they do:
 
@@ -2164,10 +2164,15 @@ set(QEDGE_COMMON_DEFS
     QEDGE_VEC_VERSION="v${QEDGE_VEC_VERSION}"
     QEDGE_BUILD_SHA="${QEDGE_BUILD_SHA}")
 
-if(CMAKE_SYSTEM_PROCESSOR MATCHES "arm64|aarch64|ARM64")
-  list(APPEND QEDGE_COMMON_DEFS SQLITE_VEC_ENABLE_NEON)
-elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64|x64")
-  list(APPEND QEDGE_COMMON_DEFS SQLITE_VEC_ENABLE_AVX)
+# sqlite-vec's SIMD kernels define PORTABLE_ALIGN32/64 as __attribute__((aligned(N))), which
+# cl.exe rejects (C2143/C2065/C2168 at sqlite-vec.c:133+). Enable them on GCC/Clang toolchains
+# only; MSVC builds use sqlite-vec's portable scalar paths.
+if(NOT MSVC)
+  if(CMAKE_SYSTEM_PROCESSOR MATCHES "arm64|aarch64|ARM64")
+    list(APPEND QEDGE_COMMON_DEFS SQLITE_VEC_ENABLE_NEON)
+  elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64|x64")
+    list(APPEND QEDGE_COMMON_DEFS SQLITE_VEC_ENABLE_AVX)
+  endif()
 endif()
 
 set(QEDGE_VEC_DIR "${DEPS}/sqlite-vec")
@@ -2623,7 +2628,14 @@ Expected: 10 tests pass (6 from Task 2.1 plus 4 here), exit code 0.
 
 - [ ] **Step 1: Vendor the upstream template**
 
-The template is upstream's own generated provider for the static-library case: `FEATURE_FUNCPTRS/callingconv`, `FEATURE_LOADEXTENSION/false`, `FEATURE_WIN32DIR/false`. That variant is the correct one **because our native defines `SQLITE_OMIT_LOAD_EXTENSION`**: `SqliteConnection.Deactivate()` calls `sqlite3_enable_load_extension` on every pooled connection return, and a `LOADEXTENSION/true` provider would `DllImport` a missing export and throw `EntryPointNotFoundException` every time. The `false` variant returns `SQLITE_ERROR` without P/Invoking, and MDS ignores the return value.
+The template is upstream's own generated provider for the static-library case: `FEATURE_FUNCPTRS/callingconv`, `FEATURE_LOADEXTENSION/false`, `FEATURE_WIN32DIR/false`. That variant is the correct one **because our native defines `SQLITE_OMIT_LOAD_EXTENSION`**: a `LOADEXTENSION/true` provider would `DllImport` a missing export. The `false` variant returns `SQLITE_ERROR` from `sqlite3_load_extension` without P/Invoking.
+
+> **Correction (Wave 3).** An earlier draft of this paragraph claimed the `false` variant also spares `sqlite3_enable_load_extension`, and that `SqliteConnection.Deactivate()` calls it on every pooled connection return while ignoring the result. All of that is false, and each part was checked rather than assumed:
+> - The vendored template leaves `ISQLite3Provider.sqlite3_enable_load_extension` as a live call into `NativeMethods` (template line 596; generated file lines 600-602, with the `DllImport` at line 1637).
+> - `dumpbin /exports` on the Task 3.3 `win-x64` build reports `sqlite3_enable_load_extension` **absent**, alongside `sqlite3_load_extension`.
+> - In `dotnet/efcore` `release/10.0`, `Deactivate()` wraps the call in `if (_extensionsEnabled)`, and both it and `EnableExtensions()` feed the result to `SqliteException.ThrowExceptionForRC`.
+>
+> The defect is therefore real but narrow: it needs an app to call `EnableExtensions(true)` or `LoadExtension`, and it presents as `EntryPointNotFoundException` instead of a clean `SqliteException`. Left as-is through Wave 3 — no code path in Waves 1-3 reaches it. Task 7.1 owns the call: either stub the body in `ProviderRenderer` (one extra `.Replace`, turning it into `SQLITE_ERROR` → `SqliteException`) or reject the opt-in earlier with a typed `EdgeConfigurationException`. Dropping `SQLITE_OMIT_LOAD_EXTENSION` is **not** an acceptable remedy: it would fail the Task 3.3 Step 6 export assertion and widen the attack surface.
 
 ```powershell
 pwsh -NoProfile -Command "$dst='C:\Users\steve\projects\qavren-edge\foundation\src\Qavren.Edge.Sqlite.Provider\Template'; New-Item -ItemType Directory -Force -Path $dst | Out-Null; Invoke-WebRequest -UseBasicParsing -Uri 'https://raw.githubusercontent.com/ericsink/SQLitePCL.raw/v3.0.5/src/SQLitePCLRaw.provider.internal/Generated/provider_internal_funcptrs.cs' -OutFile (Join-Path $dst 'provider_internal_funcptrs.cs.template'); (Get-Item (Join-Path $dst 'provider_internal_funcptrs.cs.template')).Length"
@@ -2716,6 +2728,14 @@ pwsh -NoProfile -Command "$p='C:\Users\steve\projects\qavren-edge\foundation\src
 ```
 
 Expected: `OK: generated provider substituted correctly`.
+
+Then assert the interop shape is upstream's classic `DllImport` and not `LibraryImport` (see spec adjustment 1):
+
+```powershell
+pwsh -NoProfile -Command "$p='C:\Users\steve\projects\qavren-edge\foundation\src\Qavren.Edge.Sqlite.Provider\Generated\SQLite3Provider_qedge.g.cs'; $t=Get-Content $p -Raw; if ($t -match 'LibraryImport') { Write-Error 'LibraryImport present; the provider must use classic DllImport' } elseif ($t -notmatch 'ExactSpelling\s*=\s*true') { Write-Error 'ExactSpelling not found' } else { Write-Host ('OK: classic DllImport, ' + ([regex]::Matches($t, 'ExactSpelling\s*=\s*true')).Count + ' ExactSpelling sites') }"
+```
+
+Expected: `OK: classic DllImport, 152 ExactSpelling sites`. The whitespace-tolerant `ExactSpelling\s*=\s*true` is load-bearing: upstream SQLitePCL.raw v3.0.5 emits `ExactSpelling=true` **unspaced**, so a pattern hard-coding `ExactSpelling = true` reports a false failure against a byte-faithful vendoring. Do not reformat the vendored file to satisfy a regex.
 
 ---
 

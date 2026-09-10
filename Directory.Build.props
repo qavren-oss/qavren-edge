@@ -21,6 +21,15 @@
     <NativeArtifactsDir>$(MSBuildThisFileDirectory)foundation\native\artifacts\</NativeArtifactsDir>
   </PropertyGroup>
 
+  <!-- global.json selects the Microsoft.Testing.Platform runner, but `dotnet test` only hands a
+       project to that runner when this property is set. Without it `dotnet test` restores, runs
+       nothing, and still exits 0 - a false green. Verified on SDK 10.0.401: off => "0 tests",
+       exit 0; on => "Passed! - Failed: 0, Passed: 10". Set repo-wide so the Wave 9 CI test lane
+       cannot inherit the silent variant. -->
+  <PropertyGroup>
+    <TestingPlatformDotnetTestSupport>true</TestingPlatformDotnetTestSupport>
+  </PropertyGroup>
+
   <!-- CI only: normalizes stored source paths. Must stay off locally or the debugger loses sources. -->
   <PropertyGroup Condition="'$(GITHUB_ACTIONS)' == 'true'">
     <ContinuousIntegrationBuild>true</ContinuousIntegrationBuild>

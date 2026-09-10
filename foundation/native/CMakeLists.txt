@@ -43,10 +43,15 @@ set(QEDGE_COMMON_DEFS
     QEDGE_VEC_VERSION="v${QEDGE_VEC_VERSION}"
     QEDGE_BUILD_SHA="${QEDGE_BUILD_SHA}")
 
-if(CMAKE_SYSTEM_PROCESSOR MATCHES "arm64|aarch64|ARM64")
-  list(APPEND QEDGE_COMMON_DEFS SQLITE_VEC_ENABLE_NEON)
-elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64|x64")
-  list(APPEND QEDGE_COMMON_DEFS SQLITE_VEC_ENABLE_AVX)
+# sqlite-vec's SIMD kernels define PORTABLE_ALIGN32/64 as __attribute__((aligned(N))), which
+# cl.exe rejects (C2143/C2065/C2168 at sqlite-vec.c:133+). Enable them on GCC/Clang toolchains
+# only; MSVC builds use sqlite-vec's portable scalar paths.
+if(NOT MSVC)
+  if(CMAKE_SYSTEM_PROCESSOR MATCHES "arm64|aarch64|ARM64")
+    list(APPEND QEDGE_COMMON_DEFS SQLITE_VEC_ENABLE_NEON)
+  elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64|x64")
+    list(APPEND QEDGE_COMMON_DEFS SQLITE_VEC_ENABLE_AVX)
+  endif()
 endif()
 
 set(QEDGE_VEC_DIR "${DEPS}/sqlite-vec")

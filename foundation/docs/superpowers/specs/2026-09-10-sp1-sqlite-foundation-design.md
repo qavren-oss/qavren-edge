@@ -1,7 +1,9 @@
 # Qavren.Edge — Sub-project 1: SQLite foundation + hosting core
 
 Date: 2026-09-10
-Status: approved design, awaiting implementation plan
+Status: approved; implementation in progress on `feat/sp1-foundation`. Where the plan's
+"Spec adjustments" section (`foundation/docs/superpowers/plans/2026-09-10-sp1-foundation-plan.md`)
+contradicts this document, the plan wins: it folded in verified upstream facts.
 Owner: Steve Ackley (Qavren Solutions LLC)
 
 ## 1. Summary
@@ -82,7 +84,7 @@ Non-goals for sub-project 1:
 | `Qavren.Edge.Core` | net10.0 | `Microsoft.Extensions.DependencyInjection.Abstractions`, `Options`, `Logging.Abstractions`, `Hosting.Abstractions` | `AddQavrenEdge()` → `EdgeBuilder`; `IEdgeHost`, `IEdgeLifecycle`, `IEdgeStartupTask`, `IEdgePaths`, `IEdgeDiagnostics`, exception types |
 | `Qavren.Edge.Maui` | android, ios, maccatalyst, windows | Core, `Microsoft.Maui.Controls` | `MauiAppBuilder.UseQavrenEdge()`; maps platform lifecycle and memory warnings into `IEdgeLifecycle`; `IEdgePaths` over `FileSystem` |
 | `Qavren.Edge.Sqlite` | net10.0 | Core, `Microsoft.Data.Sqlite.Core` | `AddSqlite()`, `IEdgeDatabase`, migrations, `VecTable`/`VecBlob`/`Knn`, `FtsTable`, `ISqliteNativeProvider` contract, minimal connection extensions |
-| `Qavren.Edge.Sqlite.Provider` | net10.0, ios, maccatalyst | `SQLitePCLRaw.core` | Generated `SQLite3Provider_qedge : ISQLite3Provider`. `DllImport("__Internal")` on ios/maccatalyst, `DllImport("qedge_sqlite3")` on net10.0 (android, windows, linux, osx share the net10.0 build). |
+| `Qavren.Edge.Sqlite.Provider` | net10.0, ios | `SQLitePCLRaw.core` | Generated `SQLite3Provider_qedge : ISQLite3Provider`. `DllImport("__Internal")` on ios (static xcframework), `DllImport("qedge_sqlite3")` on net10.0 (android, maccatalyst, windows, linux, osx share the net10.0 build; Mac Catalyst loads a dylib from `runtimes/`, matching upstream SQLitePCLRaw). |
 | `Qavren.Edge.Sqlite.Native` | net10.0 + all platform TFMs | Sqlite, Provider | Native libs per RID, `UseSqliteNative()` |
 | `Qavren.Edge.Sqlite.Native.Cipher` | same | Sqlite, Provider | SQLCipher + libtomcrypt libs per RID, `UseSqliteNativeCipher()`; installs a `DllImportResolver` mapping `qedge_sqlite3` → `qedge_sqlcipher` |
 | `Qavren.Edge` | meta | Core, Sqlite, Sqlite.Native | One-line install for the common case |
@@ -353,11 +355,11 @@ item (see §16).
 
 - `tools/ProviderGen` reads `provider.manifest.json` (the sqlite3 entry points
   `ISQLite3Provider` requires, with signatures) and emits
-  `SQLite3Provider_qedge.g.cs` using `LibraryImport` with
-  `[assembly: DisableRuntimeMarshalling]`. Generated code is committed; CI
+  `SQLite3Provider_qedge.g.cs` using plain `DllImport` (`ExactSpelling`, `Cdecl`), matching upstream; `LibraryImport` +
+  `DisableRuntimeMarshalling` is ruled out (plan adjustment 1). Generated code is committed; CI
   regenerates and fails on diff.
-- Library name per TFM: `__Internal` for ios and maccatalyst (static
-  xcframework), `qedge_sqlite3` otherwise.
+- Library name per TFM: `__Internal` for ios (static xcframework), `qedge_sqlite3`
+  otherwise, Mac Catalyst included (plan adjustment 2).
 - `ISqliteNativeProvider` (defined in `Qavren.Edge.Sqlite`):
   `Name`, `LibraryName`, `SupportsEncryption`, `void Install()`,
   `SqliteNativeInfo Describe()`.
@@ -402,7 +404,7 @@ SQLCipher's recommended defaults; no OpenSSL on any platform.
 
 | Platform | Artifact | Packaging |
 |---|---|---|
-| iOS device + simulator, Mac Catalyst, macOS | `qedge_sqlite3.xcframework` (static, arm64 device; arm64 + x86_64 simulator/catalyst/macos) | `buildTransitive/*.targets` adds `<NativeReference Kind="Static" ForceLoad="true" SmartLink="false">` for ios/maccatalyst; macOS desktop (`osx-arm64`, `osx-x64`) additionally ships `libqedge_sqlite3.dylib` under `runtimes/` for net10.0 test runs |
+| iOS device + simulator | `qedge_sqlite3.xcframework` (static, arm64 device; arm64 + x86_64 simulator) | `buildTransitive/*.targets` adds `<NativeReference Kind="Static" ForceLoad="true" SmartLink="false">` for ios only; Mac Catalyst ships `runtimes/maccatalyst-{arm64,x64}/native/libqedge_sqlite3.dylib` and macOS desktop ships `runtimes/osx-{arm64,x64}/native/libqedge_sqlite3.dylib` (both consumed by the named `DllImport`) |
 | Android | `libqedge_sqlite3.so` for arm64-v8a, x86_64, armeabi-v7a; linked with `-Wl,-z,max-page-size=16384` | `runtimes/android-<abi>/native/` (picked up by .NET for Android) |
 | Windows | `qedge_sqlite3.dll` x64, arm64 (MSVC, `/guard:cf`) | `runtimes/win-<arch>/native/` |
 | Linux | `libqedge_sqlite3.so` x64, arm64 | `runtimes/linux-<arch>/native/` (CI + desktop) |

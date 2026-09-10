@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFrameworks>net10.0;net10.0-ios</TargetFrameworks>
+    <IsPackable>true</IsPackable>
+    <PackageId>Qavren.Edge.Sqlite.Provider</PackageId>
+    <Description>Generated SQLitePCLRaw ISQLite3Provider for the Qavren.Edge native SQLite build.</Description>
+    <RootNamespace>Qavren.Edge.Sqlite.Provider</RootNamespace>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <!-- The generated file is upstream's shape; do not hold it to this repo's style rules. -->
+    <NoWarn>$(NoWarn);CA1401;CA2101;SYSLIB1054;IDE0005;IDE1006;CS8500</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="SQLitePCLRaw.core" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- Vendored template is packaging input only, never compiled. -->
+    <None Include="Template\**\*" Pack="false" />
+    <Compile Remove="Template\**\*" />
+  </ItemGroup>
+</Project>
