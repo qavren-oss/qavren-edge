@@ -525,7 +525,7 @@ not at runtime).
 Bootstrap:
 
 1. GitHub org `qavren-oss` exists (created 2026-09-10 via browser; `qavren` is a squatted user). Repo `qavren-oss/qavren-edge` created and pushed the same day.
-2. Request `Qavren.` NuGet ID prefix reservation (manual form).
+2. `Qavren.` NuGet ID prefix reservation requested 2026-09-10 by email to account@nuget.org for the existing nuget.org organization `Qavren` (admin `stevenfackley`; it already publishes `Qavren.Auth`). Awaiting reply; not blocking implementation, needed before the first publish.
 3. Governance files (dependabot, branch protection JSON, editorconfig,
    CODEOWNERS) come from `repo-template-dotnet10-aot`. `new-repo.ps1` accepts
    `-Owner qavren -Author 'Qavren Solutions LLC' -Deploy none`, but it renders a
