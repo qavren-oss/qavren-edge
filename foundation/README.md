@@ -19,6 +19,14 @@ Dependency direction is strictly downward: Native to Sqlite to Core, and Native
 to Provider. Core never references MAUI or SQLite. Referencing both Native
 packages in one app is a configuration error caught at startup.
 
+## MAUI hosted-service limitation
+
+`UseQavrenEdge()` calls `Services.RemoveAll<IHostedService>()` — the generic-host
+`EdgeHostedService` would block MAUI's launch path, so the platform lifecycle bridge
+calls `IEdgeHost.Start()` instead. A MAUI app that registers its own `IHostedService`
+implementations must skip `UseQavrenEdge()`, call `Services.AddQavrenEdge(...)`
+directly, and wire the lifecycle bridge itself.
+
 ## Building the native library locally (Windows x64 only)
 
 ```powershell
