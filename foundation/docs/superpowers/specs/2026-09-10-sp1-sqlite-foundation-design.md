@@ -62,8 +62,8 @@ Goals:
   Dapper all work unchanged on top of the provider.
 - Every runtime fact is inspectable: which native library loaded, from where,
   which SQLite/vec/SQLCipher versions, which lifecycle events fired.
-- Failures are detected at app launch and reported with a remediation, never
-  discovered as a cryptic `DllNotFoundException` on first query.
+- Failures are detected and logged at app launch with a remediation; any later
+  use rethrows that same fault instead of a cryptic `DllNotFoundException`.
 
 Non-goals for sub-project 1:
 
@@ -144,7 +144,7 @@ versions and the build SHA, queryable through `qedge_version()`.
 ```csharp
 services.AddQavrenEdge(edge => edge
     .AddSqlite(o => o.DatabaseName = "notes.db")
-    .AddMigrations<NotesMigrations>()
+    .AddMigration<M001_CreateNotes>()
     .UseSqliteNative());
 ```
 
@@ -174,9 +174,10 @@ Generic host: `AddQavrenEdge` also registers an `IHostedService` that calls
 `Start()` then awaits `Started`. MAUI: the bridge calls `Start()` from the
 earliest platform launch event (see §7) and does not block it.
 
-`EdgeOptions.StartupFailureMode`: `Throw` (default; `Started` faults and every
-`EnsureStartedAsync` rethrows) or `Capture` (same, but the bridge also stores
-the fault in diagnostics for apps that want to render a repair screen).
+A startup fault is logged once, recorded in diagnostics, faults `Started`, and
+is rethrown by every subsequent `EnsureStartedAsync`. Apps that want a repair
+screen instead of a crash await `Started` in a try/catch; there is no separate
+failure mode option.
 
 ### 6.3 Lifecycle
 
@@ -290,10 +291,9 @@ Startup task (order 10): open once, verify key, capture info for diagnostics.
 ### 8.3 Migrations
 
 `IEdgeMigration { int Version; string Name; Task UpAsync(SqliteConnection, CancellationToken); }`.
-`edge.AddMigrations<TAssemblyMarker>()` scans the marker's assembly by
-registering concrete types found through a source-generated list (no runtime
-reflection; AOT-safe) — or `edge.AddMigration<T>()` one at a time. Versions
-must be unique and ascending. The migrator (startup task, order 100) reads
+Registration is explicit and AOT-safe: `edge.AddMigration<T>()` per migration,
+or `edge.AddMigrations(IEnumerable<IEdgeMigration>)` for a hand-built list.
+No assembly scanning. Versions must be unique and ascending. The migrator (startup task, order 100) reads
 `PRAGMA user_version`, runs each pending migration in its own transaction, and
 sets `user_version` after each. A failure stops the run and raises
 `EdgeMigrationException`; already-applied migrations stay applied.
