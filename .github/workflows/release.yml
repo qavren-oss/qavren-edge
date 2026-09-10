@@ -1,10 +1,85 @@
 name: release
+
 on:
+  push:
+    tags: ['v*']
   workflow_dispatch:
+
 permissions:
-  contents: read
+  contents: write
+
 jobs:
-  placeholder:
-    runs-on: ubuntu-24.04
+  # Rebuild the natives from the tagged commit rather than trusting a stale artifact, so the
+  # binaries in the Release are provably the ones the packages were built from. No `force`
+  # input exists any more (adjustment 34) and none is needed: a tag push is not a
+  # `pull_request`, so native.yml's `build` matrix always runs here. The artifact cache still
+  # short-circuits the compile when the tagged native tree is byte-identical to what `main`
+  # already built, which is the normal case for a release cut from a green main.
+  natives:
+    uses: ./.github/workflows/native.yml
+
+  release:
+    needs: natives
+    runs-on: windows-2025
     steps:
-      - run: echo "release.yml is a stub - replaced in Task 6.2"
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0        # MinVer derives the version from tags
+          filter: tree:0
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: native-*
+          merge-multiple: true
+          path: foundation/native/artifacts
+
+      - name: Pack
+        run: dotnet pack QavrenEdge.slnx -c Release -o artifacts/packages
+
+      # One zip per build host keeps the release page readable.
+      - name: Zip the native artifacts
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path artifacts/native | Out-Null
+          Compress-Archive -Path foundation/native/artifacts/win-* -DestinationPath artifacts/native/qedge-native-windows.zip
+          Compress-Archive -Path foundation/native/artifacts/linux-*, foundation/native/artifacts/android-* -DestinationPath artifacts/native/qedge-native-linux-android.zip
+          Compress-Archive -Path foundation/native/artifacts/apple, foundation/native/artifacts/osx-*, foundation/native/artifacts/maccatalyst-* -DestinationPath artifacts/native/qedge-native-apple.zip
+          Get-ChildItem artifacts/native
+
+      # syft scans the whole artifacts/ tree, so one document covers both the packages and the
+      # native binaries.
+      - name: Generate SBOM
+        uses: anchore/sbom-action@v0
+        with:
+          path: artifacts
+          format: spdx-json
+          output-file: artifacts/sbom.spdx.json
+          upload-artifact: false
+          upload-release-assets: false
+
+      # Computed last, so it covers the packages, the native zips AND the SBOM.
+      - name: Checksums
+        shell: pwsh
+        run: |
+          $files = @(Get-ChildItem artifacts/packages/*.nupkg, artifacts/packages/*.snupkg, artifacts/native/*.zip, artifacts/sbom.spdx.json -ErrorAction SilentlyContinue)
+          if ($files.Count -lt 8) { throw "expected at least 8 release files, found $($files.Count)" }
+          $files | ForEach-Object { "{0}  {1}" -f (Get-FileHash $_ -Algorithm SHA256).Hash, $_.Name } |
+            Set-Content artifacts/SHA256SUMS.txt
+          Get-Content artifacts/SHA256SUMS.txt
+
+      - name: Push to NuGet.org
+        run: dotnet nuget push "artifacts/packages/*.nupkg" --source https://api.nuget.org/v3/index.json --api-key ${{ secrets.NUGET_API_KEY }} --skip-duplicate
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            artifacts/packages/*.nupkg
+            artifacts/packages/*.snupkg
+            artifacts/native/*.zip
+            artifacts/sbom.spdx.json
+            artifacts/SHA256SUMS.txt
+          generate_release_notes: true

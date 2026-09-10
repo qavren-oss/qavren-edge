@@ -22,3 +22,10 @@ artifacts/
 foundation/native/_deps/
 foundation/native/build/
 foundation/native/artifacts/
+
+# Python tooling droppings (trx2junit, ci-checks)
+__pycache__/
+*.pyc
+
+# trx2junit test fixture is a checked-in input, not a test result
+!foundation/tools/trx2junit/fixture.trx

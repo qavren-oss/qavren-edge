@@ -59,7 +59,7 @@ set(QEDGE_VEC_DIR "${DEPS}/sqlite-vec")
 # --- plain variant -----------------------------------------------------------------------
 if(NOT QEDGE_CIPHER)
   set(SQLITE_DIR "${DEPS}/${QEDGE_SQLITE_DIR}")
-  add_library(qedge_sqlite3 SHARED
+  add_library(qedge_sqlite3
       "${SQLITE_DIR}/sqlite3.c"
       "${QEDGE_VEC_DIR}/sqlite-vec.c"
       "${CMAKE_CURRENT_SOURCE_DIR}/src/qedge_init.c")
@@ -94,7 +94,7 @@ if(QEDGE_CIPHER)
     message(FATAL_ERROR "ltc-sources.py failed (rc=${LTC_RC})")
   endif()
 
-  add_library(qedge_sqlcipher SHARED
+  add_library(qedge_sqlcipher
       "${SQLCIPHER_AMALGAMATION}"
       "${QEDGE_VEC_DIR}/sqlite-vec.c"
       "${CMAKE_CURRENT_SOURCE_DIR}/src/qedge_init.c"

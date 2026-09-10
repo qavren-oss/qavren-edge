@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<TestRun id="00000000-0000-0000-0000-000000000000" xmlns="http://microsoft.com/schemas/VisualStudio/TeamTest/2010">
+  <Results>
+    <UnitTestResult testName="Qavren.Edge.DeviceTests.NativeSmokeTests.NativeLibraryLoadsAndReportsVersions" outcome="Passed" duration="00:00:00.1230000" />
+    <UnitTestResult testName="Qavren.Edge.DeviceTests.NativeSmokeTests.Vec0AndFts5AreAvailableOnDevice" outcome="Failed" duration="00:00:02.5000000">
+      <Output>
+        <StdOut>opening device-tests.db</StdOut>
+        <ErrorInfo>
+          <Message>Assert.Equal() Failure</Message>
+          <StackTrace>   at Qavren.Edge.DeviceTests.NativeSmokeTests.Vec0AndFts5AreAvailableOnDevice()</StackTrace>
+        </ErrorInfo>
+      </Output>
+    </UnitTestResult>
+    <UnitTestResult testName="Qavren.Edge.DeviceTests.NativeSmokeTests.SkippedExample" outcome="NotExecuted" duration="00:00:00.0000000" />
+  </Results>
+</TestRun>

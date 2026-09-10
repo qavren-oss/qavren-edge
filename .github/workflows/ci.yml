@@ -1,10 +1,373 @@
 name: ci
+
 on:
+  push:
+    branches: [main]
+  pull_request:
   workflow_dispatch:
+
 permissions:
   contents: read
+
+env:
+  DOTNET_NOLOGO: 'true'
+  DOTNET_SKIP_FIRST_TIME_EXPERIENCE: 'true'
+
 jobs:
-  placeholder:
+  # Deliberately no `with:` block. native.yml has no bypass input at all, so a pull request
+  # that touched no `foundation/native/**` path takes native.yml's `reuse` job, which restores
+  # the cached artifacts on one ubuntu runner instead of rebuilding four variants on three
+  # operating systems (spec 10.4, adjustment 34).
+  natives:
+    uses: ./.github/workflows/native.yml
+
+  test:
+    needs: natives
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-2025, ubuntu-24.04, macos-15]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0        # MinVer needs history, or every package builds as 0.0.0-alpha.0
+          filter: tree:0
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: native-*
+          merge-multiple: true
+          path: foundation/native/artifacts
+
+      - name: Assert no SQLitePCLRaw bundle package is in the graph
+        shell: pwsh
+        run: |
+          dotnet restore QavrenEdge.slnx
+          $hits = Get-ChildItem -Recurse -Filter 'project.assets.json' |
+                  Select-String -Pattern 'SQLitePCLRaw\.bundle_' -SimpleMatch
+          if ($hits) { throw "A SQLitePCLRaw bundle package is in the graph; 2.x bundles conflict with core 3.x." }
+          Write-Host 'OK: no bundle packages'
+
+      - name: Provider drift check
+        run: >
+          dotnet run --project foundation/tools/ProviderGen/ProviderGen.csproj -c Release --
+          generate
+          --manifest foundation/tools/ProviderGen/provider.manifest.json
+          --template foundation/src/Qavren.Edge.Sqlite.Provider/Template/provider_internal_funcptrs.cs.template
+          --out foundation/src/Qavren.Edge.Sqlite.Provider/Generated/SQLite3Provider_qedge.g.cs
+          --check
+
+      - name: Manifest drift check
+        run: >
+          dotnet run --project foundation/tools/ProviderGen/ProviderGen.csproj -c Release --
+          manifest --out foundation/tools/ProviderGen/provider.manifest.json --check
+
+      - name: Format check
+        run: dotnet format QavrenEdge.slnx --verify-no-changes --no-restore
+
+      - name: Workflow contract check
+        if: matrix.os == 'ubuntu-24.04'
+        run: |
+          python3 -m pip install --quiet pyyaml
+          python3 foundation/tools/ci-checks/assert-workflows.py .
+
+      - name: Core tests
+        run: dotnet run --project foundation/tests/Qavren.Edge.Core.Tests/Qavren.Edge.Core.Tests.csproj -c Release -f net10.0
+
+      - name: Provider tests
+        run: dotnet run --project foundation/tests/Qavren.Edge.Provider.Tests/Qavren.Edge.Provider.Tests.csproj -c Release
+
+      - name: Sqlite tests
+        run: dotnet run --project foundation/tests/Qavren.Edge.Sqlite.Tests/Qavren.Edge.Sqlite.Tests.csproj -c Release -f net10.0
+
+      - name: Cipher tests
+        run: dotnet run --project foundation/tests/Qavren.Edge.Sqlite.Cipher.Tests/Qavren.Edge.Sqlite.Cipher.Tests.csproj -c Release
+
+      - name: Pack
+        if: matrix.os == 'windows-2025'
+        run: dotnet pack QavrenEdge.slnx -c Release -o artifacts/packages
+
+      - name: Assert every native RID reached the package
+        if: matrix.os == 'windows-2025'
+        shell: pwsh
+        run: |
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          $expected = @(
+            'win-x64','win-arm64','linux-x64','linux-arm64','osx-x64','osx-arm64',
+            'maccatalyst-x64','maccatalyst-arm64','android-arm64','android-x64','android-arm')
+          foreach ($pkg in 'Qavren.Edge.Sqlite.Native','Qavren.Edge.Sqlite.Native.Cipher') {
+            $lib = if ($pkg -like '*Cipher') { 'qedge_sqlcipher' } else { 'qedge_sqlite3' }
+            $nupkg = Get-ChildItem "artifacts/packages/$pkg.*.nupkg" | Select-Object -First 1
+            $zip = [IO.Compression.ZipFile]::OpenRead($nupkg.FullName)
+            $names = $zip.Entries.FullName
+            $zip.Dispose()
+            foreach ($rid in $expected) {
+              $hit = $names | Where-Object { $_ -like "runtimes/$rid/native/*$lib*" }
+              if (-not $hit) { throw "$pkg is missing runtimes/$rid/native/ ($lib)" }
+            }
+            if (-not ($names | Where-Object { $_ -like "xcframeworks/$lib.xcframework/*" })) {
+              throw "$pkg is missing the $lib xcframework"
+            }
+          }
+          Write-Host 'OK: every expected RID and the xcframework are packed'
+
+      - uses: actions/upload-artifact@v4
+        if: matrix.os == 'windows-2025'
+        with:
+          name: packages
+          path: artifacts/packages/*.nupkg
+
+  device-tests-android:
+    needs: natives
     runs-on: ubuntu-24.04
     steps:
-      - run: echo "ci.yml is a stub - replaced in Task 6.2"
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0, filter: 'tree:0' }
+      - uses: actions/setup-dotnet@v4
+        with: { global-json-file: global.json }
+      - uses: actions/setup-java@v4
+        with: { distribution: microsoft, java-version: '21' }
+      - uses: actions/download-artifact@v4
+        with: { pattern: native-*, merge-multiple: true, path: foundation/native/artifacts }
+
+      - run: dotnet workload install maui-android --version 10.0.201
+      - run: dotnet tool restore
+
+      - name: Install Android SDK packages
+        run: dotnet android sdk install --package 'platform-tools' --package 'emulator' --package 'system-images;android-36;google_apis;x86_64'
+
+      - name: Set AVD environment variables
+        run: |
+          mkdir -p "$HOME/.android/avd"
+          echo "ANDROID_AVD_HOME=$HOME/.android/avd" >> "$GITHUB_ENV"
+          echo "ANDROID_EMULATOR_HOME=$HOME/.android" >> "$GITHUB_ENV"
+          echo "ANDROID_EMULATOR_WAIT_TIME_BEFORE_KILL=1" >> "$GITHUB_ENV"
+
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Create and start emulator
+        run: |
+          dotnet android avd create --name QedgeEmulator --sdk 'system-images;android-36;google_apis;x86_64' --force
+          dotnet android avd start -p 5554 --name QedgeEmulator --no-window --gpu swiftshader_indirect \
+            --no-snapshot --no-audio --no-boot-anim --wait --no-animations --cpu-threshold 3 --response-threshold 5
+
+      - name: Run device tests
+        run: >
+          dotnet test foundation/tests/Qavren.Edge.DeviceTests/Qavren.Edge.DeviceTests.csproj
+          -f net10.0-android -c Release
+          -p:AndroidSdkDirectory=$ANDROID_SDK_ROOT
+          --logger "trx;LogFileName=android-device-tests.trx"
+
+      # Spec §13 requires JUnit. DeviceRunners writes TRX and has no JUnit writer, so the repo
+      # converts (adjustment 30). The converter is unit-tested locally in Step 3.
+      - name: Convert TRX to JUnit
+        if: always()
+        run: |
+          python3 foundation/tools/trx2junit/trx2junit.py \
+            --suite device-android \
+            --out artifacts/junit/device-android.xml \
+            $(find . -name 'android-device-tests.trx' -print)
+
+      - name: Publish JUnit results
+        if: always()
+        uses: dorny/test-reporter@v1
+        with:
+          name: device tests (android)
+          path: artifacts/junit/*.xml
+          reporter: java-junit
+          fail-on-error: false
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: device-tests-android
+          path: |
+            **/*.trx
+            artifacts/junit/*.xml
+
+      - if: always()
+        run: dotnet android avd delete --name QedgeEmulator --force || true
+
+  device-tests-ios:
+    needs: natives
+    # On GitHub Actions macos-15 is ARM64; the certified iOS-simulator lane is x64/Rosetta.
+    runs-on: macos-15-intel
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0, filter: 'tree:0' }
+      - uses: maxim-lobanov/setup-xcode@v1
+        with: { xcode-version: '26.2' }
+      - uses: actions/setup-dotnet@v4
+        with: { global-json-file: global.json }
+      - uses: actions/download-artifact@v4
+        with: { pattern: native-*, merge-multiple: true, path: foundation/native/artifacts }
+
+      - run: dotnet workload install maui --version 10.0.201
+      - run: dotnet tool restore
+
+      - name: Create and boot a simulator
+        run: |
+          NAME="Qedge-$GITHUB_RUN_ID-ios"
+          UDID=$(dotnet apple simulator create "$NAME" --device-type "iPhone 16" --format json | jq -r '.udid')
+          echo "SIMULATOR_UDID=$UDID" >> "$GITHUB_ENV"
+          echo "SIMULATOR_NAME=$NAME" >> "$GITHUB_ENV"
+          dotnet apple simulator boot "$UDID" --wait
+
+      - name: Run device tests
+        run: >
+          dotnet test foundation/tests/Qavren.Edge.DeviceTests/Qavren.Edge.DeviceTests.csproj
+          -f net10.0-ios -r iossimulator-x64 -c Release
+          -p:DeviceRunnersDevice=$SIMULATOR_UDID
+          --logger "trx;LogFileName=ios-device-tests.trx"
+
+      - name: Convert TRX to JUnit
+        if: always()
+        run: |
+          python3 foundation/tools/trx2junit/trx2junit.py \
+            --suite device-ios \
+            --out artifacts/junit/device-ios.xml \
+            $(find . -name 'ios-device-tests.trx' -print)
+
+      - name: Publish JUnit results
+        if: always()
+        uses: dorny/test-reporter@v1
+        with:
+          name: device tests (ios)
+          path: artifacts/junit/*.xml
+          reporter: java-junit
+          fail-on-error: false
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: device-tests-ios
+          path: |
+            **/*.trx
+            artifacts/junit/*.xml
+
+      - if: always()
+        run: dotnet apple simulator delete --force "$SIMULATOR_NAME" || true
+
+  # Spec §13: "Mac Catalyst and Windows run the same app on their hosts." §14's "device tests x2"
+  # is a stale count; §13 is the requirement (adjustment 29). Both lanes are cheap: neither boots
+  # a simulator or an emulator.
+  device-tests-maccatalyst:
+    needs: natives
+    runs-on: macos-15-intel
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0, filter: 'tree:0' }
+      - uses: maxim-lobanov/setup-xcode@v1
+        with: { xcode-version: '26.2' }
+      - uses: actions/setup-dotnet@v4
+        with: { global-json-file: global.json }
+      - uses: actions/download-artifact@v4
+        with: { pattern: native-*, merge-multiple: true, path: foundation/native/artifacts }
+
+      - run: dotnet workload install maui --version 10.0.201
+      - run: dotnet tool restore
+
+      - name: Run device tests
+        run: >
+          dotnet test foundation/tests/Qavren.Edge.DeviceTests/Qavren.Edge.DeviceTests.csproj
+          -f net10.0-maccatalyst -r maccatalyst-x64 -c Release
+          --logger "trx;LogFileName=maccatalyst-device-tests.trx"
+
+      - name: Convert TRX to JUnit
+        if: always()
+        run: |
+          python3 foundation/tools/trx2junit/trx2junit.py \
+            --suite device-maccatalyst \
+            --out artifacts/junit/device-maccatalyst.xml \
+            $(find . -name 'maccatalyst-device-tests.trx' -print)
+
+      - name: Publish JUnit results
+        if: always()
+        uses: dorny/test-reporter@v1
+        with:
+          name: device tests (maccatalyst)
+          path: artifacts/junit/*.xml
+          reporter: java-junit
+          fail-on-error: false
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: device-tests-maccatalyst
+          path: |
+            **/*.trx
+            artifacts/junit/*.xml
+
+  device-tests-windows:
+    needs: natives
+    runs-on: windows-2025
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0, filter: 'tree:0' }
+      - uses: actions/setup-dotnet@v4
+        with: { global-json-file: global.json }
+      - uses: actions/download-artifact@v4
+        with: { pattern: native-*, merge-multiple: true, path: foundation/native/artifacts }
+
+      - run: dotnet workload install maui --version 10.0.201
+      - run: dotnet tool restore
+
+      - name: Run device tests
+        run: >
+          dotnet test foundation/tests/Qavren.Edge.DeviceTests/Qavren.Edge.DeviceTests.csproj
+          -f net10.0-windows10.0.19041.0 -c Release
+          --logger "trx;LogFileName=windows-device-tests.trx"
+
+      - name: Convert TRX to JUnit
+        if: always()
+        shell: bash
+        run: |
+          python foundation/tools/trx2junit/trx2junit.py \
+            --suite device-windows \
+            --out artifacts/junit/device-windows.xml \
+            $(find . -name 'windows-device-tests.trx' -print)
+
+      - name: Publish JUnit results
+        if: always()
+        uses: dorny/test-reporter@v1
+        with:
+          name: device tests (windows)
+          path: artifacts/junit/*.xml
+          reporter: java-junit
+          fail-on-error: false
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: device-tests-windows
+          path: |
+            **/*.trx
+            artifacts/junit/*.xml
+
+  # The required status check for ci (adjustment 28). It always reports; it is red if any job
+  # it depends on failed or was cancelled, green if they all succeeded or were skipped.
+  ci-gate:
+    needs: [natives, test, device-tests-android, device-tests-ios, device-tests-maccatalyst, device-tests-windows]
+    if: always()
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Report
+        run: |
+          results="${{ join(needs.*.result, ' ') }}"
+          echo "job results: $results"
+          for r in $results; do
+            case "$r" in
+              success|skipped) ;;
+              *) echo "ci-gate: FAIL ($r)"; exit 1 ;;
+            esac
+          done
+          echo "ci-gate: pass"
