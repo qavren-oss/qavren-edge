@@ -12,6 +12,11 @@
     <!-- NU5127: native-only packages carry no lib/ assembly.
          CS1591: XML doc coverage is a 1.0 gate, not a Wave-2 gate. -->
     <NoWarn>$(NoWarn);NU5127;CS1591</NoWarn>
+    <!-- Unconditional on purpose. .editorconfig escalates IDE0005 to error, and Roslyn refuses
+         to honour that without a documentation file (error EnableGenerateDocumentationFile,
+         roslyn#41640) - which would break every non-packable project in the repo. CS1591 is
+         already suppressed above, so this costs nothing but the .xml file. -->
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <IsPackable>false</IsPackable>
     <NativeArtifactsDir>$(MSBuildThisFileDirectory)foundation\native\artifacts\</NativeArtifactsDir>
   </PropertyGroup>
@@ -21,24 +26,8 @@
     <ContinuousIntegrationBuild>true</ContinuousIntegrationBuild>
   </PropertyGroup>
 
-  <PropertyGroup Condition="'$(IsPackable)' == 'true'">
-    <IsAotCompatible Condition="$([MSBuild]::IsTargetFrameworkCompatible('$(TargetFramework)', 'net8.0'))">true</IsAotCompatible>
-    <GenerateDocumentationFile>true</GenerateDocumentationFile>
-    <EnablePackageValidation>true</EnablePackageValidation>
-    <PublishRepositoryUrl>true</PublishRepositoryUrl>
-    <EmbedUntrackedSources>true</EmbedUntrackedSources>
-    <IncludeSymbols>true</IncludeSymbols>
-    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
-    <Authors>Qavren Solutions LLC</Authors>
-    <Company>Qavren Solutions LLC</Company>
-    <Product>Qavren.Edge</Product>
-    <Copyright>Copyright (c) Qavren Solutions LLC</Copyright>
-    <PackageLicenseExpression>MIT</PackageLicenseExpression>
-    <PackageProjectUrl>https://github.com/qavren-oss/qavren-edge</PackageProjectUrl>
-    <RepositoryUrl>https://github.com/qavren-oss/qavren-edge</RepositoryUrl>
-    <RepositoryType>git</RepositoryType>
-    <PackageTags>sqlite;sqlite-vec;vector;maui;embedded</PackageTags>
-    <MinVerTagPrefix>v</MinVerTagPrefix>
-  </PropertyGroup>
+  <!-- The packable block lives in Directory.Build.targets: it is conditioned on $(IsPackable),
+       which each project sets in its own PropertyGroup - i.e. after props are imported and
+       before targets are. Keeping it here made the whole block dead. -->
 
 </Project>

@@ -1,0 +1,38 @@
+{
+  "$comment": "Upstream C source pins. Dependabot cannot see these; upstream-pins.yml opens a monthly issue listing newer tags.",
+  "sqlite": {
+    "version": "3.53.4",
+    "url": "https://sqlite.org/2026/sqlite-amalgamation-3530400.zip",
+    "archive": "sqlite-amalgamation-3530400.zip",
+    "extractedDir": "sqlite-amalgamation-3530400",
+    "hashAlgorithm": "sha3_256",
+    "hash": "628a44cfe82c66aed1ccbbe85a562d2e33ebe64b3288981ed76285612227934e"
+  },
+  "sqliteVec": {
+    "version": "0.1.9",
+    "tag": "v0.1.9",
+    "url": "https://github.com/asg017/sqlite-vec/releases/download/v0.1.9/sqlite-vec-0.1.9-amalgamation.tar.gz",
+    "archive": "sqlite-vec-0.1.9-amalgamation.tar.gz",
+    "extractedDir": "sqlite-vec",
+    "hashAlgorithm": "sha256",
+    "hash": "3acd67cb4aff080c7050926fd3cf8227905fe5b7ee3829d8ee5024ab1283cf61"
+  },
+  "sqlcipher": {
+    "version": "4.19.0",
+    "tag": "v4.19.0",
+    "url": "https://github.com/sqlcipher/sqlcipher/archive/refs/tags/v4.19.0.tar.gz",
+    "archive": "sqlcipher-4.19.0.tar.gz",
+    "extractedDir": "sqlcipher-4.19.0",
+    "hashAlgorithm": "sha256",
+    "hash": "7075f96cbabe45b4ecfc2e6b1745a625f856f695b0827a5506ce9ed85b906aa0"
+  },
+  "libtomcrypt": {
+    "version": "1.18.2",
+    "tag": "v1.18.2",
+    "url": "https://github.com/libtom/libtomcrypt/archive/refs/tags/v1.18.2.tar.gz",
+    "archive": "libtomcrypt-1.18.2.tar.gz",
+    "extractedDir": "libtomcrypt-1.18.2",
+    "hashAlgorithm": "sha256",
+    "hash": "d870fad1e31cb787c85161a8894abb9d7283c2a654a9d3d4c6d45a1eba59952c"
+  }
+}

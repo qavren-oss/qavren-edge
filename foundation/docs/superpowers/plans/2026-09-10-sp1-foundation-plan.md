@@ -41,7 +41,11 @@ Consequence for the whole plan: **no workflow runs during implementation.** Work
 
 ## Spec adjustments
 
-Verified research contradicted the spec in the places below. **The facts win.** Each adjustment names the task that implements it.
+Every place this plan departs from the approved spec is enumerated here — whether because
+verified research contradicted the spec (**the facts win**) or because the spec's own wording is
+unimplementable as written and the plan does the nearest correct thing. Each adjustment names the
+task that implements it. If a reader diffing the spec against the plan finds a difference that is
+**not** in this list, that is a bug in the plan, not a deliberate choice.
 
 1. **§9 — no `LibraryImport` + `DisableRuntimeMarshalling`.** `[DisableRuntimeMarshalling]` is assembly-scoped and bans all reference types and `in`/`ref`/`out` parameters in interop. `ISQLite3Provider` is built on `SafeHandle`-derived parameters (`sqlite3`, `sqlite3_stmt`, `sqlite3_blob`, `sqlite3_backup`, `sqlite3_snapshot`) plus `out IntPtr` and `out byte*`, so the attribute would force rewriting ~130 P/Invokes to raw pointers with hand-rolled `DangerousAddRef`. CA1420 is a default-on warning in .NET 10. Upstream SQLitePCLRaw uses zero `LibraryImport`; its issue #528 has been open and unimplemented since 2022. **The generated provider uses `[DllImport(SQLITE_DLL, ExactSpelling = true, CallingConvention = CallingConvention.Cdecl)]`, matching upstream exactly.** (Task 3.2)
 2. **§5.1 / §10.3 — three provider flavors, not two.** Upstream's `SQLitePCLRaw.config.e_sqlite3` nuspec routes `net10.0-ios` and `net10.0-tvos` to the `__Internal` provider but routes `net10.0-maccatalyst` to the ordinary named-DllImport provider. Mac Catalyst therefore ships `runtimes/maccatalyst-{arm64,x64}/native/libqedge_sqlite3.dylib` and uses `DllImport("qedge_sqlite3")`; only iOS device and simulator use the static xcframework with `__Internal`. (Tasks 3.2, 8.1)
@@ -81,6 +85,60 @@ Verified research contradicted the spec in the places below. **The facts win.** 
 32. **§10.3 Windows `arm64` is built, not dropped.** `build-windows.ps1` takes `-Arch x64|arm64` and selects `vcvars64.bat` or `vcvarsamd64_arm64.bat`; `native.yml` loops both architectures for both variants; the packages already glob `$(NativeArtifactsDir)**`, so `runtimes/win-arm64/native/` populates with no csproj change. Locally, `win-arm64` cross-compiles only when the ARM64 MSVC toolset is installed and can never be **run** here, so the smoke tests stay x64-only. (Tasks 3.3, 4.2, 6.2, 8.1.)
 33. **§14 release — SBOM and native artifacts are both attached.** `release.yml` downloads the `native-*` artifacts, zips them per platform, generates an SPDX 2.3 SBOM over `artifacts/` with `anchore/sbom-action@v0`, and attaches the nupkgs, snupkgs, the platform zips, `sbom.spdx.json` and `SHA256SUMS.txt` — with the checksum file computed **after** the zips and the SBOM exist, so it covers every file in the release. (Task 6.2.)
 
+34. **§10.4 — there is no `force` input on `native.yml`, and the *built* natives are cached.**
+    The spec is explicit: "Cache key = hash of `native/versions.json` + `native/**` + workflow
+    file; managed-only PRs download the cached natives instead of rebuilding." An earlier draft
+    of this plan cached only `native/_deps/download` (the fetched upstream tarballs) on a key of
+    `versions.json` alone, and then had `ci.yml` call `native.yml` with `force: true`, which
+    bypassed the path filter entirely — so a PR that changed only C# still rebuilt four variants
+    on `windows-2025`, `ubuntu-24.04` **and** `macos-15`. That is the behaviour the spec bullet
+    forbids. Corrected shape: (a) the `build` matrix caches `foundation/native/artifacts` under
+    `qedge-native-<os>-<hash>` where `<hash>` is `hashFiles()` over `versions.json`,
+    `CMakeLists.txt`, `src/**`, `cmake/**`, `scripts/**` and `.github/workflows/native.yml`, and
+    every fetch/compile step is gated on `cache-hit != 'true'`; (b) a pull request that touched no
+    native path skips the matrix entirely and takes a single `reuse` job on `ubuntu-24.04` that
+    restores all three OS caches and re-uploads them under the same three artifact names — zero
+    macOS minutes, zero compilation; (c) the `force` input is **deleted**, and `ci.yml` and
+    `release.yml` call `native.yml` with no `with:` block at all. A tag push is not a
+    `pull_request`, so `release.yml` still always builds. `assert-workflows.py` fails the build if
+    `force` reappears anywhere or if the cache key loses a component. (Task 6.2 Steps 5, 6, 7 and
+    the workflow contract check.)
+35. **§8.7 — `MemoryPressure(Critical)` calls `ClearAllPools()`, not `ClearPool(...)` per database.**
+    The spec says "`SqliteConnection.ClearPool(...)` **for each database**". `ClearPool(connection)`
+    resolves to `connection.PoolGroup.Clear()`, and pool groups are keyed on the **raw connection
+    string text**, so it clears exactly one connection string's group and needs a live
+    `SqliteConnection` instance to name it. The lifecycle observer has neither: it holds
+    `IEdgeDatabase` handles, not open connections, and opening a connection purely in order to
+    clear its own pool under memory pressure is self-defeating. `ClearAllPools()` is the same
+    operation with a superset scope, it is what the spec already asks for on `Stopping`, and every
+    pooled connection in the process belongs to this library anyway. (Task 7.1.)
+36. **§13 / §5.2 — hosting "the same test assemblies" forces the two test projects to
+    multi-target, and that makes `-f net10.0` mandatory on every host run.** The spec is
+    unambiguous that `Qavren.Edge.DeviceTests` "references the two test projects", and this plan
+    implements exactly that rather than substituting bespoke smoke tests — the device lane exists
+    to run the pragma, migration, KNN-vs-brute-force, connection-extension and lifecycle-observer
+    assertions against the real Android `.so` and the real iOS `__Internal` static library.
+    Consequences that are plan decisions, not spec text: `Qavren.Edge.Core.Tests` and
+    `Qavren.Edge.Sqlite.Tests` become `net10.0;net10.0-android;net10.0-ios;net10.0-maccatalyst;net10.0-windows10.0.19041.0`,
+    with `OutputType=Exe` + the `xunit.v3` metapackage **only** on `net10.0` and
+    `xunit.v3.extensibility.core` + `xunit.v3.assert` on the device TFMs (referencing `xunit.v3`
+    there would inject a `Main` and collide with the MAUI host — adjustment 11); `dotnet run`
+    refuses to pick a TFM, so every host-lane command in this plan and in `ci.yml` carries
+    `-f net10.0`. `Qavren.Edge.Sqlite.Cipher.Tests` is deliberately **not** hosted: it needs
+    `Qavren.Edge.Sqlite.Native.Cipher`, and referencing both native packages in one app is a
+    configuration error the startup pipeline rejects (spec §5.1). (Task 10.2.)
+37. **§13 — the "partial" migration case gets its own test.** The spec lists four migration
+    cases: "fresh, **partial**, failing mid-run, idempotent rerun". An earlier draft shipped only
+    three; "idempotent rerun" runs the *same* migration list twice and does not exercise the
+    partial-upgrade path (an existing file already at `user_version = N`, where only N+1.. may
+    run) — which is the path every real app takes on its second release.
+    `PartialUpgrade_SkipsAppliedMigrationsAndRunsOnlyThePendingOnes` seeds a database with
+    migration 1 and a row, then starts a second host with migrations 1, 2 and 3 registered and
+    asserts, via recording migrations, that exactly `[2, 3]` ran, that `user_version` is 3, and
+    that the seeded row survived. Migration 1 re-running would fail its own `CREATE TABLE`, so
+    the test also proves the skip rather than merely observing the end state. (Task 9.2 Step 4.)
+
+
 ---
 
 ## File structure
@@ -119,11 +177,11 @@ qavren-edge/
       Qavren.Edge.Maui/                 # T5.2
       Qavren.Edge/                      # T9.1 meta
     tests/
-      Qavren.Edge.Core.Tests/           # T2.1, T3.1, T4.1
-      Qavren.Edge.Sqlite.Tests/         # T5.1, T6.1, T9.2
-      Qavren.Edge.Sqlite.Cipher.Tests/  # T9.3
+      Qavren.Edge.Core.Tests/           # T2.1, T3.1, T4.1; csproj re-targeted by T10.2
+      Qavren.Edge.Sqlite.Tests/         # T5.1, T6.1, T9.2; csproj re-targeted by T10.2
+      Qavren.Edge.Sqlite.Cipher.Tests/  # T9.3 (host lane only - needs the Cipher native)
       Qavren.Edge.Provider.Tests/       # T5.3
-      Qavren.Edge.DeviceTests/          # T10.2 (MAUI host app)
+      Qavren.Edge.DeviceTests/          # T10.2 MAUI host app; hosts the two test libraries above
     samples/Qavren.Edge.Sample/         # T10.1
 ```
 
@@ -144,7 +202,7 @@ disjointness is checkable rather than asserted.
 | 7 | 7.1 database, migrations, startup tasks, lifecycle observer, `AddSqlite` | `src/…Sqlite` + `tests/…Sqlite.Tests` | Sqlite→Core | runs alone; it is the last edit to Sqlite |
 | 8 | 8.1 Native + Native.Cipher packages | `src/…Sqlite.Native`, `src/…Sqlite.Native.Cipher` | Native→Sqlite→Core (all frozen) | runs alone |
 | 9 | 9.1 meta package; 9.2 Sqlite integration tests; 9.3 cipher tests | `src/Qavren.Edge` / `tests/…Sqlite.Tests` / `tests/…Sqlite.Cipher.Tests` | each →Native(.Cipher)→Sqlite→Core, all frozen | three readers, zero writers of any shared project |
-| 10 | 10.1 sample app (incl. the Encryption page + cipher build configuration); 10.2 device test runner | `samples/Qavren.Edge.Sample` / `tests/…DeviceTests` | Maui + Sqlite + both Natives / Maui + Sqlite + Native + the two test libraries | everything they compile was frozen in wave 9 |
+| 10 | 10.1 sample app (incl. the Encryption page + cipher build configuration); 10.2 device test runner | `samples/Qavren.Edge.Sample` / `tests/…DeviceTests` **plus the two test-project csproj files** (`tests/…Core.Tests`, `tests/…Sqlite.Tests`), which 10.2 re-targets and 10.1 never touches | Maui + Sqlite + both Natives / Maui + Sqlite + Native + the two test libraries it re-targets and hosts | everything they compile was frozen in wave 9; 10.2 is the sole writer of the two test csprojs |
 | 11 | 11.1 full-solution verification | none (read-only gate) | the whole `.slnx` | runs alone; it is the gate that closes the plan |
 
 Each wave starts only after every verify command in the previous wave passes.
@@ -719,7 +777,7 @@ there is no NDK, clang, or macOS on the development box.
 ## Running tests
 
 ```powershell
-dotnet run --project C:\Users\steve\projects\qavren-edge\foundation\tests\Qavren.Edge.Core.Tests\Qavren.Edge.Core.Tests.csproj -c Release
+dotnet run --project C:\Users\steve\projects\qavren-edge\foundation\tests\Qavren.Edge.Core.Tests\Qavren.Edge.Core.Tests.csproj -c Release -f net10.0
 ```
 
 The Sqlite tests additionally need the native library from the step above; the
@@ -861,7 +919,6 @@ All paths are relative to `C:\Users\steve\projects\qavren-edge\`.
 `foundation\tests\Qavren.Edge.Core.Tests\ExceptionTests.cs`:
 
 ```csharp
-using Qavren.Edge;
 using Xunit;
 
 namespace Qavren.Edge.Core.Tests;
@@ -920,7 +977,6 @@ public class ExceptionTests
 `foundation\tests\Qavren.Edge.Core.Tests\PathsTests.cs`:
 
 ```csharp
-using Qavren.Edge;
 using Xunit;
 
 namespace Qavren.Edge.Core.Tests;
@@ -970,7 +1026,7 @@ public class PathsTests
 - [ ] **Step 2: Run to verify it fails**
 
 ```powershell
-dotnet build "C:\Users\steve\projects\qavren-edge\foundation\tests\Qavren.Edge.Core.Tests\Qavren.Edge.Core.Tests.csproj" -c Release
+dotnet build "C:\Users\steve\projects\qavren-edge\foundation\tests\Qavren.Edge.Core.Tests\Qavren.Edge.Core.Tests.csproj" -c Release -f net10.0
 ```
 
 Expected: FAIL — the `Qavren.Edge.Core` project does not exist yet (`MSB3202: The project file ... was not found`).
@@ -1407,7 +1463,7 @@ public interface IEdgeDiagnosticsContributor
 - [ ] **Step 14: Run the tests to verify they pass**
 
 ```powershell
-dotnet run --project "C:\Users\steve\projects\qavren-edge\foundation\tests\Qavren.Edge.Core.Tests\Qavren.Edge.Core.Tests.csproj" -c Release
+dotnet run --project "C:\Users\steve\projects\qavren-edge\foundation\tests\Qavren.Edge.Core.Tests\Qavren.Edge.Core.Tests.csproj" -c Release -f net10.0
 ```
 
 Expected: all 6 tests pass, process exit code 0.
@@ -1415,7 +1471,7 @@ Expected: all 6 tests pass, process exit code 0.
 - [ ] **Step 15: Verify**
 
 ```powershell
-dotnet run --project "C:\Users\steve\projects\qavren-edge\foundation\tests\Qavren.Edge.Core.Tests\Qavren.Edge.Core.Tests.csproj" -c Release
+dotnet run --project "C:\Users\steve\projects\qavren-edge\foundation\tests\Qavren.Edge.Core.Tests\Qavren.Edge.Core.Tests.csproj" -c Release -f net10.0
 ```
 
 Expected: `Passed! - Failed: 0, Passed: 6`, exit code 0.
@@ -1511,11 +1567,43 @@ namespace Qavren.Edge.ProviderGen;
 
 internal static class ManifestBuilder
 {
+    /// <summary>
+    /// Fully qualified CLR type name without assembly qualification. <see cref="Type.FullName"/>
+    /// renders a constructed generic's arguments assembly-qualified
+    /// ("System.ReadOnlySpan`1[[System.Byte, System.Private.CoreLib, Version=...]]"), which would bake
+    /// the running runtime's version into the manifest. This renders "System.ReadOnlySpan`1[System.Byte]".
+    /// </summary>
+    internal static string FormatType(Type t)
+    {
+        if (t.IsByRef)
+        {
+            return FormatType(t.GetElementType()!) + "&";
+        }
+
+        if (t.IsPointer)
+        {
+            return FormatType(t.GetElementType()!) + "*";
+        }
+
+        if (t.IsArray)
+        {
+            return FormatType(t.GetElementType()!) + "[" + new string(',', t.GetArrayRank() - 1) + "]";
+        }
+
+        if (t.IsConstructedGenericType)
+        {
+            var args = string.Join(",", t.GetGenericArguments().Select(FormatType));
+            return t.GetGenericTypeDefinition().FullName + "[" + args + "]";
+        }
+
+        return t.FullName ?? t.Name;
+    }
+
     /// <summary>"ReturnType Name(ParamType name, ...)" using fully qualified CLR type names.</summary>
     internal static string FormatMember(MethodInfo m)
     {
         var sb = new StringBuilder();
-        sb.Append(m.ReturnType.FullName).Append(' ').Append(m.Name).Append('(');
+        sb.Append(FormatType(m.ReturnType)).Append(' ').Append(m.Name).Append('(');
         var ps = m.GetParameters();
         for (var i = 0; i < ps.Length; i++)
         {
@@ -1524,7 +1612,7 @@ internal static class ManifestBuilder
                 sb.Append(", ");
             }
 
-            sb.Append(ps[i].ParameterType.FullName).Append(' ').Append(ps[i].Name);
+            sb.Append(FormatType(ps[i].ParameterType)).Append(' ').Append(ps[i].Name);
         }
 
         return sb.Append(')').ToString();
@@ -2297,7 +2385,6 @@ Expected: a cmake version banner followed by `OK: pinned sources verified and ex
 ```csharp
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
-using Qavren.Edge;
 using Qavren.Edge.Lifecycle;
 using Xunit;
 
@@ -2386,7 +2473,7 @@ public class LifecycleHubTests
 - [ ] **Step 2: Run to verify it fails**
 
 ```powershell
-dotnet build "C:\Users\steve\projects\qavren-edge\foundation\tests\Qavren.Edge.Core.Tests\Qavren.Edge.Core.Tests.csproj" -c Release
+dotnet build "C:\Users\steve\projects\qavren-edge\foundation\tests\Qavren.Edge.Core.Tests\Qavren.Edge.Core.Tests.csproj" -c Release -f net10.0
 ```
 
 Expected: FAIL with `CS0246: The type or namespace name 'EdgeLifecycleHub' could not be found`.
@@ -2507,7 +2594,7 @@ public sealed class EdgeLifecycleHub : IEdgeLifecycle
 - [ ] **Step 4: Run to verify it passes**
 
 ```powershell
-dotnet run --project "C:\Users\steve\projects\qavren-edge\foundation\tests\Qavren.Edge.Core.Tests\Qavren.Edge.Core.Tests.csproj" -c Release
+dotnet run --project "C:\Users\steve\projects\qavren-edge\foundation\tests\Qavren.Edge.Core.Tests\Qavren.Edge.Core.Tests.csproj" -c Release -f net10.0
 ```
 
 Expected: `Failed: 0`, exit code 0.
@@ -2515,7 +2602,7 @@ Expected: `Failed: 0`, exit code 0.
 - [ ] **Step 5: Verify**
 
 ```powershell
-dotnet run --project "C:\Users\steve\projects\qavren-edge\foundation\tests\Qavren.Edge.Core.Tests\Qavren.Edge.Core.Tests.csproj" -c Release
+dotnet run --project "C:\Users\steve\projects\qavren-edge\foundation\tests\Qavren.Edge.Core.Tests\Qavren.Edge.Core.Tests.csproj" -c Release -f net10.0
 ```
 
 Expected: 10 tests pass (6 from Task 2.1 plus 4 here), exit code 0.
@@ -2927,7 +3014,6 @@ Expected: `OK: exports match the compile configuration`.
 
 ```csharp
 using Microsoft.Extensions.DependencyInjection;
-using Qavren.Edge;
 using Qavren.Edge.Hosting;
 using Xunit;
 
@@ -3032,7 +3118,6 @@ public class HostTests
 
 ```csharp
 using Microsoft.Extensions.DependencyInjection;
-using Qavren.Edge;
 using Qavren.Edge.Diagnostics;
 using Qavren.Edge.Hosting;
 using Qavren.Edge.Lifecycle;
@@ -3101,7 +3186,7 @@ public class DiagnosticsTests
 - [ ] **Step 2: Run to verify it fails**
 
 ```powershell
-dotnet build "C:\Users\steve\projects\qavren-edge\foundation\tests\Qavren.Edge.Core.Tests\Qavren.Edge.Core.Tests.csproj" -c Release
+dotnet build "C:\Users\steve\projects\qavren-edge\foundation\tests\Qavren.Edge.Core.Tests\Qavren.Edge.Core.Tests.csproj" -c Release -f net10.0
 ```
 
 Expected: FAIL with `CS1061: 'IServiceCollection' does not contain a definition for 'AddQavrenEdge'`.
@@ -3461,7 +3546,7 @@ public static class EdgeServiceCollectionExtensions
 - [ ] **Step 7: Run to verify the tests pass**
 
 ```powershell
-dotnet run --project "C:\Users\steve\projects\qavren-edge\foundation\tests\Qavren.Edge.Core.Tests\Qavren.Edge.Core.Tests.csproj" -c Release
+dotnet run --project "C:\Users\steve\projects\qavren-edge\foundation\tests\Qavren.Edge.Core.Tests\Qavren.Edge.Core.Tests.csproj" -c Release -f net10.0
 ```
 
 Expected: 16 tests pass, exit code 0.
@@ -3469,7 +3554,7 @@ Expected: 16 tests pass, exit code 0.
 - [ ] **Step 8: Verify**
 
 ```powershell
-dotnet run --project "C:\Users\steve\projects\qavren-edge\foundation\tests\Qavren.Edge.Core.Tests\Qavren.Edge.Core.Tests.csproj" -c Release
+dotnet run --project "C:\Users\steve\projects\qavren-edge\foundation\tests\Qavren.Edge.Core.Tests\Qavren.Edge.Core.Tests.csproj" -c Release -f net10.0
 ```
 
 Expected: `Failed: 0`, exit code 0.
@@ -3744,7 +3829,7 @@ public class SqliteKeyTests
 - [ ] **Step 2: Run to verify it fails**
 
 ```powershell
-dotnet build "C:\Users\steve\projects\qavren-edge\foundation\tests\Qavren.Edge.Sqlite.Tests\Qavren.Edge.Sqlite.Tests.csproj" -c Release
+dotnet build "C:\Users\steve\projects\qavren-edge\foundation\tests\Qavren.Edge.Sqlite.Tests\Qavren.Edge.Sqlite.Tests.csproj" -c Release -f net10.0
 ```
 
 Expected: FAIL — `Qavren.Edge.Sqlite.csproj` does not exist.
@@ -3934,7 +4019,7 @@ public interface ISqliteNativeProvider
 - [ ] **Step 7: Run to verify the tests pass**
 
 ```powershell
-dotnet run --project "C:\Users\steve\projects\qavren-edge\foundation\tests\Qavren.Edge.Sqlite.Tests\Qavren.Edge.Sqlite.Tests.csproj" -c Release
+dotnet run --project "C:\Users\steve\projects\qavren-edge\foundation\tests\Qavren.Edge.Sqlite.Tests\Qavren.Edge.Sqlite.Tests.csproj" -c Release -f net10.0
 ```
 
 Expected: 8 tests pass (1 + 4 theory cases + 3), exit code 0.
@@ -3942,7 +4027,7 @@ Expected: 8 tests pass (1 + 4 theory cases + 3), exit code 0.
 - [ ] **Step 8: Verify**
 
 ```powershell
-dotnet run --project "C:\Users\steve\projects\qavren-edge\foundation\tests\Qavren.Edge.Sqlite.Tests\Qavren.Edge.Sqlite.Tests.csproj" -c Release
+dotnet run --project "C:\Users\steve\projects\qavren-edge\foundation\tests\Qavren.Edge.Sqlite.Tests\Qavren.Edge.Sqlite.Tests.csproj" -c Release -f net10.0
 ```
 
 Expected: `Failed: 0`, exit code 0.
@@ -4431,13 +4516,42 @@ file static class Extensions
 }
 ```
 
-Add the `Format` helper as a private static method inside `ProviderDriftTests`, identical to `ManifestBuilder.FormatMember`:
+Add the `Format` helpers as private static methods inside `ProviderDriftTests`. They must stay
+byte-identical to `ManifestBuilder.FormatType`/`FormatMember` (Task 2.2) - a plain `Type.FullName`
+renders a constructed generic's arguments assembly-qualified, so all six `ReadOnlySpan<byte>`
+members would mismatch the checked-in manifest:
 
 ```csharp
+    private static string FormatType(Type t)
+    {
+        if (t.IsByRef)
+        {
+            return FormatType(t.GetElementType()!) + "&";
+        }
+
+        if (t.IsPointer)
+        {
+            return FormatType(t.GetElementType()!) + "*";
+        }
+
+        if (t.IsArray)
+        {
+            return FormatType(t.GetElementType()!) + "[" + new string(',', t.GetArrayRank() - 1) + "]";
+        }
+
+        if (t.IsConstructedGenericType)
+        {
+            var args = string.Join(",", t.GetGenericArguments().Select(FormatType));
+            return t.GetGenericTypeDefinition().FullName + "[" + args + "]";
+        }
+
+        return t.FullName ?? t.Name;
+    }
+
     private static string Format(MethodInfo m)
     {
         var sb = new System.Text.StringBuilder();
-        sb.Append(m.ReturnType.FullName).Append(' ').Append(m.Name).Append('(');
+        sb.Append(FormatType(m.ReturnType)).Append(' ').Append(m.Name).Append('(');
         var ps = m.GetParameters();
         for (var i = 0; i < ps.Length; i++)
         {
@@ -4446,7 +4560,7 @@ Add the `Format` helper as a private static method inside `ProviderDriftTests`, 
                 sb.Append(", ");
             }
 
-            sb.Append(ps[i].ParameterType.FullName).Append(' ').Append(ps[i].Name);
+            sb.Append(FormatType(ps[i].ParameterType)).Append(' ').Append(ps[i].Name);
         }
 
         return sb.Append(')').ToString();
@@ -4656,7 +4770,7 @@ public class SqlBuilderTests
 - [ ] **Step 2: Run to verify it fails**
 
 ```powershell
-dotnet build "C:\Users\steve\projects\qavren-edge\foundation\tests\Qavren.Edge.Sqlite.Tests\Qavren.Edge.Sqlite.Tests.csproj" -c Release
+dotnet build "C:\Users\steve\projects\qavren-edge\foundation\tests\Qavren.Edge.Sqlite.Tests\Qavren.Edge.Sqlite.Tests.csproj" -c Release -f net10.0
 ```
 
 Expected: FAIL with `CS0246: The type or namespace name 'VecBlob' could not be found`.
@@ -5202,7 +5316,7 @@ public static class SqliteConnectionExtensions
 - [ ] **Step 9: Run to verify the tests pass**
 
 ```powershell
-dotnet run --project "C:\Users\steve\projects\qavren-edge\foundation\tests\Qavren.Edge.Sqlite.Tests\Qavren.Edge.Sqlite.Tests.csproj" -c Release
+dotnet run --project "C:\Users\steve\projects\qavren-edge\foundation\tests\Qavren.Edge.Sqlite.Tests\Qavren.Edge.Sqlite.Tests.csproj" -c Release -f net10.0
 ```
 
 Expected: 22 tests pass, exit code 0.
@@ -5210,7 +5324,7 @@ Expected: 22 tests pass, exit code 0.
 - [ ] **Step 10: Verify**
 
 ```powershell
-dotnet run --project "C:\Users\steve\projects\qavren-edge\foundation\tests\Qavren.Edge.Sqlite.Tests\Qavren.Edge.Sqlite.Tests.csproj" -c Release
+dotnet run --project "C:\Users\steve\projects\qavren-edge\foundation\tests\Qavren.Edge.Sqlite.Tests\Qavren.Edge.Sqlite.Tests.csproj" -c Release -f net10.0
 ```
 
 Expected: `Failed: 0`, exit code 0.
@@ -5621,7 +5735,7 @@ OK: 3 tests passed
 
 - [ ] **Step 5: Write `.github\workflows\native.yml`**
 
-Two structural points, both required by spec §14 and both explained in adjustment 28.
+Three structural points, all required by the spec and explained in adjustments 28 and 34.
 
 1. The pull-request path filter moves **off** `on.pull_request.paths` and **into** a `changes`
    job. A required status check that never reports blocks a PR forever, so `native.yml` must
@@ -5629,6 +5743,21 @@ Two structural points, both required by spec §14 and both explained in adjustme
    moved.
 2. Every architecture is built, including `win-arm64` (spec §10.3), for both the plain and the
    cipher variant. The Windows job loops the four combinations.
+3. **Spec §10.4: "Cache key = hash of `native/versions.json` + `native/**` + workflow file;
+   managed-only PRs download the cached natives instead of rebuilding."** That is implemented
+   twice over, and there is deliberately **no `force` input** — a `force` flag would let a caller
+   bypass the path filter and rebuild four variants on three runners for a PR that changed only
+   C#, which is the exact behaviour the spec forbids.
+   * The `build` matrix caches the **built** artifact tree (`foundation/native/artifacts`) under
+     `qedge-native-<name>-<hash>`, where `<hash>` is `hashFiles()` over `versions.json`,
+     `CMakeLists.txt`, `src/**`, `cmake/**`, `scripts/**` **and** `.github/workflows/native.yml`
+     — the spec's key, verbatim. On a hit, every fetch/compile step is skipped and the job only
+     re-uploads.
+   * On a pull request that touched **no** native path, the whole matrix is skipped and a single
+     `reuse` job on `ubuntu-24.04` restores all three caches and uploads them as the same three
+     artifact names. Zero macOS minutes, zero Windows minutes, zero compilation.
+   * The separate `_deps/download` cache stays: it is keyed on `versions.json` alone and saves
+     the upstream tarball downloads on a genuine rebuild. It is complementary, not a substitute.
 
 ```yaml
 name: native
@@ -5638,11 +5767,6 @@ on:
     branches: [main]
   pull_request:
   workflow_call:
-    inputs:
-      force:
-        description: Build regardless of which paths changed. ci.yml and release.yml pass true, because they need the artifacts.
-        type: boolean
-        default: true
   workflow_dispatch:
 
 permissions:
@@ -5668,11 +5792,12 @@ jobs:
 
   build:
     needs: changes
-    # A direct pull_request run of THIS workflow builds only when a native path moved; every
-    # other entry point (push to main, workflow_dispatch, or a workflow_call from ci.yml /
-    # release.yml, which need the artifacts) always builds. `inputs.force` is empty and
-    # therefore falsy on the non-workflow_call triggers.
-    if: ${{ inputs.force || github.event_name != 'pull_request' || needs.changes.outputs.native == 'true' }}
+    # Builds on every non-pull_request entry point (push to main, workflow_dispatch, and the
+    # workflow_call from release.yml on a tag push), and on a pull request ONLY when a native
+    # path moved. A pull request that changed no native file gets the `reuse` job instead.
+    # `github.event_name` inside a called workflow is the CALLER's event, which is exactly the
+    # discrimination wanted: ci.yml on a PR reuses, release.yml on a tag builds.
+    if: ${{ github.event_name != 'pull_request' || needs.changes.outputs.native == 'true' }}
     strategy:
       fail-fast: false
       matrix:
@@ -5684,26 +5809,36 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Spec 10.4: cache key = versions.json + native/** + this workflow file. A hit means the
+      # exact same native inputs have already been built on this OS, so skip straight to upload.
+      - name: Cache built natives
+        id: native-cache
+        uses: actions/cache@v4
+        with:
+          path: foundation/native/artifacts
+          key: qedge-native-${{ matrix.name }}-${{ hashFiles('foundation/native/versions.json', 'foundation/native/CMakeLists.txt', 'foundation/native/src/**', 'foundation/native/cmake/**', 'foundation/native/scripts/**', '.github/workflows/native.yml') }}
+
       - name: Cache fetched sources
+        if: steps.native-cache.outputs.cache-hit != 'true'
         uses: actions/cache@v4
         with:
           path: foundation/native/_deps/download
           key: qedge-deps-${{ hashFiles('foundation/native/versions.json') }}
 
       - name: Fetch and verify pinned sources (Windows)
-        if: matrix.name == 'windows'
+        if: steps.native-cache.outputs.cache-hit != 'true' && matrix.name == 'windows'
         shell: pwsh
         run: |
           $env:PATH = "C:\Program Files\Git\mingw64\bin;$env:PATH"
           ./foundation/native/scripts/fetch-sources.ps1 -IncludeCipher
 
       - name: Fetch and verify pinned sources (Unix)
-        if: matrix.name != 'windows'
+        if: steps.native-cache.outputs.cache-hit != 'true' && matrix.name != 'windows'
         shell: pwsh
         run: ./foundation/native/scripts/fetch-sources.ps1 -IncludeCipher
 
       - name: Build (Windows, x64 + arm64, plain + cipher)
-        if: matrix.name == 'windows'
+        if: steps.native-cache.outputs.cache-hit != 'true' && matrix.name == 'windows'
         shell: pwsh
         run: |
           $env:PATH = "C:\Program Files\Git\mingw64\bin;$env:PATH"
@@ -5722,13 +5857,13 @@ jobs:
           Write-Host 'OK: 4 Windows artifacts produced'
 
       - name: Install Linux cross toolchain
-        if: matrix.name == 'linux-android'
+        if: steps.native-cache.outputs.cache-hit != 'true' && matrix.name == 'linux-android'
         run: |
           sudo apt-get update
           sudo apt-get install -y ninja-build crossbuild-essential-arm64 tcl
 
       - name: Build Linux and Android
-        if: matrix.name == 'linux-android'
+        if: steps.native-cache.outputs.cache-hit != 'true' && matrix.name == 'linux-android'
         run: |
           chmod +x foundation/native/scripts/*.sh
           ./foundation/native/scripts/build-linux.sh linux-x64 OFF "${{ github.sha }}"
@@ -5741,13 +5876,13 @@ jobs:
           ./foundation/native/scripts/build-android.sh ON "${{ github.sha }}"
 
       - name: Select Xcode
-        if: matrix.name == 'apple'
+        if: steps.native-cache.outputs.cache-hit != 'true' && matrix.name == 'apple'
         uses: maxim-lobanov/setup-xcode@v1
         with:
           xcode-version: '26.2'
 
       - name: Build Apple slices
-        if: matrix.name == 'apple'
+        if: steps.native-cache.outputs.cache-hit != 'true' && matrix.name == 'apple'
         run: |
           brew install ninja
           chmod +x foundation/native/scripts/*.sh
@@ -5761,21 +5896,89 @@ jobs:
           retention-days: 30
           if-no-files-found: error
 
+  # Spec 10.4: "managed-only PRs download the cached natives instead of rebuilding."
+  # One ubuntu job restores all three OS caches (they were saved by the last build on `main`
+  # for this exact native tree) and re-publishes them under the SAME three artifact names, so
+  # every downstream ci.yml job is oblivious to which path produced them. No macOS runner, no
+  # Windows runner, no compiler.
+  reuse:
+    needs: changes
+    if: ${{ github.event_name == 'pull_request' && needs.changes.outputs.native != 'true' }}
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Restore cached Windows natives
+        id: c-windows
+        uses: actions/cache/restore@v4
+        with:
+          path: foundation/native/artifacts
+          key: qedge-native-windows-${{ hashFiles('foundation/native/versions.json', 'foundation/native/CMakeLists.txt', 'foundation/native/src/**', 'foundation/native/cmake/**', 'foundation/native/scripts/**', '.github/workflows/native.yml') }}
+      - uses: actions/upload-artifact@v4
+        if: steps.c-windows.outputs.cache-hit == 'true'
+        with: { name: native-windows, path: foundation/native/artifacts/**, retention-days: 30, if-no-files-found: error }
+      - name: Clear staging
+        run: rm -rf foundation/native/artifacts
+
+      - name: Restore cached Linux/Android natives
+        id: c-linux
+        uses: actions/cache/restore@v4
+        with:
+          path: foundation/native/artifacts
+          key: qedge-native-linux-android-${{ hashFiles('foundation/native/versions.json', 'foundation/native/CMakeLists.txt', 'foundation/native/src/**', 'foundation/native/cmake/**', 'foundation/native/scripts/**', '.github/workflows/native.yml') }}
+      - uses: actions/upload-artifact@v4
+        if: steps.c-linux.outputs.cache-hit == 'true'
+        with: { name: native-linux-android, path: foundation/native/artifacts/**, retention-days: 30, if-no-files-found: error }
+      - name: Clear staging
+        run: rm -rf foundation/native/artifacts
+
+      - name: Restore cached Apple natives
+        id: c-apple
+        uses: actions/cache/restore@v4
+        with:
+          path: foundation/native/artifacts
+          key: qedge-native-apple-${{ hashFiles('foundation/native/versions.json', 'foundation/native/CMakeLists.txt', 'foundation/native/src/**', 'foundation/native/cmake/**', 'foundation/native/scripts/**', '.github/workflows/native.yml') }}
+      - uses: actions/upload-artifact@v4
+        if: steps.c-apple.outputs.cache-hit == 'true'
+        with: { name: native-apple, path: foundation/native/artifacts/**, retention-days: 30, if-no-files-found: error }
+
+      # A cold cache means `main` has never built THIS native tree. Fail loudly with the fix
+      # rather than letting ci.yml die later on a missing artifact download.
+      - name: Require all three caches
+        run: |
+          echo "windows=${{ steps.c-windows.outputs.cache-hit }} linux=${{ steps.c-linux.outputs.cache-hit }} apple=${{ steps.c-apple.outputs.cache-hit }}"
+          if [ "${{ steps.c-windows.outputs.cache-hit }}" != "true" ]              || [ "${{ steps.c-linux.outputs.cache-hit }}" != "true" ]              || [ "${{ steps.c-apple.outputs.cache-hit }}" != "true" ]; then
+            echo "::error::No cached natives for this native tree. Run the 'native' workflow on main via workflow_dispatch once, then re-run this PR."
+            exit 1
+          fi
+          echo "reuse: all three native artifact sets restored from cache"
+
   # The required status check. It ALWAYS runs and always reports, so a managed-only PR is not
   # blocked waiting on a build that was correctly skipped, and a real native failure still
   # turns the check red. `always()` is required or a skipped `build` would skip this too.
+  # Exactly one of `build` and `reuse` runs; the other is `skipped`, which is a pass.
   native-gate:
-    needs: [changes, build]
+    needs: [changes, build, reuse]
     if: always()
     runs-on: ubuntu-24.04
     steps:
       - name: Report
         run: |
-          echo "changes=${{ needs.changes.outputs.native }} build=${{ needs.build.result }}"
+          echo "changes=${{ needs.changes.outputs.native }} build=${{ needs.build.result }} reuse=${{ needs.reuse.result }}"
+          fail=0
           case "${{ needs.build.result }}" in
-            success|skipped) echo "native-gate: pass" ;;
-            *) echo "native-gate: FAIL (build ${{ needs.build.result }})"; exit 1 ;;
+            success|skipped) ;;
+            *) echo "native-gate: FAIL (build ${{ needs.build.result }})"; fail=1 ;;
           esac
+          case "${{ needs.reuse.result }}" in
+            success|skipped) ;;
+            *) echo "native-gate: FAIL (reuse ${{ needs.reuse.result }})"; fail=1 ;;
+          esac
+          if [ "${{ needs.build.result }}" = "skipped" ] && [ "${{ needs.reuse.result }}" = "skipped" ]; then
+            echo "native-gate: FAIL (neither build nor reuse ran)"; fail=1
+          fi
+          [ "$fail" = "0" ] && echo "native-gate: pass"
+          exit $fail
 ```
 
 - [ ] **Step 6: Write `.github\workflows\ci.yml`**
@@ -5797,10 +6000,12 @@ env:
   DOTNET_SKIP_FIRST_TIME_EXPERIENCE: 'true'
 
 jobs:
+  # Deliberately no `with:` block. native.yml has no bypass input at all, so a pull request
+  # that touched no `foundation/native/**` path takes native.yml's `reuse` job, which restores
+  # the cached artifacts on one ubuntu runner instead of rebuilding four variants on three
+  # operating systems (spec 10.4, adjustment 34).
   natives:
     uses: ./.github/workflows/native.yml
-    with:
-      force: true
 
   test:
     needs: natives
@@ -5852,13 +6057,13 @@ jobs:
         run: dotnet format QavrenEdge.slnx --verify-no-changes --no-restore
 
       - name: Core tests
-        run: dotnet run --project foundation/tests/Qavren.Edge.Core.Tests/Qavren.Edge.Core.Tests.csproj -c Release
+        run: dotnet run --project foundation/tests/Qavren.Edge.Core.Tests/Qavren.Edge.Core.Tests.csproj -c Release -f net10.0
 
       - name: Provider tests
         run: dotnet run --project foundation/tests/Qavren.Edge.Provider.Tests/Qavren.Edge.Provider.Tests.csproj -c Release
 
       - name: Sqlite tests
-        run: dotnet run --project foundation/tests/Qavren.Edge.Sqlite.Tests/Qavren.Edge.Sqlite.Tests.csproj -c Release
+        run: dotnet run --project foundation/tests/Qavren.Edge.Sqlite.Tests/Qavren.Edge.Sqlite.Tests.csproj -c Release -f net10.0
 
       - name: Cipher tests
         run: dotnet run --project foundation/tests/Qavren.Edge.Sqlite.Cipher.Tests/Qavren.Edge.Sqlite.Cipher.Tests.csproj -c Release
@@ -6180,11 +6385,13 @@ permissions:
 
 jobs:
   # Rebuild the natives from the tagged commit rather than trusting a stale artifact, so the
-  # binaries in the Release are provably the ones the packages were built from.
+  # binaries in the Release are provably the ones the packages were built from. No `force`
+  # input exists any more (adjustment 34) and none is needed: a tag push is not a
+  # `pull_request`, so native.yml's `build` matrix always runs here. The artifact cache still
+  # short-circuits the compile when the tagged native tree is byte-identical to what `main`
+  # already built, which is the normal case for a release cut from a green main.
   natives:
     uses: ./.github/workflows/native.yml
-    with:
-      force: true
 
   release:
     needs: natives
@@ -6359,8 +6566,23 @@ if sorted(bp["required_status_checks"]["contexts"]) != ["ci-gate", "native-gate"
 nat_text = (w / "native.yml").read_text(encoding="utf-8")
 for token in ("-Arch $arch", "win-arm64"):
     if token not in nat_text: problems.append("native.yml does not build win-arm64 (" + token + ")")
+
+# Spec 10.4: the BUILT natives are cached on the spec's key, and a managed-only PR reuses them.
+if "reuse" not in nat["jobs"]: problems.append("native.yml missing the `reuse` job (spec 10.4 cached-native reuse)")
+if "needs.changes.outputs.native" not in str(nat["jobs"].get("build", {}).get("if", "")):
+    problems.append("native.yml build job is not gated on the changes filter")
+if "force" in nat_text: problems.append("native.yml still carries a `force` bypass; it defeats the spec 10.4 path filter")
+for token in ("path: foundation/native/artifacts", "qedge-native-${{ matrix.name }}-",
+              "foundation/native/CMakeLists.txt", "'.github/workflows/native.yml'"):
+    if token not in nat_text: problems.append("native.yml artifact cache key is incomplete (" + token + ")")
+if nat_text.count("actions/cache/restore@v4") != 3:
+    problems.append("native.yml reuse job must restore all three OS caches")
+for f in ("ci.yml", "release.yml"):
+    if "force: true" in (w / f).read_text(encoding="utf-8"):
+        problems.append(f + " passes force:true to native.yml, forcing a rebuild on managed-only PRs")
+
 win = ci["jobs"]["device-tests-windows"]["runs-on"]
-print("\n".join(problems) if problems else "OK: gates, 4 device lanes, JUnit, win-arm64, SBOM and native release assets all present (windows lane on %s)" % win)
+print("\n".join(problems) if problems else "OK: gates, 4 device lanes, JUnit, win-arm64, native artifact cache + reuse, SBOM and native release assets all present (windows lane on %s)" % win)
 sys.exit(1 if problems else 0)
 ```
 
@@ -6370,7 +6592,7 @@ Run it:
 python "C:\Users\steve\projects\qavren-edge\foundation\tools\ci-checks\assert-workflows.py" "C:\Users\steve\projects\qavren-edge"
 ```
 
-Expected: `OK: gates, 4 device lanes, JUnit, win-arm64, SBOM and native release assets all present (windows lane on windows-2025)`, exit code 0.
+Expected: `OK: gates, 4 device lanes, JUnit, win-arm64, native artifact cache + reuse, SBOM and native release assets all present (windows lane on windows-2025)`, exit code 0.
 
 Add the same assertion to `ci.yml`'s `test` job (Ubuntu leg only, so it runs once per PR), right
 after the format check:
@@ -6417,7 +6639,6 @@ Expected: three `PASS` lines and `OK: 3 tests passed`.
 
 ```csharp
 using Microsoft.Extensions.DependencyInjection;
-using Qavren.Edge;
 using Qavren.Edge.Hosting;
 using Qavren.Edge.Sqlite;
 using Xunit;
@@ -6509,7 +6730,7 @@ public class RegistrationTests
 - [ ] **Step 2: Run to verify it fails**
 
 ```powershell
-dotnet build "C:\Users\steve\projects\qavren-edge\foundation\tests\Qavren.Edge.Sqlite.Tests\Qavren.Edge.Sqlite.Tests.csproj" -c Release
+dotnet build "C:\Users\steve\projects\qavren-edge\foundation\tests\Qavren.Edge.Sqlite.Tests\Qavren.Edge.Sqlite.Tests.csproj" -c Release -f net10.0
 ```
 
 Expected: FAIL with `CS1061: 'EdgeBuilder' does not contain a definition for 'AddSqlite'`.
@@ -7039,7 +7260,7 @@ public sealed class SqliteLifecycleObserver(IEnumerable<IEdgeDatabase> databases
 }
 ```
 
-`ClearPool(connection)` clears only the pool group for one exact connection string, so `ClearAllPools()` is the correct call when the set of live connection strings is not enumerable here.
+This is **adjustment 35**, and it is a deliberate departure from spec §8.7's wording, not an oversight. `ClearPool(connection)` clears only the pool group for one exact connection string, so `ClearAllPools()` is the correct call when the set of live connection strings is not enumerable here.
 
 `Internal\SqliteDiagnosticsContributor.cs`:
 
@@ -7205,7 +7426,7 @@ public static class SqliteEdgeBuilderExtensions
 - [ ] **Step 9: Run to verify the tests pass**
 
 ```powershell
-dotnet run --project "C:\Users\steve\projects\qavren-edge\foundation\tests\Qavren.Edge.Sqlite.Tests\Qavren.Edge.Sqlite.Tests.csproj" -c Release
+dotnet run --project "C:\Users\steve\projects\qavren-edge\foundation\tests\Qavren.Edge.Sqlite.Tests\Qavren.Edge.Sqlite.Tests.csproj" -c Release -f net10.0
 ```
 
 Expected: 26 tests pass, exit code 0.
@@ -7213,7 +7434,7 @@ Expected: 26 tests pass, exit code 0.
 - [ ] **Step 10: Verify**
 
 ```powershell
-dotnet run --project "C:\Users\steve\projects\qavren-edge\foundation\tests\Qavren.Edge.Sqlite.Tests\Qavren.Edge.Sqlite.Tests.csproj" -c Release
+dotnet run --project "C:\Users\steve\projects\qavren-edge\foundation\tests\Qavren.Edge.Sqlite.Tests\Qavren.Edge.Sqlite.Tests.csproj" -c Release -f net10.0
 ```
 
 Expected: `Failed: 0`, exit code 0.
@@ -7848,7 +8069,6 @@ on the test project: setting one would flatten the whole `runtimes/` tree and br
 
 ```csharp
 using Microsoft.Extensions.DependencyInjection;
-using Qavren.Edge;
 using Qavren.Edge.Hosting;
 using Qavren.Edge.Sqlite;
 using Qavren.Edge.Sqlite.Native;
@@ -8135,6 +8355,76 @@ public class MigrationTests
                 .UseSqliteNative(), TestContext.Current.CancellationToken);
 
             Assert.Equal(1, (await host.Database.GetInfoAsync(TestContext.Current.CancellationToken)).UserVersion);
+        }
+    }
+
+    // Spec 13 lists FOUR migration cases: fresh, PARTIAL, failing mid-run, idempotent rerun.
+    // This is the partial one — the path every real app takes on its second release: the file
+    // already sits at user_version = 1, so migration 1 must be SKIPPED (proved by the fact that
+    // re-running it would throw "table notes already exists") and only 2 and 3 may run.
+    [Fact]
+    public async Task PartialUpgrade_SkipsAppliedMigrationsAndRunsOnlyThePendingOnes()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "qedge-tests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+
+        // Release 1 of the app: only migration 1 exists.
+        await using (var v1 = await EdgeTestHost.StartAsync(edge => edge
+            .AddSqlite(o => { o.DatabaseName = "m.db"; o.Directory = root; })
+            .AddMigration<CreateNotes>()
+            .UseSqliteNative(), TestContext.Current.CancellationToken))
+        {
+            Assert.Equal(1, (await v1.Database.GetInfoAsync(TestContext.Current.CancellationToken)).UserVersion);
+
+            await using var seed = await v1.Database.OpenConnectionAsync(TestContext.Current.CancellationToken);
+            await seed.ExecuteAsync(
+                "INSERT INTO notes(id, title) VALUES (1, 'kept')",
+                cancellationToken: TestContext.Current.CancellationToken);
+        }
+
+        Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+
+        // Release 2 of the same app, against the SAME file: migrations 1, 2 and 3 are all
+        // registered, but only 2 and 3 are pending.
+        var ran = new List<int>();
+        await using var v2 = await EdgeTestHost.StartAsync(edge => edge
+            .AddSqlite(o => { o.DatabaseName = "m.db"; o.Directory = root; })
+            .AddMigration<CreateNotes>()
+            .AddMigrations([new RecordingMigration(2, "add body", ran, "ALTER TABLE notes ADD COLUMN body TEXT"),
+                            new RecordingMigration(3, "add tags", ran, "ALTER TABLE notes ADD COLUMN tags TEXT")])
+            .UseSqliteNative(), TestContext.Current.CancellationToken);
+
+        // Exactly the pending set ran, in ascending order. Migration 1 never executed: had it
+        // run again, its CREATE TABLE would have failed and faulted startup.
+        Assert.Equal([2, 3], ran);
+        Assert.Equal(3, (await v2.Database.GetInfoAsync(TestContext.Current.CancellationToken)).UserVersion);
+
+        await using var connection = await v2.Database.OpenConnectionAsync(TestContext.Current.CancellationToken);
+
+        var columns = await connection.QueryAsync(
+            "PRAGMA table_info(notes)", r => r.GetString(1),
+            cancellationToken: TestContext.Current.CancellationToken);
+        Assert.Contains("body", columns);
+        Assert.Contains("tags", columns);
+
+        // The pre-existing row survived: a partial upgrade migrates, it does not recreate.
+        Assert.Equal("kept", await connection.ScalarAsync<string>(
+            "SELECT title FROM notes WHERE id = 1",
+            cancellationToken: TestContext.Current.CancellationToken));
+    }
+
+    /// <summary>A migration that records the fact that it ran, so the test can assert which
+    /// versions the migrator chose to execute rather than only the end state.</summary>
+    private sealed class RecordingMigration(int version, string name, List<int> ran, string sql) : IEdgeMigration
+    {
+        public int Version => version;
+
+        public string Name => name;
+
+        public async Task UpAsync(SqliteConnection connection, CancellationToken cancellationToken)
+        {
+            ran.Add(version);
+            await connection.ExecuteAsync(sql, cancellationToken: cancellationToken);
         }
     }
 
@@ -8583,7 +8873,7 @@ and on Windows they would fail outright if the pool had not been cleared.
 - [ ] **Step 8: Run the suite**
 
 ```powershell
-dotnet run --project "C:\Users\steve\projects\qavren-edge\foundation\tests\Qavren.Edge.Sqlite.Tests\Qavren.Edge.Sqlite.Tests.csproj" -c Release
+dotnet run --project "C:\Users\steve\projects\qavren-edge\foundation\tests\Qavren.Edge.Sqlite.Tests\Qavren.Edge.Sqlite.Tests.csproj" -c Release -f net10.0
 ```
 
 Expected: every test passes, exit code 0. If `NativeProvider_ReportsTheExpectedVersions` fails with `EdgeNativeException`, the `win-x64` artifact from Task 3.3 is missing — rerun `build-windows.ps1`.
@@ -8591,10 +8881,10 @@ Expected: every test passes, exit code 0. If `NativeProvider_ReportsTheExpectedV
 - [ ] **Step 9: Verify**
 
 ```powershell
-dotnet run --project "C:\Users\steve\projects\qavren-edge\foundation\tests\Qavren.Edge.Sqlite.Tests\Qavren.Edge.Sqlite.Tests.csproj" -c Release
+dotnet run --project "C:\Users\steve\projects\qavren-edge\foundation\tests\Qavren.Edge.Sqlite.Tests\Qavren.Edge.Sqlite.Tests.csproj" -c Release -f net10.0
 ```
 
-Expected: `Failed: 0`, exit code 0, with the six `Vec0_MatchesBruteForce` theory cases, the five `ConnectionExtensionsBindingTests` cases (one of them a two-case theory) and the six `SqliteLifecycleObserverTests` cases among the passes.
+Expected: `Failed: 0`, exit code 0, with the six `Vec0_MatchesBruteForce` theory cases, the five `ConnectionExtensionsBindingTests` cases (one of them a two-case theory), the six `SqliteLifecycleObserverTests` cases and all **four** `MigrationTests` cases — fresh, partial, failing mid-run and idempotent rerun, which is exactly spec §13's list — among the passes.
 
 ---
 
@@ -8636,7 +8926,6 @@ The cipher provider must live in its own test process: `raw.FreezeProvider()` is
 ```csharp
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.DependencyInjection;
-using Qavren.Edge;
 using Qavren.Edge.Hosting;
 using Qavren.Edge.Sqlite;
 using Qavren.Edge.Sqlite.Native;
@@ -9271,19 +9560,180 @@ Expected: `Build succeeded`, 0 errors.
 
 ---
 
-### Task 10.2: Device test runner app (DeviceRunners)
+### Task 10.2: Device test runner app hosting the two test assemblies
 
-**Local-verifiable:** the project **builds** locally for `net10.0-windows10.0.19041.0`. Actually **running** the device lanes is **CI-only** (iOS simulator on `macos-15-intel`, Android emulator on `ubuntu-24.04` with KVM).
+**Local-verifiable:** every project **builds** locally, for all four device TFMs and for the
+`net10.0` host lane. Actually **running** the device lanes is **CI-only** (Android emulator on
+`ubuntu-24.04` with KVM; iOS simulator and Mac Catalyst on `macos-15-intel`; Windows on
+`windows-2025`).
 
-The plan's original assumption — xunit v3 hosted on Microsoft.Testing.Platform inside a MAUI app — does not exist. MTP's xunit v3 entry point (`xunit.v3.runner.inproc.console`) injects a `Main` that conflicts with the MAUI app host, and Microsoft's own .NET 10 MAUI unit-testing page points at **mattleibow/DeviceRunners** instead. `Shiny.Xunit.Runners.Maui` is dead (2022, xunit 2.4.1, net6.0).
+Spec §13: "`Qavren.Edge.DeviceTests` is a MAUI app hosting **the same test assemblies**."
+Spec §5.2: "MAUI runner app; **references the two test projects**." That is the whole point of the
+device lane — the pragmas, migrations, KNN-vs-brute-force, connection-extension binding and
+lifecycle-observer assertions must be proved against the **real** `libqedge_sqlite3.so` /
+`__Internal` static library on a real Android and Apple runtime, not only against
+`qedge_sqlite3.dll` on this Windows box. A pair of bespoke smoke tests would not do that.
+
+So this task does two things: it turns `Qavren.Edge.Core.Tests` and `Qavren.Edge.Sqlite.Tests`
+into **multi-targeted** projects (an MTP test app on `net10.0`, a plain class library on the four
+device TFMs), and it builds the MAUI runner that hosts both of those assemblies plus one extra
+device-only smoke class.
+
+The plan's original assumption — xunit v3 hosted on Microsoft.Testing.Platform inside a MAUI app —
+does not exist (adjustment 11). MTP's xunit v3 entry point (`xunit.v3.runner.inproc.console`)
+injects a `Main` that collides with the MAUI app host, and Microsoft's own .NET 10 MAUI
+unit-testing page points at **mattleibow/DeviceRunners** instead. `Shiny.Xunit.Runners.Maui` is
+dead (2022, xunit 2.4.1, net6.0 TFMs). That constraint is exactly why the two test projects must
+split their package references per TFM rather than simply gaining four more TFMs.
 
 **Files:**
+- Modify: `foundation\tests\Qavren.Edge.Core.Tests\Qavren.Edge.Core.Tests.csproj` (replace wholesale)
+- Modify: `foundation\tests\Qavren.Edge.Sqlite.Tests\Qavren.Edge.Sqlite.Tests.csproj` (replace wholesale)
 - Create: `foundation\tests\Qavren.Edge.DeviceTests\Qavren.Edge.DeviceTests.csproj`
 - Create: `foundation\tests\Qavren.Edge.DeviceTests\MauiProgram.cs`
 - Create: `foundation\tests\Qavren.Edge.DeviceTests\App.xaml` and `App.xaml.cs`
+- Create: `foundation\tests\Qavren.Edge.DeviceTests\DevicePaths.cs`
 - Create: `foundation\tests\Qavren.Edge.DeviceTests\NativeSmokeTests.cs`
 
-- [ ] **Step 1: Write the project file**
+- [ ] **Step 1: Re-target `Qavren.Edge.Core.Tests` to the host lane plus four device TFMs**
+
+Replace `foundation\tests\Qavren.Edge.Core.Tests\Qavren.Edge.Core.Tests.csproj` wholesale:
+
+```xml
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <!-- net10.0 is the HOST lane: an MTP test application, run with `dotnet run -f net10.0`.
+         The four platform TFMs exist ONLY so this same assembly can be loaded by
+         Qavren.Edge.DeviceTests and executed on a device (spec 13 / 5.2). -->
+    <TargetFrameworks>net10.0;net10.0-android;net10.0-ios;net10.0-maccatalyst;net10.0-windows10.0.19041.0</TargetFrameworks>
+    <IsPackable>false</IsPackable>
+    <SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'android'">21.0</SupportedOSPlatformVersion>
+    <SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'ios'">15.0</SupportedOSPlatformVersion>
+    <SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'maccatalyst'">15.0</SupportedOSPlatformVersion>
+  </PropertyGroup>
+
+  <!-- HOST LANE ONLY. The xunit.v3 metapackage pulls xunit.v3.runner.inproc.console, which is
+       what generates the Main that Microsoft.Testing.Platform needs. -->
+  <PropertyGroup Condition="'$(TargetFramework)' == 'net10.0'">
+    <OutputType>Exe</OutputType>
+  </PropertyGroup>
+  <ItemGroup Condition="'$(TargetFramework)' == 'net10.0'">
+    <PackageReference Include="xunit.v3" />
+  </ItemGroup>
+
+  <!-- DEVICE LANES. A plain class library. Referencing xunit.v3 or xunit.v3.core here would
+       inject a Main and collide with the MAUI application host (adjustment 11). -->
+  <PropertyGroup Condition="'$(TargetFramework)' != 'net10.0'">
+    <OutputType>Library</OutputType>
+    <IsTestingPlatformApplication>false</IsTestingPlatformApplication>
+    <GenerateTestingPlatformEntryPoint>false</GenerateTestingPlatformEntryPoint>
+  </PropertyGroup>
+  <ItemGroup Condition="'$(TargetFramework)' != 'net10.0'">
+    <PackageReference Include="xunit.v3.extensibility.core" />
+    <PackageReference Include="xunit.v3.assert" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" />
+    <PackageReference Include="Microsoft.Extensions.Logging" />
+    <ProjectReference Include="..\..\src\Qavren.Edge.Core\Qavren.Edge.Core.csproj" />
+  </ItemGroup>
+</Project>
+```
+
+`Qavren.Edge.Core` targets `net10.0` only, which every `net10.0-*` platform TFM is compatible
+with, so no change is needed there.
+
+- [ ] **Step 2: Re-target `Qavren.Edge.Sqlite.Tests` the same way**
+
+Replace `foundation\tests\Qavren.Edge.Sqlite.Tests\Qavren.Edge.Sqlite.Tests.csproj` wholesale.
+It is the Core.Tests file plus this project's own references — repeated in full rather than
+described as "same as Step 1", because the two projects are edited independently:
+
+```xml
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFrameworks>net10.0;net10.0-android;net10.0-ios;net10.0-maccatalyst;net10.0-windows10.0.19041.0</TargetFrameworks>
+    <IsPackable>false</IsPackable>
+    <SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'android'">21.0</SupportedOSPlatformVersion>
+    <SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'ios'">15.0</SupportedOSPlatformVersion>
+    <SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'maccatalyst'">15.0</SupportedOSPlatformVersion>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(TargetFramework)' == 'net10.0'">
+    <OutputType>Exe</OutputType>
+  </PropertyGroup>
+  <ItemGroup Condition="'$(TargetFramework)' == 'net10.0'">
+    <PackageReference Include="xunit.v3" />
+  </ItemGroup>
+
+  <PropertyGroup Condition="'$(TargetFramework)' != 'net10.0'">
+    <OutputType>Library</OutputType>
+    <IsTestingPlatformApplication>false</IsTestingPlatformApplication>
+    <GenerateTestingPlatformEntryPoint>false</GenerateTestingPlatformEntryPoint>
+  </PropertyGroup>
+  <ItemGroup Condition="'$(TargetFramework)' != 'net10.0'">
+    <PackageReference Include="xunit.v3.extensibility.core" />
+    <PackageReference Include="xunit.v3.assert" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" />
+    <PackageReference Include="Microsoft.Extensions.Logging" />
+    <ProjectReference Include="..\..\src\Qavren.Edge.Sqlite\Qavren.Edge.Sqlite.csproj" />
+    <ProjectReference Include="..\..\src\Qavren.Edge.Sqlite.Native\Qavren.Edge.Sqlite.Native.csproj" />
+  </ItemGroup>
+</Project>
+```
+
+`Qavren.Edge.Sqlite.Native` already multi-targets `net10.0` plus every platform TFM (Task 8.1), so
+on `net10.0-android` this reference brings `runtimes/android-*/native/libqedge_sqlite3.so` and on
+`net10.0-ios` it brings the `<NativeReference>` to the static xcframework. That is precisely the
+wiring the device lane exists to prove.
+
+- [ ] **Step 3: Verify both test libraries compile for every TFM**
+
+Do this **before** writing the runner, because it is where the one real unknown surfaces.
+
+```powershell
+dotnet build "C:\Users\steve\projects\qavren-edge\foundation\tests\Qavren.Edge.Core.Tests\Qavren.Edge.Core.Tests.csproj" -c Release
+dotnet build "C:\Users\steve\projects\qavren-edge\foundation\tests\Qavren.Edge.Sqlite.Tests\Qavren.Edge.Sqlite.Tests.csproj" -c Release
+```
+
+Expected: `Build succeeded`, 0 errors, five TFMs each. No `-f` here on purpose: this step exists to prove every TFM compiles.
+
+**If, and only if, the device TFMs fail with `CS0103: The name 'TestContext' does not exist`**, the
+`TestContext` type is not surfaced by `xunit.v3.extensibility.core` in the pinned 3.2.2 build. Do
+**not** add `xunit.v3` or `xunit.v3.core` to the device TFMs — that reintroduces the `Main`
+collision. Apply this self-contained fix instead, which needs no new package and no version guess.
+
+Create `foundation\tests\Qavren.Edge.Core.Tests\TestCancellation.cs`:
+
+```csharp
+namespace Qavren.Edge.Core.Tests;
+
+/// <summary>A cancellation source every test can use, on the host lane and on device alike.
+/// It exists because <c>TestContext.Current</c> is only guaranteed on the host lane; the device
+/// host is DeviceRunners, not Microsoft.Testing.Platform.</summary>
+internal static class TestCancellation
+{
+    private static readonly CancellationTokenSource Source = new(TimeSpan.FromMinutes(5));
+
+    public static CancellationToken Token => Source.Token;
+}
+```
+
+and the identical file at `foundation\tests\Qavren.Edge.Sqlite.Tests\TestCancellation.cs`, changing
+only the first line to `namespace Qavren.Edge.Sqlite.Tests;`. Then replace every occurrence of
+`TestContext.Current.CancellationToken` in both test projects with `TestCancellation.Token`:
+
+```powershell
+pwsh -NoProfile -Command "foreach ($d in 'Qavren.Edge.Core.Tests','Qavren.Edge.Sqlite.Tests') { Get-ChildItem \"C:\Users\steve\projects\qavren-edge\foundation\tests\$d\*.cs\" | ForEach-Object { $t = Get-Content $_ -Raw; $n = $t.Replace('TestContext.Current.CancellationToken','TestCancellation.Token'); if ($n -ne $t) { Set-Content -NoNewline $_ $n; Write-Host \"patched $($_.Name)\" } } }"
+```
+
+Then re-run this step's two builds; they must succeed.
+
+- [ ] **Step 4: Write the runner project file**
 
 ```xml
 <Project Sdk="Microsoft.NET.Sdk">
@@ -9293,16 +9743,22 @@ The plan's original assumption — xunit v3 hosted on Microsoft.Testing.Platform
     <OutputType>Exe</OutputType>
     <IsPackable>false</IsPackable>
     <ApplicationId>app.qavren.edge.devicetests</ApplicationId>
+    <ApplicationTitle>Qavren.Edge device tests</ApplicationTitle>
     <RootNamespace>Qavren.Edge.DeviceTests</RootNamespace>
+    <SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'android'">21.0</SupportedOSPlatformVersion>
+    <SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'ios'">15.0</SupportedOSPlatformVersion>
+    <SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'maccatalyst'">15.0</SupportedOSPlatformVersion>
   </PropertyGroup>
 
   <ItemGroup>
     <PackageReference Include="Microsoft.Maui.Controls" />
     <PackageReference Include="DeviceRunners.VisualRunners.Maui" />
     <PackageReference Include="DeviceRunners.VisualRunners.Xunit3" />
+    <!-- Provides the MSBuild targets that make `dotnet test -f net10.0-android` deploy, launch,
+         stream results back over TCP and write a TRX. -->
     <PackageReference Include="DeviceRunners.Testing.Targets" />
-    <!-- Device-side test code references ONLY these two. Referencing xunit.v3 or xunit.v3.core
-         here would inject a Main and break the MAUI app host. -->
+    <!-- This project's OWN test class (NativeSmokeTests) needs the attributes and asserts.
+         Same rule as the libraries: never xunit.v3 or xunit.v3.core here. -->
     <PackageReference Include="xunit.v3.extensibility.core" />
     <PackageReference Include="xunit.v3.assert" />
   </ItemGroup>
@@ -9312,10 +9768,42 @@ The plan's original assumption — xunit v3 hosted on Microsoft.Testing.Platform
     <ProjectReference Include="..\..\src\Qavren.Edge.Sqlite\Qavren.Edge.Sqlite.csproj" />
     <ProjectReference Include="..\..\src\Qavren.Edge.Sqlite.Native\Qavren.Edge.Sqlite.Native.csproj" />
   </ItemGroup>
+
+  <!-- Spec 5.2: "references the two test projects". These are the assemblies the runner hosts,
+       so the device lane runs the SAME pragma, migration, KNN-vs-brute-force,
+       connection-extension and lifecycle-observer tests the host lane runs.
+       SetTargetFramework is not needed: both projects multi-target the four device TFMs, so
+       MSBuild resolves the matching one. -->
+  <ItemGroup>
+    <ProjectReference Include="..\Qavren.Edge.Core.Tests\Qavren.Edge.Core.Tests.csproj" />
+    <ProjectReference Include="..\Qavren.Edge.Sqlite.Tests\Qavren.Edge.Sqlite.Tests.csproj" />
+  </ItemGroup>
 </Project>
 ```
 
-- [ ] **Step 2: Write `MauiProgram.cs`**
+Note the runner does **not** reference `Qavren.Edge.Sqlite.Cipher.Tests`. It cannot: those tests
+need `Qavren.Edge.Sqlite.Native.Cipher`, and referencing both native packages in one app is a
+configuration error the startup pipeline rejects by design (spec §5.1). Cipher coverage stays on
+the host lane, where each test project is its own process.
+
+- [ ] **Step 5: Write `DevicePaths.cs`**
+
+```csharp
+using Microsoft.Maui.Storage;
+
+namespace Qavren.Edge.DeviceTests;
+
+/// <summary>Sandbox-relative paths for the device lane. Never cache the absolute string: on iOS
+/// the sandbox path carries an application GUID segment that changes across reinstalls.</summary>
+public sealed class DevicePaths : IEdgePaths
+{
+    public string Data => FileSystem.Current.AppDataDirectory;
+
+    public string Cache => FileSystem.Current.CacheDirectory;
+}
+```
+
+- [ ] **Step 6: Write `MauiProgram.cs`, `App.xaml.cs` and `App.xaml`**
 
 ```csharp
 using DeviceRunners.VisualRunners;
@@ -9332,7 +9820,11 @@ public static class MauiProgram
             .UseVisualTestRunner(config => config
                 .AddCliConfiguration()          // reads config from `dotnet test` / the DeviceRunners CLI
                 .AddConsoleResultChannel()
+                // Spec 13: "hosting the same test assemblies". All three, in one runner.
                 .AddTestAssembly(typeof(MauiProgram).Assembly)
+                .AddTestAssemblies(
+                    typeof(Qavren.Edge.Core.Tests.PathsTests).Assembly,
+                    typeof(Qavren.Edge.Sqlite.Tests.MigrationTests).Assembly)
                 .AddXunit3());
 
         return builder.Build();
@@ -9340,16 +9832,45 @@ public static class MauiProgram
 }
 ```
 
-`App.xaml.cs` derives from `Application` and returns `new VisualRunnerWindow()` from `CreateWindow`, per the DeviceRunners README.
+`App.xaml.cs`:
 
-- [ ] **Step 3: Write `NativeSmokeTests.cs`**
+```csharp
+using DeviceRunners.VisualRunners;
 
-The device lane exists to prove the **native library actually loads on the device** and that `vec0` is registered. It deliberately does not re-run the host suite: that would double CI time for no extra signal.
+namespace Qavren.Edge.DeviceTests;
+
+public partial class App : Application
+{
+    public App() => InitializeComponent();
+
+    protected override Window CreateWindow(IActivationState? activationState)
+        => new VisualRunnerWindow();
+}
+```
+
+`App.xaml`:
+
+```xml
+<?xml version="1.0" encoding="UTF-8" ?>
+<Application xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             x:Class="Qavren.Edge.DeviceTests.App">
+    <Application.Resources>
+        <ResourceDictionary />
+    </Application.Resources>
+</Application>
+```
+
+- [ ] **Step 7: Write `NativeSmokeTests.cs` — the device-only additions**
+
+The two hosted assemblies already cover pragmas, migrations, KNN accuracy, connection-extension
+binding and the lifecycle observer. This class adds only what is meaningless on the host: proof
+that the **platform-specific** native artifact loaded and reports the pinned versions, and that
+`FileSystem`-backed paths work inside the sandbox.
 
 ```csharp
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
-using Qavren.Edge;
 using Qavren.Edge.Hosting;
 using Qavren.Edge.Sqlite;
 using Qavren.Edge.Sqlite.Native;
@@ -9372,13 +9893,6 @@ public class NativeSmokeTests
         var provider = services.BuildServiceProvider();
         await provider.GetRequiredService<IEdgeHost>().EnsureStartedAsync(cancellationToken);
         return provider;
-    }
-
-    private sealed class DevicePaths : IEdgePaths
-    {
-        public string Data => Microsoft.Maui.Storage.FileSystem.Current.AppDataDirectory;
-
-        public string Cache => Microsoft.Maui.Storage.FileSystem.Current.CacheDirectory;
     }
 
     [Fact]
@@ -9410,10 +9924,28 @@ public class NativeSmokeTests
             "SELECT count(*) FROM sqlite_master WHERE name = 'device_vec'",
             cancellationToken: TestContext.Current.CancellationToken));
     }
+
+    [Fact]
+    public void SandboxPathsAreUsable()
+    {
+        IEdgePaths paths = new DevicePaths();
+
+        Assert.False(string.IsNullOrWhiteSpace(paths.Data));
+        Assert.False(string.IsNullOrWhiteSpace(paths.Cache));
+
+        var probe = Path.Combine(paths.Data, "qedge-probe.txt");
+        File.WriteAllText(probe, "ok");
+        Assert.Equal("ok", File.ReadAllText(probe));
+        File.Delete(probe);
+    }
 }
 ```
 
-- [ ] **Step 4: Verify (Windows TFM builds locally; all four compile)**
+If Step 3 forced the `TestCancellation` fallback, add the same `TestCancellation.cs` under
+`Qavren.Edge.DeviceTests` with namespace `Qavren.Edge.DeviceTests` and use `TestCancellation.Token`
+here too.
+
+- [ ] **Step 8: Verify the runner builds, and that the host lane still runs**
 
 ```powershell
 dotnet build "C:\Users\steve\projects\qavren-edge\foundation\tests\Qavren.Edge.DeviceTests\Qavren.Edge.DeviceTests.csproj" -c Release -f net10.0-windows10.0.19041.0
@@ -9427,6 +9959,34 @@ dotnet build "C:\Users\steve\projects\qavren-edge\foundation\tests\Qavren.Edge.D
 
 Expected: `Build succeeded`, 0 errors, for all four TFMs.
 
+The host lane must be unaffected by the re-targeting. `dotnet run` on a multi-TFM project refuses
+to guess, so `-f net10.0` is **required** from here on — it is already present on every host-run
+command in this plan and in `ci.yml`:
+
+```powershell
+dotnet run --project "C:\Users\steve\projects\qavren-edge\foundation\tests\Qavren.Edge.Core.Tests\Qavren.Edge.Core.Tests.csproj" -c Release -f net10.0
+dotnet run --project "C:\Users\steve\projects\qavren-edge\foundation\tests\Qavren.Edge.Sqlite.Tests\Qavren.Edge.Sqlite.Tests.csproj" -c Release -f net10.0
+```
+
+Expected: two `Failed: 0` blocks, exit code 0 each — the same results as in waves 4 and 9.
+
+- [ ] **Step 9: Assert the runner really does host both test assemblies**
+
+A `ProjectReference` that silently stops flowing is exactly the regression that would turn the
+device lane back into two smoke tests without anyone noticing, so pin it down mechanically:
+
+```powershell
+pwsh -NoProfile -Command "$p='C:\Users\steve\projects\qavren-edge\foundation\tests\Qavren.Edge.DeviceTests'; $out=Join-Path $p 'bin\Release\net10.0-windows10.0.19041.0'; foreach ($a in 'Qavren.Edge.Core.Tests.dll','Qavren.Edge.Sqlite.Tests.dll') { $f=Get-ChildItem -Recurse -Path $out -Filter $a -ErrorAction SilentlyContinue | Select-Object -First 1; if (-not $f) { throw \"device runner output is missing $a - the ProjectReference to the test library is not flowing\" }; Write-Host \"OK $a\" }; $src=Get-Content (Join-Path $p 'MauiProgram.cs') -Raw; foreach ($t in 'Qavren.Edge.Core.Tests.PathsTests','Qavren.Edge.Sqlite.Tests.MigrationTests') { if ($src -notmatch [regex]::Escape($t)) { throw \"MauiProgram.cs does not register the assembly of $t\" } }; Write-Host 'OK: the device runner hosts both test assemblies'"
+```
+
+Expected:
+
+```
+OK Qavren.Edge.Core.Tests.dll
+OK Qavren.Edge.Sqlite.Tests.dll
+OK: the device runner hosts both test assemblies
+```
+
 **Where this app actually runs.** Spec §13 puts it on four hosts, and `ci.yml` (Task 6.2 Step 6)
 has one job per host: `device-tests-android` (Android emulator on `ubuntu-24.04` with KVM),
 `device-tests-ios` (iOS simulator on `macos-15-intel`), `device-tests-maccatalyst`
@@ -9435,6 +9995,12 @@ TRX inside the app sandbox, `DeviceRunners.Testing.Targets` streams it back to t
 workflow converts it to JUnit with `foundation/tools/trx2junit/trx2junit.py` and publishes it with
 `dorny/test-reporter@v1` — that is spec §13's "written to a file inside the app sandbox, pulled by
 the workflow, and published as JUnit". Executing any of those four lanes is CI-only.
+
+**Cost note.** Hosting the full suites makes each device lane longer than a two-test smoke run —
+the KNN-vs-brute-force theory over 1k 384-d vectors is the heaviest single case. That is the price
+of the signal spec §13 asks for, and it is paid on free public-repo runners (suite decision 14).
+If a lane ever times out, the fix is to trait-filter the KNN theory down to `k ∈ {1, 10}` on
+device, never to drop the assemblies.
 
 ---
 
@@ -9457,10 +10023,14 @@ Expected: `Build succeeded`, 0 errors, 0 warnings (`TreatWarningsAsErrors` is on
 - [ ] **Step 2: Run every host test project**
 
 ```powershell
-pwsh -NoProfile -Command "$root='C:\Users\steve\projects\qavren-edge\foundation\tests'; $projects = 'Qavren.Edge.Core.Tests','Qavren.Edge.Provider.Tests','Qavren.Edge.Sqlite.Tests','Qavren.Edge.Sqlite.Cipher.Tests'; foreach ($p in $projects) { Write-Host \"=== $p ===\"; dotnet run --project (Join-Path $root \"$p\$p.csproj\") -c Release; if ($LASTEXITCODE -ne 0) { Write-Error \"$p FAILED\" } }; Write-Host 'OK: all host test projects passed'"
+pwsh -NoProfile -Command "$root='C:\Users\steve\projects\qavren-edge\foundation\tests'; $projects = 'Qavren.Edge.Core.Tests','Qavren.Edge.Provider.Tests','Qavren.Edge.Sqlite.Tests','Qavren.Edge.Sqlite.Cipher.Tests'; foreach ($p in $projects) { Write-Host \"=== $p ===\"; dotnet run --project (Join-Path $root \"$p\$p.csproj\") -c Release -f net10.0; if ($LASTEXITCODE -ne 0) { Write-Error \"$p FAILED\" } }; Write-Host 'OK: all host test projects passed'"
 ```
 
 Expected: four `Failed: 0` blocks followed by `OK: all host test projects passed`.
+
+`-f net10.0` is mandatory for `Qavren.Edge.Core.Tests` and `Qavren.Edge.Sqlite.Tests`, which
+Task 10.2 multi-targeted so the device runner can host them (spec §13 / §5.2). It is harmless
+for the other two, which target `net10.0` only.
 
 - [ ] **Step 3: Pack everything**
 
@@ -9496,7 +10066,7 @@ python "C:\Users\steve\projects\qavren-edge\foundation\tools\ci-checks\assert-wo
 ```
 
 Expected: `OK: 3 tests passed`, then
-`OK: gates, 4 device lanes, JUnit, win-arm64, SBOM and native release assets all present (windows lane on windows-2025)`.
+`OK: gates, 4 device lanes, JUnit, win-arm64, native artifact cache + reuse, SBOM and native release assets all present (windows lane on windows-2025)`.
 
 - [ ] **Step 7: The two app heads, in every configuration the plan defines**
 
@@ -9509,13 +10079,26 @@ dotnet build "C:\Users\steve\projects\qavren-edge\foundation\tests\Qavren.Edge.D
 Expected: `Build succeeded`, 0 errors, three times. (`QavrenEdge.slnx` builds the sample and the
 device-test app in `Release` only; the `Cipher` configuration is exercised here.)
 
+Then re-run Task 10.2 Step 9's assertion, so the closing gate itself proves the device runner
+still hosts both test assemblies rather than a pair of bespoke smoke tests:
+
+```powershell
+pwsh -NoProfile -Command "$p='C:\Users\steve\projects\qavren-edge\foundation\tests\Qavren.Edge.DeviceTests'; $out=Join-Path $p 'bin\Release\net10.0-windows10.0.19041.0'; foreach ($a in 'Qavren.Edge.Core.Tests.dll','Qavren.Edge.Sqlite.Tests.dll') { $f=Get-ChildItem -Recurse -Path $out -Filter $a -ErrorAction SilentlyContinue | Select-Object -First 1; if (-not $f) { throw \"device runner output is missing $a\" }; Write-Host \"OK $a\" }; Write-Host 'OK: the device runner hosts both test assemblies'"
+```
+
+Expected: two `OK ...dll` lines, then `OK: the device runner hosts both test assemblies`.
+
 - [ ] **Step 8: Spec coverage sweep**
 
-Walk spec §§6–15 and tick each requirement against the task that implements it. The four that
+Walk spec §§6–15 and tick each requirement against the task that implements it. The seven that
 were missed once and must not be missed again: the sample's **Encryption** page and its `Cipher`
 configuration (§15 → Task 10.1), **`win-arm64`** (§10.3 → Tasks 3.3/4.2/6.2), the release
-**SBOM and native assets** (§14 → Task 6.2), and **branch protection actually applied** (§14 →
-Task 1.2 plus the README checklist). If any is missing, the plan is not closed.
+**SBOM and native assets** (§14 → Task 6.2), **branch protection actually applied** (§14 →
+Task 1.2 plus the README checklist), the device runner **hosting the two test projects rather than
+bespoke smoke tests** (§13 / §5.2 → Task 10.2 Steps 1, 2, 4 and 9), the **cached-native reuse on
+managed-only PRs** (§10.4 → Task 6.2 Steps 5 and 6, asserted by `assert-workflows.py`), and the
+**partial**-upgrade migration case (§13 → Task 9.2 Step 4). If any is missing, the plan is not
+closed.
 
 ---
 
@@ -9535,7 +10118,7 @@ README bootstrap checklist:
 | 8.1 (iOS `NativeReference` / xcframework resolution) | needs a real Apple build to resolve the xcframework slice |
 | 5.2 (MAUI bridge runtime behaviour on android / ios / maccatalyst) | compiles locally, cannot run |
 | 10.1 (sample app on android / ios / maccatalyst) | compiles locally, cannot run; Windows runs here in both configurations |
-| 10.2 (device test execution) | Android emulator on `ubuntu-24.04` + KVM, iOS simulator and Mac Catalyst on `macos-15-intel`, Windows on `windows-2025` |
+| 10.2 (device **execution** of `Qavren.Edge.Core.Tests` + `Qavren.Edge.Sqlite.Tests` inside the runner) | Android emulator on `ubuntu-24.04` + KVM, iOS simulator and Mac Catalyst on `macos-15-intel`, Windows on `windows-2025`. The re-targeting, the runner build for all four TFMs, and the assertion that both test assemblies reach the runner's output are all verified locally (Task 10.2 Steps 3, 8, 9) |
 | Branch protection | applied by the owner with `gh api` once `main` exists and both gate jobs have reported |
 
 ## Open risks

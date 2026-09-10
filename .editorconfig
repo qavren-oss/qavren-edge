@@ -33,3 +33,9 @@ dotnet_analyzer_diagnostic.severity = none
 # Vendored C sources
 [foundation/native/_deps/**]
 generated_code = true
+
+# Test projects. CA1707: xunit names are Method_Scenario_Expectation by convention.
+# CA1859: tests hold interface-typed locals on purpose, to assert the public surface.
+[foundation/tests/**/*.cs]
+dotnet_diagnostic.CA1707.severity = none
+dotnet_diagnostic.CA1859.severity = none
