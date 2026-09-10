@@ -113,7 +113,15 @@ if(QEDGE_CIPHER)
       LTC_SOURCE
       LTC_NO_PROTOTYPES)
   if(WIN32)
-    target_compile_definitions(qedge_sqlcipher PRIVATE ENDIAN_LITTLE _WIN32)
+    # _WIN32 is dropped: MSVC predefines it. ENDIAN_LITTLE is dropped on x64, where
+    # libtomcrypt's src/headers/tomcrypt_cfg.h derives it from _M_X64 itself and our define
+    # only produced C4005 macro redefinition on all 214 LTC translation units. ARM64 still
+    # needs it: MSVC's _M_ARM64 appears nowhere in that header's detection table, and its
+    # endianness fallback (tomcrypt_cfg.h:174) tests only compiler macros cl.exe never sets,
+    # so the ARM64 slice would stop at "#error Cannot detect endianness".
+    if(CMAKE_SYSTEM_PROCESSOR MATCHES "arm64|aarch64|ARM64")
+      target_compile_definitions(qedge_sqlcipher PRIVATE ENDIAN_LITTLE)
+    endif()
     target_link_libraries(qedge_sqlcipher PRIVATE advapi32 bcrypt)
   endif()
   set(QEDGE_TARGET qedge_sqlcipher)
