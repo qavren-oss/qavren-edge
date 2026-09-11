@@ -18,6 +18,16 @@
         Route="NotesPage" />
 
     <ShellContent
+        Title="Embeddings"
+        ContentTemplate="{DataTemplate pages:EmbeddingsPage}"
+        Route="EmbeddingsPage" />
+
+    <ShellContent
+        Title="Search"
+        ContentTemplate="{DataTemplate pages:SearchPage}"
+        Route="SearchPage" />
+
+    <ShellContent
         Title="Health"
         ContentTemplate="{DataTemplate pages:HealthPage}"
         Route="HealthPage" />

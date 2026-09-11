@@ -1,0 +1,36 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <!-- Under tools/, not tests/: it is published by the trim-smoke CI job rather than run as a
+         test step, and assert-workflows.py's "every test project has an explicit ci.yml step"
+         rule globs embeddings/tests/*/*.csproj. -->
+    <TargetFramework>net10.0</TargetFramework>
+    <OutputType>Exe</OutputType>
+    <IsPackable>false</IsPackable>
+    <!-- PublishTrimmed / PublishAot are set on the command line by the CI job, not here: the job
+         publishes this project twice, and the AOT variant is continue-on-error for one release
+         cycle (spec 17). -->
+    <NoWarn>$(NoWarn);MEVD9001</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Qavren.Edge.VectorData\Qavren.Edge.VectorData.csproj" />
+    <ProjectReference Include="..\..\src\Qavren.Edge.Embeddings.Onnx\Qavren.Edge.Embeddings.Onnx.csproj" />
+    <ProjectReference Include="..\..\..\foundation\src\Qavren.Edge.Sqlite.Native\Qavren.Edge.Sqlite.Native.csproj" />
+  </ItemGroup>
+
+  <!-- The concrete container and the concrete logger factory. Every src project references only
+       the Abstractions packages, so a console that calls BuildServiceProvider() and AddLogging()
+       has to bring both itself. Both versions already exist in Directory.Packages.props. -->
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" />
+    <PackageReference Include="Microsoft.Extensions.Logging" />
+  </ItemGroup>
+
+  <!-- LINKED, never copied. embeddings/tests/fixtures/TinyModels.g.cs is the one committed copy of
+       the tier-1 base64 graphs and the four consumers link it; this project is the fourth, at a
+       different relative depth from the three test projects, which is the only reason this Include
+       path differs from theirs. -->
+  <ItemGroup>
+    <Compile Include="..\..\tests\fixtures\TinyModels.g.cs" Link="Fixtures\TinyModels.g.cs" />
+  </ItemGroup>
+</Project>

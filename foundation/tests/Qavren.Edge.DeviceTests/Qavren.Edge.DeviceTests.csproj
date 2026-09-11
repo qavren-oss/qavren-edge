@@ -19,7 +19,10 @@
     <ApplicationDisplayVersion>1.0</ApplicationDisplayVersion>
     <ApplicationVersion>1</ApplicationVersion>
     <RootNamespace>Qavren.Edge.DeviceTests</RootNamespace>
-    <SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'android'">21.0</SupportedOSPlatformVersion>
+    <!-- Raised from 21.0: ORT 1.30.0's AAR declares minSdkVersion 24 and .NET for Android merges
+         library manifests into the app's. A test host, not a shipped SP1 package - spec 16.4
+         names this as the one contingency, and spec 19 item 2(a) is the build that decided it. -->
+    <SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'android'">24.0</SupportedOSPlatformVersion>
     <SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'ios'">15.0</SupportedOSPlatformVersion>
     <SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'maccatalyst'">15.0</SupportedOSPlatformVersion>
     <SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows'">10.0.17763.0</SupportedOSPlatformVersion>
@@ -72,6 +75,16 @@
   <ItemGroup>
     <ProjectReference Include="..\Qavren.Edge.Core.Tests\Qavren.Edge.Core.Tests.csproj" />
     <ProjectReference Include="..\Qavren.Edge.Sqlite.Tests\Qavren.Edge.Sqlite.Tests.csproj" />
+  </ItemGroup>
+  <!-- Spec 16.4: the device lanes run the SAME tier-1 assertions and the vec0/FTS5 half of tier 2
+       against the real Android .so, the real iOS xcframework and the Mac Catalyst RID-graph
+       resolution. SetTargetFramework is not needed: all three multi-target the four device TFMs,
+       so MSBuild resolves the matching one. Qavren.Edge.VectorData.Conformance.Tests is
+       deliberately NOT here - it is host-only and net10.0 alone. -->
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\embeddings\tests\Qavren.Edge.Onnx.Tests\Qavren.Edge.Onnx.Tests.csproj" />
+    <ProjectReference Include="..\..\..\embeddings\tests\Qavren.Edge.Embeddings.Tests\Qavren.Edge.Embeddings.Tests.csproj" />
+    <ProjectReference Include="..\..\..\embeddings\tests\Qavren.Edge.VectorData.Tests\Qavren.Edge.VectorData.Tests.csproj" />
   </ItemGroup>
 
   <!-- Qavren.Edge.Sqlite.Native is taken by ProjectReference here, and a project reference
@@ -169,6 +182,36 @@
     <ItemGroup>
       <ResolvedFileToPublish PublishFolderType="None"
                              Condition="'%(Filename)%(Extension)' == 'libqedge_sqlite3.dylib' And '%(FullPath)' != '$(_QedgeBundledNativePath)'" />
+    </ItemGroup>
+  </Target>
+
+  <!-- ORT's two Apple assemblies (lib/net9.0-ios18.0 and lib/net9.0-maccatalyst18.0) declare
+       EVERY P/Invoke against "__Internal" - the static-xcframework model SP2 spec 10.1 describes -
+       and that set includes OrtExtensionsNativeMethods.RegisterCustomOps, the entry point of
+       onnxruntime-extensions. That is a SEPARATE package (Microsoft.ML.OnnxRuntime.Extensions)
+       which SP2 deliberately does not reference, so nothing anywhere defines the symbol.
+       The Apple SDK emits `-u<symbol>` on the native link line for every __Internal P/Invoke that
+       SURVIVES trimming (Xamarin.Shared.Sdk.targets, @(_ProcessedReferenceNativeSymbol)), which is
+       normally harmless because the unreachable SessionOptions.RegisterOrtExtensions() is trimmed
+       away first. MtouchLink=None above turns trimming off on purpose, so the method survives,
+       `-u_RegisterCustomOps` reaches ld, and the link dies with
+         Undefined symbols for architecture x86_64:
+           "_RegisterCustomOps", referenced from: <initial-undefines>
+       (run 34607846150, device-tests-maccatalyst; the iOS head links exactly the same way, which
+       is why this target covers both and neither android - the AAR - nor windows -
+       runtimes/win-x64/native - forces undefined symbols at all).
+       Dropping the forced-undefined entry IS the fix: there is no call site, so the symbol is not
+       needed, and anyone who did call RegisterOrtExtensions() would get EntryPointNotFoundException,
+       which is the honest answer when extensions are not linked. The alternatives are both worse -
+       take a dependency on Microsoft.ML.OnnxRuntime.Extensions to satisfy one linker flag, or
+       re-enable the trimming that MtouchLink=None exists to prevent. Both spellings are removed
+       because the item identity carries the leading underscore ld sees; a Remove that matches
+       nothing is a no-op, so this stays safe if the SDK ever changes the spelling. -->
+  <Target Name="_QedgeDropOrtExtensionsNativeSymbol"
+          Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'ios' Or $([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'maccatalyst'"
+          AfterTargets="_LoadLinkerOutput">
+    <ItemGroup>
+      <_ProcessedReferenceNativeSymbol Remove="_RegisterCustomOps;RegisterCustomOps" />
     </ItemGroup>
   </Target>
 

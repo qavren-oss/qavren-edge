@@ -39,3 +39,8 @@ generated_code = true
 [foundation/tests/**/*.cs]
 dotnet_diagnostic.CA1707.severity = none
 dotnet_diagnostic.CA1859.severity = none
+
+# SP2 test projects get the same relaxations as SP1's.
+[embeddings/tests/**/*.cs]
+dotnet_diagnostic.CA1707.severity = none
+dotnet_diagnostic.CA1859.severity = none

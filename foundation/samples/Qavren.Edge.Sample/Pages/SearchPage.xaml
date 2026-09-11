@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             x:Class="Qavren.Edge.Sample.Pages.SearchPage"
+             Title="Search">
+    <Grid Padding="16" RowDefinitions="Auto,Auto,Auto,Auto,Auto,*" RowSpacing="8">
+
+        <Button Grid.Row="0" Text="Seed sample notes" Clicked="OnSeed" />
+
+        <Entry x:Name="QueryEntry"
+               Grid.Row="1"
+               Placeholder="water damage" />
+
+        <Button Grid.Row="2" Text="Search (vector + keyword + hybrid)" Clicked="OnSearch" />
+
+        <Label Grid.Row="3" x:Name="StatusLabel" Text="Seed some notes, then search." />
+
+        <Grid Grid.Row="4" ColumnDefinitions="*,Auto,Auto,Auto" ColumnSpacing="8">
+            <Label Grid.Column="0" Text="Title" FontAttributes="Bold" />
+            <Label Grid.Column="1" Text="distance (lower is better)" FontAttributes="Bold" WidthRequest="140" />
+            <Label Grid.Column="2" Text="keyword RRF (higher is better)" FontAttributes="Bold" WidthRequest="150" />
+            <Label Grid.Column="3" Text="hybrid RRF (higher is better)" FontAttributes="Bold" WidthRequest="150" />
+        </Grid>
+
+        <CollectionView Grid.Row="5" x:Name="Results">
+            <CollectionView.ItemTemplate>
+                <DataTemplate>
+                    <Grid ColumnDefinitions="*,Auto,Auto,Auto" ColumnSpacing="8" Padding="0,4">
+                        <Label Grid.Column="0" Text="{Binding Title}" LineBreakMode="TailTruncation" />
+                        <Label Grid.Column="1" Text="{Binding VectorDistanceText}" WidthRequest="140" />
+                        <Label Grid.Column="2" Text="{Binding KeywordScoreText}" WidthRequest="150" />
+                        <Label Grid.Column="3" Text="{Binding HybridScoreText}" WidthRequest="150" />
+                    </Grid>
+                </DataTemplate>
+            </CollectionView.ItemTemplate>
+        </CollectionView>
+
+    </Grid>
+</ContentPage>

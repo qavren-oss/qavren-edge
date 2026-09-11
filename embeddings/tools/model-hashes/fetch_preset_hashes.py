@@ -1,0 +1,174 @@
+#!/usr/bin/env python3
+"""Regenerate EmbeddingPresets.g.cs from Hugging Face.
+
+NEVER a build step. Run by hand, then commit the emitted file.
+
+    uv venv --python 3.14 .venv
+    uv pip install --python .venv/Scripts/python.exe -r requirements.txt
+    .venv/Scripts/python.exe fetch_preset_hashes.py \
+        --out ../../src/Qavren.Edge.Embeddings.Onnx/EmbeddingPresets.g.cs
+
+Two rules this script exists to enforce, both from spec 10.2:
+
+  * ONE `POST /api/models/{repo}/paths-info/{rev}` per repo, never one HTTP request per file.
+    The anonymous API bucket is 500 per five minutes; the resolver bucket is 3,000. Asking the
+    resolver for headers per file would work and would be the wrong bucket.
+  * The SHA-256 comes from the git-LFS `oid`, never from `xetHash`. These repos are Xet-backed
+    and return both.
+
+And the trap that is NOT in the spec (plan adjustment 19): `oid` is the SHA-256 only when the
+response carries an `lfs` sub-object. A plain git blob -- which is what vocab.txt is in all three
+repos -- reports the 40-hex git SHA-1 in the top-level `oid`. Writing that into a manifest makes
+every provisioning verify fail at runtime with a mismatch nobody can debug, so a non-LFS file is
+downloaded and hashed here instead. vocab.txt is 231 KB and this script runs by hand.
+"""
+
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+import pathlib
+import urllib.request
+
+API = "https://huggingface.co/api/models"
+RESOLVE = "https://huggingface.co/{repo}/resolve/{rev}/{path}"
+
+# Revision is a FULL commit SHA, never "main": a moving revision silently changes the vectors.
+PRESETS = [
+    {
+        "field": "MiniLmL6V2Int8",
+        "model_id": "all-minilm-l6-v2-int8",
+        "repo": "sentence-transformers/all-MiniLM-L6-v2",
+        "rev": "1110a243fdf4706b3f48f1d95db1a4f5529b4d41",
+        "graph": "onnx/model_qint8_arm64.onnx",
+        "vocab": "vocab.txt",
+        "license": "Apache-2.0",
+    },
+    {
+        "field": "MiniLmL6V2Fp32",
+        "model_id": "all-minilm-l6-v2-fp32",
+        "repo": "sentence-transformers/all-MiniLM-L6-v2",
+        "rev": "1110a243fdf4706b3f48f1d95db1a4f5529b4d41",
+        "graph": "onnx/model.onnx",
+        "vocab": "vocab.txt",
+        "license": "Apache-2.0",
+    },
+    {
+        "field": "BgeSmallEnV15",
+        "model_id": "bge-small-en-v1.5",
+        "repo": "BAAI/bge-small-en-v1.5",
+        "rev": "5c38ec7c405ec4b44b94cc5a9bb96e735b38267a",
+        "graph": "onnx/model.onnx",
+        "vocab": "vocab.txt",
+        "license": "MIT",
+    },
+    {
+        "field": "NomicEmbedTextV15Int8",
+        "model_id": "nomic-embed-text-v1.5-int8",
+        "repo": "nomic-ai/nomic-embed-text-v1.5",
+        "rev": "e9b6763023c676ca8431644204f50c2b100d9aab",
+        "graph": "onnx/model_quantized.onnx",
+        "vocab": "vocab.txt",
+        "license": "Apache-2.0",
+    },
+]
+
+
+def paths_info(repo: str, rev: str, paths: list[str]) -> dict[str, dict]:
+    body = json.dumps({"paths": paths}).encode("utf-8")
+    req = urllib.request.Request(
+        f"{API}/{repo}/paths-info/{rev}",
+        data=body,
+        headers={"Content-Type": "application/json", "User-Agent": "qavren-edge-preset-hashes/1"},
+        method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=60) as response:
+        entries = json.load(response)
+    return {e["path"]: e for e in entries}
+
+
+def digest(repo: str, rev: str, entry: dict) -> tuple[int, str]:
+    """(size, sha256). LFS: straight from the oid. Plain blob: download and hash."""
+    lfs = entry.get("lfs")
+    if lfs:
+        oid = lfs["oid"]
+        if len(oid) != 64:
+            raise SystemExit(f"{entry['path']}: lfs.oid is not a sha256: {oid}")
+        return int(lfs["size"]), oid
+    url = RESOLVE.format(repo=repo, rev=rev, path=entry["path"])
+    req = urllib.request.Request(url, headers={"User-Agent": "qavren-edge-preset-hashes/1"})
+    with urllib.request.urlopen(req, timeout=120) as response:
+        payload = response.read()
+    if len(payload) != entry["size"]:
+        raise SystemExit(f"{entry['path']}: got {len(payload)} bytes, API said {entry['size']}")
+    return len(payload), hashlib.sha256(payload).hexdigest()
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--out", required=True)
+    args = parser.parse_args()
+
+    resolved = []
+    cache: dict[tuple[str, str, str], tuple[int, str]] = {}
+    for preset in PRESETS:
+        info = paths_info(preset["repo"], preset["rev"], [preset["graph"], preset["vocab"]])
+        files = []
+        for path, role in ((preset["graph"], "Graph"), (preset["vocab"], "Vocabulary")):
+            key = (preset["repo"], preset["rev"], path)
+            if key not in cache:
+                cache[key] = digest(preset["repo"], preset["rev"], info[path])
+            size, sha = cache[key]
+            files.append((path, role, size, sha))
+        resolved.append((preset, files))
+
+    lines = [
+        "// <auto-generated>",
+        "// Regenerate with embeddings/tools/model-hashes/fetch_preset_hashes.py.",
+        "// NEVER a build step. Every SHA-256 below is the git-LFS oid for an LFS-backed file and",
+        "// a locally computed digest for a plain git blob -- see the script's docstring.",
+        "// </auto-generated>",
+        "",
+        # OnnxModelManifest / OnnxModelFileRole / OnnxModelFile all live in Qavren.Edge.Onnx.
+        # Without this using the generated file does not compile (CS0246 x4, once per TFM).
+        "using Qavren.Edge.Onnx;",
+        "",
+        "namespace Qavren.Edge.Embeddings.Onnx;",
+        "",
+        "/// <summary>The pinned manifests behind <c>EmbeddingPresets</c>.</summary>",
+        "internal static class EmbeddingPresetManifests",
+        "{",
+    ]
+    for preset, files in resolved:
+        lines.append(f"    public static readonly OnnxModelManifest {preset['field']} = new()")
+        lines.append("    {")
+        lines.append(f"        ModelId = \"{preset['model_id']}\",")
+        lines.append(f"        GraphFile = \"{preset['graph']}\",")
+        lines.append(f"        SpdxLicense = \"{preset['license']}\",")
+        lines.append(f"        HuggingFaceRepo = \"{preset['repo']}\",")
+        lines.append(f"        HuggingFaceRevision = \"{preset['rev']}\",")
+        lines.append("        Files =")
+        lines.append("        [")
+        for path, role, size, sha in files:
+            lines.append(
+                f"            new(\"{path}\", OnnxModelFileRole.{role}, {size}, \"{sha}\"),")
+        lines.append("        ],")
+        lines.append("    };")
+        lines.append("")
+    lines.append("}")
+
+    out = pathlib.Path(args.out)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    # newline="\n" is load-bearing, not cosmetic. The default translates "\n" to os.linesep, so on
+    # Windows this would emit CRLF while .gitattributes (`* text=auto eol=lf`) checks the file out
+    # as LF -- and the byte-identity verify would fail on every fresh clone. make_tiny_model.py,
+    # the sibling generator, pins the same way.
+    out.write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
+    for preset, files in resolved:
+        for path, role, size, sha in files:
+            print(f"{preset['field']:<24} {path:<32} {size:>10} {sha}")
+
+
+if __name__ == "__main__":
+    main()

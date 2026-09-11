@@ -29,3 +29,17 @@ __pycache__/
 
 # trx2junit test fixture is a checked-in input, not a test result
 !foundation/tools/trx2junit/fixture.trx
+
+# Sub-project 2 fixture toolchain. The generator's OUTPUT (TinyModels.g.cs) is committed;
+# its venv and any .onnx it writes for debugging are not.
+embeddings/tests/fixtures/.venv/
+embeddings/tests/fixtures/_scratch/
+
+# Sub-project 2 preset-hash toolchain (Task 3.3). Same shape: EmbeddingPresets.g.cs is
+# committed, the venv is not. The script is run by hand and never by a build or by CI.
+embeddings/tools/model-hashes/.venv/
+
+# Parallel-phase build isolation. Every verify in a wave's parallel phase runs under
+# -p:ArtifactsPath=<scratch>, which normally lands outside the repo - this entry exists only so
+# that a run pointed at an in-repo path cannot be committed by accident.
+/artifacts/

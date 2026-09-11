@@ -1,0 +1,71 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <!-- net10.0 is the HOST lane: an MTP test application, run with `dotnet run -f net10.0`.
+         The four platform TFMs exist ONLY so this same assembly can be loaded by
+         Qavren.Edge.DeviceTests and executed on a device. The windows TFM is present even though
+         Qavren.Edge.Onnx has none: Qavren.Edge.DeviceTests targets net10.0-windows10.0.19041.0
+         and must be able to reference this library, and a net10.0-windows test assembly
+         referencing a net10.0 product assembly is ordinary TFM compatibility. -->
+    <TargetFrameworks>net10.0;net10.0-android;net10.0-ios;net10.0-maccatalyst;net10.0-windows10.0.19041.0</TargetFrameworks>
+    <TargetFrameworks Condition="$([MSBuild]::IsOSPlatform('Linux'))">net10.0;net10.0-android</TargetFrameworks>
+    <TargetFrameworks Condition="$([MSBuild]::IsOSPlatform('OSX'))">net10.0;net10.0-android;net10.0-ios;net10.0-maccatalyst</TargetFrameworks>
+    <IsPackable>false</IsPackable>
+    <!-- Every type in Microsoft.Extensions.VectorData.ProviderServices is
+         [Experimental("MEVD9001")], and the golden-SQL and model tests name CollectionModel
+         directly. The device lanes below already carry this; the host lane needs it too. -->
+    <NoWarn>$(NoWarn);MEVD9001</NoWarn>
+    <!-- Spec 16.4: these follow SP2's raised floors, NOT Qavren.Edge.Sqlite.Tests's 21.0/15.0. -->
+    <SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'android'">24.0</SupportedOSPlatformVersion>
+    <SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'ios'">15.1</SupportedOSPlatformVersion>
+    <SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'maccatalyst'">15.1</SupportedOSPlatformVersion>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(TargetFramework)' == 'net10.0'">
+    <OutputType>Exe</OutputType>
+  </PropertyGroup>
+  <ItemGroup Condition="'$(TargetFramework)' == 'net10.0'">
+    <PackageReference Include="xunit.v3" />
+  </ItemGroup>
+
+  <!-- DEVICE LANES. A plain class library. Referencing xunit.v3 or xunit.v3.core here would
+       inject a Main and collide with the MAUI application host (SP1 adjustment 11). -->
+  <PropertyGroup Condition="'$(TargetFramework)' != 'net10.0'">
+    <OutputType>Library</OutputType>
+    <IsTestingPlatformApplication>false</IsTestingPlatformApplication>
+    <GenerateTestingPlatformEntryPoint>false</GenerateTestingPlatformEntryPoint>
+    <!-- CA2007 self-suppresses for an application output kind, so the net10.0 lane never sees it;
+         the device lanes compile the SAME sources as a library and it fires on every await. Its
+         fix - ConfigureAwait(false) in a test body - is what xunit's xUnit1030 forbids. -->
+    <!-- The ios/maccatalyst lanes run the trim analyzer, and ModelFactory calls MEVD's
+         reflection-based CollectionModelBuilder.Build, which is [RequiresUnreferencedCode].
+         That is test-harness code that is never published trimmed; the product's trimming claim
+         is measured by the Qavren.Edge.TrimSmoke publish (spec 17), not here. Annotating the
+         helper instead would push IL2026 onto every [Fact] that calls it. -->
+    <NoWarn>$(NoWarn);CA2007;MEVD9001;IL2026</NoWarn>
+  </PropertyGroup>
+  <ItemGroup Condition="'$(TargetFramework)' != 'net10.0'">
+    <PackageReference Include="xunit.v3.extensibility.core" />
+    <PackageReference Include="xunit.v3.assert" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" />
+    <PackageReference Include="Microsoft.Extensions.Logging" />
+    <ProjectReference Include="..\..\src\Qavren.Edge.VectorData\Qavren.Edge.VectorData.csproj" />
+    <!-- vec0 and FTS5 arrive only with the native. Qavren.Edge.Sqlite.Native's QedgeHostRid item
+         stages qedge_sqlite3.dll flat beside the test binary, so the host lane runs on a dev box
+         with no package installed. Same arrangement Qavren.Edge.Sqlite.Tests already uses. -->
+    <ProjectReference Include="..\..\..\foundation\src\Qavren.Edge.Sqlite.Native\Qavren.Edge.Sqlite.Native.csproj" />
+    <!-- Added in wave 5, not wave 1, on purpose: until Task 4.1 froze Embeddings.Onnx this
+         reference would have put a project another task was writing into this project's build
+         graph. This is also the ONLY test project in the suite that sees all three SP2 assemblies
+         at once, which is why the service-key parity assertion lives here. -->
+    <ProjectReference Include="..\..\src\Qavren.Edge.Embeddings.Onnx\Qavren.Edge.Embeddings.Onnx.csproj" />
+  </ItemGroup>
+
+  <!-- LINKED, never copied: one file under tests/fixtures is compiled into each project that
+       needs it. Nothing binary is committed; TinyModels.g.cs holds base64 const strings. -->
+  <ItemGroup>
+    <Compile Include="..\fixtures\TinyModels.g.cs" Link="Fixtures\TinyModels.g.cs" />
+  </ItemGroup>
+</Project>
