@@ -340,7 +340,7 @@ embedding.
 
 Meaning: The requested collection name has no matching table.
 
-Remediation: Call `CreateCollectionIfNotExistsAsync` first, or check the
+Remediation: Call `EnsureCollectionExistsAsync` first, or check the
 collection name for a typo.
 
 ## 5202

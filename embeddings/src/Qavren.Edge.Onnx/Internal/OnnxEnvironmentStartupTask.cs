@@ -41,13 +41,16 @@ internal sealed class OnnxEnvironmentStartupTask(
             new EventId(EdgeAiEventIds.OrtEnvironmentCreated, nameof(EdgeAiEventIds.OrtEnvironmentCreated)),
             "ONNX Runtime environment created with log id {LogId} at severity {Severity}.");
 
-    private static readonly Action<ILogger, Exception?> s_environmentPreexisting =
-        LoggerMessage.Define(
+    // EdgeErrorCode.OnnxEnvironmentAlreadyCreated is carried as a log field, not thrown: 5001 is
+    // the one SP2 code whose contract (errors.md 5001) is "informational only - never thrown", so
+    // its only raise site is this message.
+    private static readonly Action<ILogger, EdgeErrorCode, Exception?> s_environmentPreexisting =
+        LoggerMessage.Define<EdgeErrorCode>(
             LogLevel.Warning,
             new EventId(EdgeAiEventIds.OrtEnvironmentPreexisting, nameof(EdgeAiEventIds.OrtEnvironmentPreexisting)),
-            "The ONNX Runtime environment already existed, so Qavren.Edge.Onnx's log id, severity and " +
-            "logging bridge were not applied. Another library in this process created it first; that is " +
-            "not a failure and startup continues.");
+            "[{ErrorCode}] The ONNX Runtime environment already existed, so Qavren.Edge.Onnx's log id, " +
+            "severity and logging bridge were not applied. Another library in this process created it " +
+            "first; that is not a failure and startup continues.");
 
     // One delegate per ILogger level, because LoggerMessage.Define bakes the level in and ORT's
     // severity is only known at callback time.
@@ -92,7 +95,7 @@ internal sealed class OnnxEnvironmentStartupTask(
         if (OrtEnv.IsCreated)
         {
             state.EnvironmentPreexisting = true;
-            s_environmentPreexisting(logger, null);
+            s_environmentPreexisting(logger, EdgeErrorCode.OnnxEnvironmentAlreadyCreated, null);
             return Task.CompletedTask;
         }
 
@@ -105,7 +108,7 @@ internal sealed class OnnxEnvironmentStartupTask(
             // Lost the race between IsCreated and the call. Another library winning is not our
             // failure to crash on.
             state.EnvironmentPreexisting = true;
-            s_environmentPreexisting(logger, ex);
+            s_environmentPreexisting(logger, EdgeErrorCode.OnnxEnvironmentAlreadyCreated, ex);
             return Task.CompletedTask;
         }
 

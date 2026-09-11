@@ -168,7 +168,10 @@ public class CollectionModelTests
         Assert.Equal(IndexKind.Hnsw, model.VectorProperty.IndexKind);
         var entry = Assert.Single(logger.Entries);
         Assert.Equal(LogLevel.Warning, entry.Level);
-        Assert.Equal(804, entry.EventId.Id);
+        // Pins Qavren.Edge.VectorData's private 804 literal to the shared constant. The literal is
+        // duplicated because spec 2 decision 2 forbids Qavren.Edge.VectorData from referencing
+        // Qavren.Edge.Onnx; this project is the only place both are visible at once.
+        Assert.Equal(Qavren.Edge.Onnx.EdgeAiEventIds.IndexKindIgnored, entry.EventId.Id);
         Assert.Contains("brute-force and flat", entry.Message, StringComparison.Ordinal);
     }
 

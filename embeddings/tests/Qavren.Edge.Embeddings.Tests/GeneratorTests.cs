@@ -370,7 +370,7 @@ public class GeneratorTests
         // PostPoolLayerNorm and Normalize still run.
         var pooledInGraph = GeneratorFixture.Preset("fixture-mean-pool", pooling: EmbeddingPooling.Cls)
             with
-            { OutputName = "embedding" };
+        { OutputName = "embedding" };
 
         using var graph = GeneratorFixture.Create(
             Qavren.Edge.Tests.Fixtures.TinyModels.MeanPool,

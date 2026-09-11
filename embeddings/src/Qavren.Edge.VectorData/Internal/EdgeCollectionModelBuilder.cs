@@ -24,6 +24,19 @@ public sealed class EdgeCollectionModelBuilder : CollectionModelBuilder
 
     private static readonly EventId IndexKindIgnoredEvent = new(804, "IndexKindIgnored");
 
+    // Spec 14.4: every call site in the 600-899 range goes through LoggerMessage.Define. The
+    // event id is a literal rather than EdgeAiEventIds.IndexKindIgnored because that constant
+    // lives in Qavren.Edge.Onnx, which this package deliberately does not reference (spec 2
+    // decision 2). CollectionModelTests.AnIndexKindIsAcceptedAndIgnoredButNeverSilently
+    // pins this literal to EdgeAiEventIds.IndexKindIgnored - that test project is the only place
+    // in the suite where both are visible at once.
+    private static readonly Action<ILogger, string, string, string, Exception?> s_indexKindIgnored =
+        LoggerMessage.Define<string, string, string>(
+            LogLevel.Warning,
+            IndexKindIgnoredEvent,
+            "Vector property '{Property}' of collection '{Collection}' requests IndexKind '{IndexKind}'. " +
+            "vec0 is brute-force and flat; the index kind is ignored.");
+
     private readonly string _collectionName;
     private readonly ILogger? _logger;
 
@@ -181,10 +194,6 @@ public sealed class EdgeCollectionModelBuilder : CollectionModelBuilder
         base.Validate(type, definition);
     }
 
-    [SuppressMessage(
-        "Performance",
-        "CA1848:Use the LoggerMessage delegates",
-        Justification = "One warning per collection model build, on a path that already reflects over the record type. A source-generated delegate would need an analyzer package reference this project does not otherwise carry.")]
     private void ValidateVectorProperty(VectorPropertyModel vector)
     {
         if (Nullable.GetUnderlyingType(vector.Type) is not null)
@@ -212,13 +221,10 @@ public sealed class EdgeCollectionModelBuilder : CollectionModelBuilder
         {
             // Accepted and ignored, but never silently: vec0 is brute-force and flat, and scanning
             // linearly while reporting an HNSW index is worse than saying so.
-            _logger?.Log(
-                LogLevel.Warning,
-                IndexKindIgnoredEvent,
-                "Vector property '{Property}' of collection '{Collection}' requests IndexKind '{IndexKind}'. vec0 is brute-force and flat; the index kind is ignored.",
-                vector.ModelName,
-                _collectionName,
-                vector.IndexKind);
+            if (_logger is not null)
+            {
+                s_indexKindIgnored(_logger, vector.ModelName, _collectionName, vector.IndexKind, null);
+            }
         }
     }
 

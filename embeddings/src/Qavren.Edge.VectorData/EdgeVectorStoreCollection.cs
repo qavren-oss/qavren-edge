@@ -1171,14 +1171,29 @@ public class EdgeVectorStoreCollection<TKey, TRecord>
         return command;
     }
 
-    private EdgeVectorStoreException Wrap(string operation, SqliteException inner) =>
-        new(
-            EdgeErrorCode.VectorStoreOperationFailed,
-            $"SQLite failed during '{operation}' on collection '{Name}': {inner.Message}",
+    /// <summary>SQLITE_ERROR, the generic code a missing table is reported under.</summary>
+    private const int SqliteErrorGeneric = 1;
+
+    private EdgeVectorStoreException Wrap(string operation, SqliteException inner)
+    {
+        // SQLITE_ERROR carrying "no such table" is the one SQLite failure with a better name than
+        // "the operation failed": the collection was never created, or was dropped underneath us.
+        // Every other SqliteException keeps VectorStoreOperationFailed.
+        var missingTable =
+            inner.SqliteErrorCode == SqliteErrorGeneric &&
+            inner.Message.Contains("no such table", StringComparison.OrdinalIgnoreCase);
+
+        return new EdgeVectorStoreException(
+            missingTable ? EdgeErrorCode.VectorCollectionNotFound : EdgeErrorCode.VectorStoreOperationFailed,
+            missingTable
+                ? $"Collection '{Name}' has no matching table in vector store '{_database.Name}'. Call " +
+                  $"EnsureCollectionExistsAsync first, or check the collection name for a typo. ({inner.Message})"
+                : $"SQLite failed during '{operation}' on collection '{Name}': {inner.Message}",
             inner)
         {
             VectorStoreName = _database.Name,
             CollectionName = Name,
             OperationName = operation,
         };
+    }
 }

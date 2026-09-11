@@ -420,6 +420,24 @@ public sealed class CollectionLifecycleTests
         Assert.Equal(vector, read.Embedding.ToArray());
     }
 
+    [Fact]
+    public async Task AnOperationOnACollectionThatWasNeverCreatedIsVectorCollectionNotFound()
+    {
+        // errors.md 5201: "the requested collection name has no matching table". SQLite reports
+        // that as SQLITE_ERROR "no such table", and Wrap gives it its own code rather than the
+        // catch-all VectorStoreOperationFailed - otherwise a typo in a collection name is
+        // indistinguishable from a disk error.
+        using var host = await VectorTestHost.StartAsync();
+        var collection = new EdgeVectorStoreCollection<string, RawVec>(host.Database, "never_created");
+
+        var ex = await Assert.ThrowsAsync<EdgeVectorStoreException>(
+            () => collection.UpsertAsync(new RawVec { Key = "k", Embedding = UnitX }, Token));
+
+        Assert.Equal(EdgeErrorCode.VectorCollectionNotFound, ex.Code);
+        Assert.Equal("never_created", ex.CollectionName);
+        Assert.Equal(EdgeVectorStoreOperations.Upsert, ex.OperationName);
+    }
+
     private static EdgeVectorStoreCollection<string, Note> NoteCollection(VectorTestHost host) =>
         new(
             host.Database,
