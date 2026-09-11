@@ -5,6 +5,9 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+  schedule:
+    # 07:00 UTC daily. Tier 3 only - see the `if` on model-tests. Nothing else keys off this.
+    - cron: '0 7 * * *'
 
 permissions:
   contents: read
@@ -60,6 +63,37 @@ jobs:
           if ($hits) { throw "A SQLitePCLRaw bundle package is in the graph; 2.x bundles conflict with core 3.x." }
           Write-Host 'OK: no bundle packages'
 
+      # Assertion 1: net10.0 must land on lib/net8.0, never lib/netstandard2.0. A silent fall-back
+      # to netstandard2.0 drops System.Numerics.Tensors and changes the span hot path with no error
+      # anywhere. Assertion 2: the three UNVERSIONED platform TFMs must resolve ORT's versioned
+      # mobile assets. That is the standing regression guard for the claim that the SDK's default
+      # TargetPlatformVersion clears ORT's 18.0/35.0 floors without SP2 pinning a versioned TFM -
+      # if a future SDK or workload bump lowers a default, this is what catches it, and the
+      # documented response is to pin net10.0-ios18.0 / -android35.0 / -maccatalyst18.0 on SP2's
+      # projects only.
+      - name: Assert ONNX Runtime asset resolution
+        if: matrix.os == 'windows-2025'
+        shell: pwsh
+        run: |
+          $assets = 'embeddings/src/Qavren.Edge.Onnx/obj/project.assets.json'
+          if (-not (Test-Path $assets)) { throw "no project.assets.json at $assets" }
+          $a = Get-Content $assets -Raw | ConvertFrom-Json
+          $expected = [ordered]@{
+            'net10.0'             = 'lib/net8.0/Microsoft.ML.OnnxRuntime.dll'
+            'net10.0-android'     = 'lib/net9.0-android35.0/Microsoft.ML.OnnxRuntime.dll'
+            'net10.0-ios'         = 'lib/net9.0-ios18.0/Microsoft.ML.OnnxRuntime.dll'
+            'net10.0-maccatalyst' = 'lib/net9.0-maccatalyst18.0/Microsoft.ML.OnnxRuntime.dll'
+          }
+          foreach ($tfm in $expected.Keys) {
+            $entry = $a.targets.$tfm.'Microsoft.ML.OnnxRuntime.Managed/1.30.0'
+            if (-not $entry) { throw "$tfm did not resolve Microsoft.ML.OnnxRuntime.Managed 1.30.0" }
+            $got = ($entry.compile.PSObject.Properties.Name) -join ','
+            if ($got -ne $expected[$tfm]) {
+              throw "$tfm resolved '$got'; expected '$($expected[$tfm])'"
+            }
+            Write-Host "OK $tfm -> $got"
+          }
+
       - name: Provider drift check
         run: >
           dotnet run --project foundation/tools/ProviderGen/ProviderGen.csproj -c Release --
@@ -106,6 +140,19 @@ jobs:
 
       - name: Cipher tests
         run: dotnet run --project foundation/tests/Qavren.Edge.Sqlite.Cipher.Tests/Qavren.Edge.Sqlite.Cipher.Tests.csproj -c Release -p:TargetFrameworks=net10.0
+
+      - name: Onnx tests
+        run: dotnet run --project embeddings/tests/Qavren.Edge.Onnx.Tests/Qavren.Edge.Onnx.Tests.csproj -c Release -f net10.0 -p:TargetFrameworks=net10.0
+
+      - name: Embeddings tests
+        run: dotnet run --project embeddings/tests/Qavren.Edge.Embeddings.Tests/Qavren.Edge.Embeddings.Tests.csproj -c Release -f net10.0 -p:TargetFrameworks=net10.0
+
+      - name: VectorData tests
+        run: dotnet run --project embeddings/tests/Qavren.Edge.VectorData.Tests/Qavren.Edge.VectorData.Tests.csproj -c Release -f net10.0 -p:TargetFrameworks=net10.0
+
+      # Single-TFM project, so no -f. It is host-only and never runs on a device lane (spec 16.4).
+      - name: VectorData conformance
+        run: dotnet run --project embeddings/tests/Qavren.Edge.VectorData.Conformance.Tests/Qavren.Edge.VectorData.Conformance.Tests.csproj -c Release -p:TargetFrameworks=net10.0
 
       - name: Pack
         if: matrix.os == 'windows-2025'
@@ -385,10 +432,102 @@ jobs:
             **/*.trx
             artifacts/junit/*.xml
 
+  # Spec 17. Publishes the trim-smoke console trimmed and runs it: tokenize a fixed string, embed
+  # it with the base64 fixture, and round-trip one vec0 upsert + search THROUGH
+  # EdgeDynamicVectorStoreCollection - the reflection-free path, reached with GetDynamicCollection
+  # and a VectorStoreCollectionDefinition, never GetCollection<TKey,TRecord>. The PublishAot
+  # variant is continue-on-error for one release cycle and then either becomes required or the
+  # AOT claim is dropped from the README.
+  trim-smoke:
+    needs: natives
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0, filter: 'tree:0' }
+      - uses: actions/setup-dotnet@v4
+        with: { global-json-file: global.json }
+      - uses: actions/download-artifact@v4
+        with: { pattern: native-*, merge-multiple: true, path: foundation/native/artifacts }
+
+      - name: Publish trimmed
+        run: >
+          dotnet publish embeddings/tools/Qavren.Edge.TrimSmoke/Qavren.Edge.TrimSmoke.csproj
+          -c Release -r linux-x64 --self-contained true
+          -p:PublishTrimmed=true -p:TargetFrameworks=net10.0
+          -o artifacts/trim-smoke
+
+      - name: Run trimmed
+        run: ./artifacts/trim-smoke/Qavren.Edge.TrimSmoke
+
+      - name: Publish AOT
+        continue-on-error: true
+        run: >
+          dotnet publish embeddings/tools/Qavren.Edge.TrimSmoke/Qavren.Edge.TrimSmoke.csproj
+          -c Release -r linux-x64 --self-contained true
+          -p:PublishAot=true -p:TargetFrameworks=net10.0
+          -o artifacts/aot-smoke
+
+      - name: Run AOT
+        continue-on-error: true
+        run: ./artifacts/aot-smoke/Qavren.Edge.TrimSmoke
+
+  # Spec 16.3. Real int8 MiniLM, pinned to one HF revision, SHA-256 verified, cached on the
+  # sha256 itself - not a URL, not a date, because a URL and a date both survive a content change
+  # and the cache key is the only thing standing between a silently-swapped model and a green
+  # nightly. Never on a PR: schedule and workflow_dispatch only. NOT in ci-gate's needs.
+  model-tests:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      QAVREN_EDGE_MODEL_REPO: sentence-transformers/all-MiniLM-L6-v2
+      QAVREN_EDGE_MODEL_REV: 1110a243fdf4706b3f48f1d95db1a4f5529b4d41
+      QAVREN_EDGE_MODEL_SHA256: 4278337fd0ff3c68bfb6291042cad8ab363e1d9fbc43dcb499fe91c871902474
+      QAVREN_EDGE_VOCAB_SHA256: 07eced375cec144d27c900241f3e339478dec958f92fddbc551f295c992038a3
+      QAVREN_EDGE_MODEL_DIR: ${{ github.workspace }}/.model-cache
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0, filter: 'tree:0' }
+      - uses: actions/setup-dotnet@v4
+        with: { global-json-file: global.json }
+      - uses: actions/download-artifact@v4
+        with: { pattern: native-*, merge-multiple: true, path: foundation/native/artifacts }
+
+      # Keyed on the CONTENT hash. A key containing the revision would still be stale if the
+      # revision were ever repointed; a key containing a date would miss every day.
+      - uses: actions/cache@v6.1.0
+        id: model-cache
+        with:
+          path: ${{ env.QAVREN_EDGE_MODEL_DIR }}
+          key: qavren-edge-model-${{ env.QAVREN_EDGE_MODEL_SHA256 }}
+
+      - name: Fetch the pinned model
+        if: steps.model-cache.outputs.cache-hit != 'true'
+        run: |
+          set -euo pipefail
+          mkdir -p "$QAVREN_EDGE_MODEL_DIR/onnx"
+          base="https://huggingface.co/$QAVREN_EDGE_MODEL_REPO/resolve/$QAVREN_EDGE_MODEL_REV"
+          curl -fsSL "$base/onnx/model_qint8_arm64.onnx" -o "$QAVREN_EDGE_MODEL_DIR/onnx/model_qint8_arm64.onnx"
+          curl -fsSL "$base/vocab.txt" -o "$QAVREN_EDGE_MODEL_DIR/vocab.txt"
+
+      # Verified on EVERY run, cache hit included. A poisoned or truncated cache entry is exactly
+      # the failure this lane would otherwise report as a numerical regression.
+      - name: Verify the model hashes
+        run: |
+          set -euo pipefail
+          echo "$QAVREN_EDGE_MODEL_SHA256  $QAVREN_EDGE_MODEL_DIR/onnx/model_qint8_arm64.onnx" | sha256sum -c -
+          echo "$QAVREN_EDGE_VOCAB_SHA256  $QAVREN_EDGE_MODEL_DIR/vocab.txt" | sha256sum -c -
+
+      # QAVREN_EDGE_MODEL_DIR is what SkipUnless reads. It is set for the whole job, so the tier-3
+      # facts run; on every other lane it is unset and they skip at RUNTIME, after the class
+      # constructor, which is why the session is built inside the test body (spec 16.3).
+      - name: Tier-3 embedding tests
+        run: dotnet run --project embeddings/tests/Qavren.Edge.Embeddings.Tests/Qavren.Edge.Embeddings.Tests.csproj -c Release -f net10.0 -p:TargetFrameworks=net10.0
+
   # The required status check for ci (adjustment 28). It always reports; it is red if any job
   # it depends on failed or was cancelled, green if they all succeeded or were skipped.
   ci-gate:
-    needs: [natives, test, device-tests-android, device-tests-ios, device-tests-maccatalyst, device-tests-windows]
+    needs: [natives, test, trim-smoke, device-tests-android, device-tests-ios, device-tests-maccatalyst, device-tests-windows]
     if: always()
     runs-on: ubuntu-24.04
     steps:
