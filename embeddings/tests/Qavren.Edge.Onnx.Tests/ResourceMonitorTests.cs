@@ -1,3 +1,4 @@
+using Microsoft.Extensions.DependencyInjection;
 using Qavren.Edge.Lifecycle;
 using Qavren.Edge.Onnx.Internal;
 using Xunit;
@@ -92,7 +93,10 @@ public class ResourceMonitorTests
     public async Task TheLifecycleObserverLatchesPressureAndClearsItOnResume()
     {
         var monitor = new DefaultEdgeResourceMonitor();
-        var observer = new OnnxLifecycleObserver(monitor);
+
+        // An empty provider: the latch is all this test is about, and the observer resolves the
+        // session host lazily precisely so there is nothing to stand up when there is no session.
+        var observer = new OnnxLifecycleObserver(monitor, new ServiceCollection().BuildServiceProvider());
 
         await observer.OnMemoryPressureAsync(EdgeMemoryPressure.Moderate, TestContext.Current.CancellationToken);
         Assert.Equal(EdgeMemoryPressure.Moderate, monitor.LastPressure);

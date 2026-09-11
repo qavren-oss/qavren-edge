@@ -39,6 +39,12 @@
     <PackageReference Include="xunit.v3.assert" />
   </ItemGroup>
 
+  <!-- LINKED, never copied: one task owns embeddings/tests/fixtures/TinyModels.g.cs and the four
+       projects that consume it all point at that one file. -->
+  <ItemGroup>
+    <Compile Include="..\fixtures\TinyModels.g.cs" Link="Fixtures\TinyModels.g.cs" />
+  </ItemGroup>
+
   <ItemGroup>
     <PackageReference Include="Microsoft.Extensions.DependencyInjection" />
     <PackageReference Include="Microsoft.Extensions.Logging" />

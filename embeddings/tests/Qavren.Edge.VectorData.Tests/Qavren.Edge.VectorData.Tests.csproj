@@ -10,6 +10,10 @@
     <TargetFrameworks Condition="$([MSBuild]::IsOSPlatform('Linux'))">net10.0;net10.0-android</TargetFrameworks>
     <TargetFrameworks Condition="$([MSBuild]::IsOSPlatform('OSX'))">net10.0;net10.0-android;net10.0-ios;net10.0-maccatalyst</TargetFrameworks>
     <IsPackable>false</IsPackable>
+    <!-- Every type in Microsoft.Extensions.VectorData.ProviderServices is
+         [Experimental("MEVD9001")], and the golden-SQL and model tests name CollectionModel
+         directly. The device lanes below already carry this; the host lane needs it too. -->
+    <NoWarn>$(NoWarn);MEVD9001</NoWarn>
     <!-- Spec 16.4: these follow SP2's raised floors, NOT Qavren.Edge.Sqlite.Tests's 21.0/15.0. -->
     <SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'android'">24.0</SupportedOSPlatformVersion>
     <SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'ios'">15.1</SupportedOSPlatformVersion>
@@ -32,7 +36,12 @@
     <!-- CA2007 self-suppresses for an application output kind, so the net10.0 lane never sees it;
          the device lanes compile the SAME sources as a library and it fires on every await. Its
          fix - ConfigureAwait(false) in a test body - is what xunit's xUnit1030 forbids. -->
-    <NoWarn>$(NoWarn);CA2007;MEVD9001</NoWarn>
+    <!-- The ios/maccatalyst lanes run the trim analyzer, and ModelFactory calls MEVD's
+         reflection-based CollectionModelBuilder.Build, which is [RequiresUnreferencedCode].
+         That is test-harness code that is never published trimmed; the product's trimming claim
+         is measured by the Qavren.Edge.TrimSmoke publish (spec 17), not here. Annotating the
+         helper instead would push IL2026 onto every [Fact] that calls it. -->
+    <NoWarn>$(NoWarn);CA2007;MEVD9001;IL2026</NoWarn>
   </PropertyGroup>
   <ItemGroup Condition="'$(TargetFramework)' != 'net10.0'">
     <PackageReference Include="xunit.v3.extensibility.core" />

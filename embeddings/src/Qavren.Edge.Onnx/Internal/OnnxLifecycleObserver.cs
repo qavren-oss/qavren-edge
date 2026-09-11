@@ -1,3 +1,4 @@
+using Microsoft.Extensions.DependencyInjection;
 using Qavren.Edge.Lifecycle;
 
 namespace Qavren.Edge.Onnx.Internal;
@@ -7,20 +8,48 @@ namespace Qavren.Edge.Onnx.Internal;
 /// observer is, and derived from SP1's no-op <see cref="EdgeLifecycleObserver"/>.
 /// </summary>
 /// <remarks>
-/// In this wave the observer is the pressure latch and nothing else. It does NOT touch a batch
-/// size: that lives in <c>OnnxEmbeddingOptions</c> in L1, which this L0 observer cannot see, and
-/// keeping the signal in L0 with the reaction in L1 is what keeps spec 4.1's dependency direction
-/// true. It does not drop a session either - dropping a 23 MB session that is about to be needed
-/// again would be a worse trade than shrinking a batch. The <c>DropAsync</c> wiring for
-/// <c>Critical</c> and <c>Stopping</c> arrives with the session host.
+/// The observer is the pressure latch AND the drop trigger. It does NOT touch a batch size: that
+/// lives in <c>OnnxEmbeddingOptions</c> in L1, which this L0 observer cannot see, and keeping the
+/// signal in L0 with the reaction in L1 is what keeps spec 4.1's dependency direction true.
+/// <para>
+/// It resolves the session host lazily out of <see cref="IServiceProvider"/> rather than taking it
+/// in the constructor: <c>EdgeLifecycleHub</c> materialises every observer in its own constructor
+/// and <c>EdgeHost</c> takes the hub, so a constructor dependency on a session host that itself
+/// depends on <c>IEdgeHost</c> is a DI cycle.
+/// </para>
 /// </remarks>
-internal sealed class OnnxLifecycleObserver(IEdgeResourceMonitor monitor) : EdgeLifecycleObserver
+internal sealed class OnnxLifecycleObserver(IEdgeResourceMonitor monitor, IServiceProvider services)
+    : EdgeLifecycleObserver
 {
+    /// <summary>
+    /// How long the drain may hold an OS memory warning. The hub awaits its observers, and an iOS
+    /// memory warning is not a place to block.
+    /// </summary>
+    private static readonly TimeSpan DrainBudget = TimeSpan.FromSeconds(2);
+
     /// <inheritdoc />
-    public override Task OnMemoryPressureAsync(EdgeMemoryPressure level, CancellationToken cancellationToken)
+    public override async Task OnMemoryPressureAsync(
+        EdgeMemoryPressure level,
+        CancellationToken cancellationToken)
     {
         monitor.SetPressure(level);
-        return Task.CompletedTask;
+
+        if (level != EdgeMemoryPressure.Critical)
+        {
+            return;
+        }
+
+        if (TryGetHost() is not { } host)
+        {
+            return;
+        }
+
+        // Both, and in this order: a multi-second CoreML compile already in flight has to abort
+        // cooperatively rather than run to completion into a kill.
+        host.CancelLoadsInFlight();
+
+        var drop = host.DropAsync(includePinned: false, cancellationToken);
+        await Task.WhenAny(drop, Task.Delay(DrainBudget, cancellationToken)).ConfigureAwait(false);
     }
 
     /// <inheritdoc />
@@ -37,11 +66,36 @@ internal sealed class OnnxLifecycleObserver(IEdgeResourceMonitor monitor) : Edge
 
     /// <inheritdoc />
     /// <remarks>
-    /// Drops every session once the session host exists. <c>OrtEnv</c> is NOT disposed: it is a
+    /// Drops every session, pinned ones included. <c>OrtEnv</c> is NOT disposed: it is a
     /// process-wide singleton with a one-shot options hook, and tearing it down would silently
     /// break a second Edge host in the same process.
     /// </remarks>
-    public override Task OnStoppingAsync(CancellationToken cancellationToken) => Task.CompletedTask;
+    public override async Task OnStoppingAsync(CancellationToken cancellationToken)
+    {
+        if (TryGetHost() is not { } host)
+        {
+            return;
+        }
+
+        host.CancelLoadsInFlight();
+        await host.DropAsync(includePinned: true, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Null when no session host is registered, or when the container is already being torn down -
+    /// a shutdown race is not a reason to throw out of a lifecycle observer.
+    /// </summary>
+    private OnnxSessionHost? TryGetHost()
+    {
+        try
+        {
+            return services.GetService<OnnxSessionHost>();
+        }
+        catch (ObjectDisposedException)
+        {
+            return null;
+        }
+    }
 
     // Sleeping is deliberately not overridden: the CoreML cache is already on disk.
 }

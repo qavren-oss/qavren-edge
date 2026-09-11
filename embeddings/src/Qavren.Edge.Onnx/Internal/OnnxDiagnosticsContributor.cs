@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using Microsoft.ML.OnnxRuntime;
 using Qavren.Edge.Diagnostics;
@@ -12,12 +13,18 @@ namespace Qavren.Edge.Onnx.Internal;
 /// <c>EdgeDiagnostics.Report()</c> keeps picking the SQLite native block for
 /// <c>EdgeDiagnosticsReport.Native</c>.
 /// </summary>
-/// <remarks>Per-session keys arrive with the session host.</remarks>
+/// <remarks>
+/// The session host and the model store are resolved lazily out of <see cref="IServiceProvider"/>
+/// for the same reason the lifecycle observer does it: the session host depends on
+/// <c>IEdgeHost</c>, and a constructor dependency here would risk a cycle the moment anything on
+/// the host's own construction path asked for diagnostics.
+/// </remarks>
 internal sealed class OnnxDiagnosticsContributor(
     IEdgeModelPaths modelPaths,
     IEdgeResourceMonitor monitor,
     OnnxEnvironmentState state,
-    IOptions<OnnxOptions> options) : IEdgeDiagnosticsContributor
+    IOptions<OnnxOptions> options,
+    IServiceProvider services) : IEdgeDiagnosticsContributor
 {
     /// <inheritdoc />
     public string ComponentName => "Qavren.Edge.Onnx";
@@ -56,6 +63,35 @@ internal sealed class OnnxDiagnosticsContributor(
             ["isLowPowerMode"] = snapshot.IsLowPowerMode?.ToString(CultureInfo.InvariantCulture),
             ["lastMemoryPressure"] = snapshot.LastPressure?.ToString(),
         };
+
+        var store = services.GetService<IOnnxModelStore>();
+        if (store is not null)
+        {
+            details["provisionedModels"] = string.Join(", ", store.ProvisionedModelIds);
+        }
+
+        var host = services.GetService<IOnnxSessionHost>();
+        if (host is not null)
+        {
+            foreach (var session in host.Sessions)
+            {
+                var prefix = $"session[{session.ModelId}].";
+                details[prefix + "graphPath"] = session.GraphPath;
+                details[prefix + "sha256"] = session.GraphSha256;
+                details[prefix + "executionProviderAccepted"] = session.ExecutionProviders.Accepted.ToString();
+                details[prefix + "executionProviderAttempts"] = string.Join(
+                    ", ",
+                    session.ExecutionProviders.Attempts.Select(
+                        a => a.Accepted ? a.Provider.ToString() : $"{a.Provider}(skipped)"));
+                details[prefix + "inputNames"] = string.Join(", ", session.Signature.InputNames);
+                details[prefix + "outputNames"] = string.Join(", ", session.Signature.OutputNames);
+                details[prefix + "loadMs"] = session.LoadDuration.TotalMilliseconds
+                    .ToString("F1", CultureInfo.InvariantCulture);
+                details[prefix + "loadCount"] = session.LoadCount.ToString(CultureInfo.InvariantCulture);
+                details[prefix + "leases"] = session.ActiveLeases.ToString(CultureInfo.InvariantCulture);
+                details[prefix + "loaded"] = session.IsLoaded.ToString(CultureInfo.InvariantCulture);
+            }
+        }
 
         return details;
     }
