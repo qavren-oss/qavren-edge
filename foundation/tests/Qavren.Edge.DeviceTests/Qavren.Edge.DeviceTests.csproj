@@ -91,6 +91,50 @@
                           Condition="Exists('$(NativeArtifactsDir)android-arm\libqedge_sqlite3.so')" />
   </ItemGroup>
 
+  <!-- Adjustment 2 (plan line 51): Mac Catalyst is NOT the iOS __Internal case. It uses
+       DllImport("qedge_sqlite3") and consumes runtimes/maccatalyst-<rid>/native/libqedge_sqlite3.dylib
+       from the package. Qavren.Edge.Sqlite.Native is a ProjectReference here, and a project
+       reference carries none of the package's runtimes/ assets - the same gap the
+       AndroidNativeLibrary items above close for the APK. NativeReference with Kind=Dynamic is
+       the ProjectReference-equivalent: the Apple SDK re-ids it to
+       @executable_path/../../Contents/MonoBundle/, copies it into the .app and links it into the
+       native executable, so the DllImport resolves. RuntimeIdentifier is the `-r maccatalyst-x64`
+       the CI lane passes, so an arm64 host lane would pick maccatalyst-arm64 instead.
+       Exists() guard: same reason as android - a checkout with no downloaded natives still builds. -->
+  <ItemGroup Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'maccatalyst'">
+    <NativeReference Include="$(NativeArtifactsDir)$(RuntimeIdentifier)\libqedge_sqlite3.dylib"
+                     Kind="Dynamic" Visible="false"
+                     Condition="Exists('$(NativeArtifactsDir)$(RuntimeIdentifier)\libqedge_sqlite3.dylib')" />
+  </ItemGroup>
+
+  <!-- ...and keep the WRONG dylib out of the .app. Qavren.Edge.Sqlite.Native copies the HOST-RID
+       native flat into every referencing project's output so host test runs work on a dev box
+       (its $(QedgeHostRid) `None` item). On the macos-15-intel device lane that host RID is
+       osx-x64, so a plain macOS dylib landed in the app head's publish set. ComputeBundleLocation
+       classifies every publish-set .dylib as PublishFolderType=DynamicLibrary, which makes the
+       Apple SDK (a) try to link a macOS-platform dylib into a Mac Catalyst executable and
+       (b) run InstallNameTool on it. That file arrives from more than one project-reference path
+       and every copy re-ids to the SAME obj/.../nativelibraries/Contents/MonoBundle/
+       libqedge_sqlite3.dylib.tmp; the InstallNameTool task copies, install_name_tools and
+       File.Moves those concurrently, so the losers died with
+       "install_name_tool: cannot rename ...dylib.tmp ... (No such file or directory)" and
+       MSB4018 FileNotFoundException on the same .tmp (run 34556748270).
+       PublishFolderType=None is the SDK's documented opt-out: ComputeBundleLocation only computes
+       a folder type when the metadata is unset, and Xamarin.Shared.Sdk.targets drops every
+       'None' item from ResolvedFileToPublish right after. The NativeReference above is not a
+       ResolvedFileToPublish item, so it is untouched by this and stays the single copy in the
+       bundle. Scoped to maccatalyst: no other TFM has the problem (android uses
+       AndroidNativeLibrary, windows loads the flat copy from the output directory). -->
+  <Target Name="_QedgeDropHostNativeFromMacCatalystBundle"
+          Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'maccatalyst'"
+          DependsOnTargets="ComputeResolvedFilesToPublishList"
+          BeforeTargets="_ComputePublishLocation">
+    <ItemGroup>
+      <ResolvedFileToPublish PublishFolderType="None"
+                             Condition="'%(Filename)%(Extension)' == 'libqedge_sqlite3.dylib'" />
+    </ItemGroup>
+  </Target>
+
   <!-- MAUI app-head assets. The plan's file list omits these; a UseMaui app head does not build
        without an icon and a splash (the generated Android/Windows manifests reference them). -->
   <ItemGroup>
