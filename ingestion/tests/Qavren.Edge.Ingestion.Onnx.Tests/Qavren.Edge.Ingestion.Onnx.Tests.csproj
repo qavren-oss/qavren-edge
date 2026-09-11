@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <!-- net10.0 ALONE, and that is the authoritative spelling (spec 4.2, 14.6). Host-only: never
+         referenced from Qavren.Edge.DeviceTests, never on a device lane. Its whole job is the
+         ChunkModelProfile-vs-EmbeddingPreset drift table and two adapters, none of which is
+         platform-specific, and four extra TFMs would add four build legs to prove nothing. -->
+    <TargetFramework>net10.0</TargetFramework>
+    <OutputType>Exe</OutputType>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="xunit.v3" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" />
+    <PackageReference Include="Microsoft.Extensions.Logging" />
+    <ProjectReference Include="..\..\src\Qavren.Edge.Ingestion.Onnx\Qavren.Edge.Ingestion.Onnx.csproj" />
+  </ItemGroup>
+</Project>

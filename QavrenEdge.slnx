@@ -35,4 +35,21 @@
   <Folder Name="/embeddings/tools/">
     <Project Path="embeddings/tools/Qavren.Edge.TrimSmoke/Qavren.Edge.TrimSmoke.csproj" />
   </Folder>
+  <Folder Name="/ingestion/src/">
+    <Project Path="ingestion/src/Qavren.Edge.Ingestion/Qavren.Edge.Ingestion.csproj" />
+    <Project Path="ingestion/src/Qavren.Edge.Ingestion.Pdf/Qavren.Edge.Ingestion.Pdf.csproj" />
+    <Project Path="ingestion/src/Qavren.Edge.Ingestion.OpenXml/Qavren.Edge.Ingestion.OpenXml.csproj" />
+    <Project Path="ingestion/src/Qavren.Edge.Ingestion.Onnx/Qavren.Edge.Ingestion.Onnx.csproj" />
+    <Project Path="ingestion/src/Qavren.Edge.Ingestion.DataIngestion/Qavren.Edge.Ingestion.DataIngestion.csproj" />
+  </Folder>
+  <Folder Name="/ingestion/tests/">
+    <Project Path="ingestion/tests/Qavren.Edge.Ingestion.Tests/Qavren.Edge.Ingestion.Tests.csproj" />
+    <Project Path="ingestion/tests/Qavren.Edge.Ingestion.Extractors.Tests/Qavren.Edge.Ingestion.Extractors.Tests.csproj" />
+    <Project Path="ingestion/tests/Qavren.Edge.Ingestion.Onnx.Tests/Qavren.Edge.Ingestion.Onnx.Tests.csproj" />
+    <Project Path="ingestion/tests/Qavren.Edge.Ingestion.DataIngestion.Tests/Qavren.Edge.Ingestion.DataIngestion.Tests.csproj" />
+  </Folder>
+  <Folder Name="/ingestion/samples/">
+    <Project Path="ingestion/samples/Ingestion.Background.Android/Ingestion.Background.Android.csproj" />
+    <Project Path="ingestion/samples/Ingestion.Background.iOS/Ingestion.Background.iOS.csproj" />
+  </Folder>
 </Solution>

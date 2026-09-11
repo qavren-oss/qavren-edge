@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <!-- A class library, not an app head: it exists to be READ and copied, and an app head would
+         need an icon, a splash, a manifest and a signing story for something nobody installs.
+         It IS in the .slnx (plan adjustment 8) so restore, format and pack on the windows-2025
+         leg compile it - a documentation project nothing builds is one that rots on the first
+         rename. -->
+    <TargetFramework>net10.0-android</TargetFramework>
+    <IsPackable>false</IsPackable>
+    <SupportedOSPlatformVersion>24.0</SupportedOSPlatformVersion>
+    <RootNamespace>Ingestion.Background.Android</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
+    <ProjectReference Include="..\..\src\Qavren.Edge.Ingestion\Qavren.Edge.Ingestion.csproj" />
+  </ItemGroup>
+</Project>
