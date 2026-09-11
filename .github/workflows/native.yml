@@ -144,7 +144,7 @@ jobs:
           ./foundation/native/scripts/build-apple.sh OFF "${{ github.sha }}"
           ./foundation/native/scripts/build-apple.sh ON "${{ github.sha }}"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: native-${{ matrix.name }}
           path: foundation/native/artifacts/**
@@ -191,7 +191,7 @@ jobs:
         with:
           path: foundation/native/artifacts
           key: qedge-native-windows-${{ hashFiles('foundation/native/versions.json', 'foundation/native/CMakeLists.txt', 'foundation/native/src/**', 'foundation/native/cmake/**', 'foundation/native/scripts/**', '.github/workflows/native.yml') }}
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with: { name: native-windows, path: foundation/native/artifacts/**, retention-days: 30, if-no-files-found: error }
       - name: Clear staging
         run: rm -rf foundation/native/artifacts
@@ -211,7 +211,7 @@ jobs:
         with:
           path: foundation/native/artifacts
           key: qedge-native-linux-android-${{ hashFiles('foundation/native/versions.json', 'foundation/native/CMakeLists.txt', 'foundation/native/src/**', 'foundation/native/cmake/**', 'foundation/native/scripts/**', '.github/workflows/native.yml') }}
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with: { name: native-linux-android, path: foundation/native/artifacts/**, retention-days: 30, if-no-files-found: error }
       - name: Clear staging
         run: rm -rf foundation/native/artifacts
@@ -231,7 +231,7 @@ jobs:
         with:
           path: foundation/native/artifacts
           key: qedge-native-apple-${{ hashFiles('foundation/native/versions.json', 'foundation/native/CMakeLists.txt', 'foundation/native/src/**', 'foundation/native/cmake/**', 'foundation/native/scripts/**', '.github/workflows/native.yml') }}
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with: { name: native-apple, path: foundation/native/artifacts/**, retention-days: 30, if-no-files-found: error }
 
       - name: Report how each leg was sourced
