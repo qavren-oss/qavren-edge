@@ -1,0 +1,99 @@
+<Project>
+
+  <!-- MSBuild imports only the NEAREST Directory.Build.targets. Chain the repo-root one (the
+       packable-metadata block) back in, or every project under samples/ silently loses it. -->
+  <Import Project="$([MSBuild]::GetPathOfFileAbove('Directory.Build.targets', '$(MSBuildThisFileDirectory)../'))" />
+
+  <!-- Issue #13. The sample app head has the same shape as the device-test host and needs the
+       same three Apple fixes. The SOURCE OF TRUTH for every item and target below, with the full
+       incident history, is foundation/tests/Qavren.Edge.DeviceTests/Qavren.Edge.DeviceTests.csproj;
+       this file condenses those comments and keeps the WHY. It lives here rather than in the
+       sample csproj because two in-flight branches (SP3 ingestion, SP4 chat) edit that csproj
+       concurrently; folding the DeviceTests copy onto this file is a follow-up once they merge.
+       Scoped to app heads (OutputType=Exe) on the two Apple TFMs: inert on android, windows and
+       every library project, so a Windows or Linux build never sees a difference. -->
+  <PropertyGroup>
+    <!-- Directory.Build.props sets this repo-wide; the fallback only matters if samples/ is ever
+         built outside that props chain, and resolves to the same foundation/native/artifacts/. -->
+    <NativeArtifactsDir Condition="'$(NativeArtifactsDir)' == ''">$(MSBuildThisFileDirectory)..\native\artifacts\</NativeArtifactsDir>
+    <_QedgeSamplePlatform>$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)'))</_QedgeSamplePlatform>
+    <_QedgeSampleIsAppleAppHead>false</_QedgeSampleIsAppleAppHead>
+    <_QedgeSampleIsAppleAppHead Condition="'$(OutputType)' == 'Exe' And ('$(_QedgeSamplePlatform)' == 'ios' Or '$(_QedgeSamplePlatform)' == 'maccatalyst')">true</_QedgeSampleIsAppleAppHead>
+    <!-- The sample's `Cipher` configuration swaps Qavren.Edge.Sqlite.Native for
+         Qavren.Edge.Sqlite.Native.Cipher (see the csproj), whose native is qedge_sqlcipher. The
+         same wiring applies; only the library name changes. -->
+    <_QedgeSampleNativeName>qedge_sqlite3</_QedgeSampleNativeName>
+    <_QedgeSampleNativeName Condition="'$(QedgeCipher)' == 'true'">qedge_sqlcipher</_QedgeSampleNativeName>
+  </PropertyGroup>
+
+  <!-- Mac Catalyst is NOT the iOS __Internal case: it DllImports the dylib and, as a NuGet
+       consumer, would take it from runtimes/maccatalyst-<rid>/native/. The sample takes the Native
+       project as a ProjectReference, which carries none of the package's runtimes/ assets, so
+       nothing would put the dylib in the .app. NativeReference Kind=Dynamic is the
+       ProjectReference-equivalent: the Apple SDK re-ids it, copies it into the bundle and links it.
+       RuntimeIdentifier is the `-r maccatalyst-x64` the CI lane passes.
+       Exists() guard: a checkout with no downloaded natives still builds. -->
+  <ItemGroup Condition="'$(_QedgeSampleIsAppleAppHead)' == 'true' And '$(_QedgeSamplePlatform)' == 'maccatalyst'">
+    <NativeReference Include="$(NativeArtifactsDir)$(RuntimeIdentifier)\lib$(_QedgeSampleNativeName).dylib"
+                     Kind="Dynamic" Visible="false"
+                     Condition="Exists('$(NativeArtifactsDir)$(RuntimeIdentifier)\lib$(_QedgeSampleNativeName).dylib')" />
+  </ItemGroup>
+
+  <!-- iOS IS the __Internal case: the SQLite entry points are linked into the app executable. The
+       package does that for NuGet consumers from buildTransitive/, but buildTransitive targets
+       never travel across a ProjectReference, so this mirrors that .targets file. ForceLoad is
+       load-bearing: nothing references these symbols at link time (DllImport reaches them at run
+       time), and without -force_load ld drops every unreferenced archive member. One item covers
+       the simulator (arm64 + x64) and device slices. Exists() guard: as above. -->
+  <ItemGroup Condition="'$(_QedgeSampleIsAppleAppHead)' == 'true' And '$(_QedgeSamplePlatform)' == 'ios' And Exists('$(NativeArtifactsDir)apple\$(_QedgeSampleNativeName).xcframework')">
+    <NativeReference Include="$(NativeArtifactsDir)apple\$(_QedgeSampleNativeName).xcframework" Visible="false">
+      <Kind>Static</Kind>
+      <ForceLoad>true</ForceLoad>
+      <SmartLink>false</SmartLink>
+      <Frameworks>Security</Frameworks>
+    </NativeReference>
+  </ItemGroup>
+
+  <!-- ...and keep the WRONG dylib out of the .app on both Apple heads. The Native project copies
+       the HOST-RID native (osx-x64 / osx-arm64 on a Mac) flat into every referencing project's
+       output for host test runs, and that CopyToOutputDirectory item travels across every
+       ProjectReference into the app head's publish set. ComputeBundleLocation then classifies it
+       as a DynamicLibrary, tries to link a macOS dylib into a Catalyst/iOS executable and runs
+       InstallNameTool on it - and because it arrives via more than one reference path, the
+       concurrent re-ids of the SAME .tmp die with "install_name_tool: cannot rename" / MSB4018
+       (DeviceTests run 34556748270). PublishFolderType=None is the SDK's opt-out. The second
+       clause keeps the one dylib an Apple head SHOULD bundle - the Mac Catalyst NativeReference
+       above. The comparison goes through a property and %(FullPath): item metadata inside a
+       property function in a condition is MSB4092. -->
+  <Target Name="_QedgeDropHostNativeFromAppleBundle"
+          Condition="'$(_QedgeSampleIsAppleAppHead)' == 'true'"
+          DependsOnTargets="ComputeResolvedFilesToPublishList"
+          BeforeTargets="_ComputePublishLocation">
+    <PropertyGroup>
+      <_QedgeBundledNativePath>$([MSBuild]::NormalizePath('$(NativeArtifactsDir)$(RuntimeIdentifier)\lib$(_QedgeSampleNativeName).dylib'))</_QedgeBundledNativePath>
+    </PropertyGroup>
+    <ItemGroup>
+      <ResolvedFileToPublish PublishFolderType="None"
+                             Condition="'%(Filename)%(Extension)' == 'lib$(_QedgeSampleNativeName).dylib' And '%(FullPath)' != '$(_QedgeBundledNativePath)'" />
+    </ItemGroup>
+  </Target>
+
+  <!-- The sample bundles Microsoft.ML.OnnxRuntime.dll transitively (Qavren.Edge.Onnx, Task 7.2).
+       ORT's Apple assemblies declare every P/Invoke against __Internal, including
+       OrtExtensionsNativeMethods.RegisterCustomOps from the Extensions package nobody references,
+       and the Apple SDK emits `-u<symbol>` for every __Internal P/Invoke that survives trimming.
+       DeviceTests hit it because MtouchLink=None keeps everything; the sample hits it for a
+       different reason with the same result - the default link mode is SdkOnly on Mac Catalyst
+       Release and None on the x64 simulator, and neither trims a NuGet assembly, so
+       RegisterOrtExtensions() survives and ld fails with "Undefined symbols: _RegisterCustomOps"
+       (DeviceTests run 34607846150). There is no call site, so dropping the forced-undefined entry
+       is the fix. A Remove that matches nothing is a no-op, so this is safe if the SDK ever trims it. -->
+  <Target Name="_QedgeDropOrtExtensionsNativeSymbol"
+          Condition="'$(_QedgeSampleIsAppleAppHead)' == 'true'"
+          AfterTargets="_LoadLinkerOutput">
+    <ItemGroup>
+      <_ProcessedReferenceNativeSymbol Remove="_RegisterCustomOps;RegisterCustomOps" />
+    </ItemGroup>
+  </Target>
+
+</Project>
