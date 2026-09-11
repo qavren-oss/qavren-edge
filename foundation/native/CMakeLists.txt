@@ -74,6 +74,19 @@ int main(void) { return 0; }" QEDGE_TARGET_IS_X86_64)
     # Advanced SIMD is baseline on aarch64, so no -m flag is needed and no target CPU can
     # lack it. armeabi-v7a matches neither probe and stays on the scalar path.
     list(APPEND QEDGE_COMMON_DEFS SQLITE_VEC_ENABLE_NEON)
+    # sqlite-vec's l1_int8_neon feeds the int8x16_t returned by vabdq_s8 straight into
+    # vpaddlq_u8 (sqlite-vec.c:283/288/293/298/308). That is deliberate and correct - an
+    # int8 absolute difference is a magnitude that only reads back right as unsigned
+    # (|-128 - 127| = 255, which is -1 as int8) - but it is only ACCEPTED by Clang, which
+    # defaults to -flax-vector-conversions=integer. GCC rejects it outright ("error:
+    # incompatible type for argument 1 of 'vpaddlq_u8'"), which is what broke the
+    # aarch64-linux-gnu-gcc cross slice while the Apple and Android arm64 (Clang) slices
+    # compiled the identical source. GCC's own diagnostic names this flag as the remedy.
+    # Scoped to sqlite-vec.c below, so sqlite3.c and qedge_init.c keep strict vector typing.
+    check_c_compiler_flag("-flax-vector-conversions" QEDGE_HAVE_LAX_VECTOR_CONVERSIONS)
+    if(QEDGE_HAVE_LAX_VECTOR_CONVERSIONS)
+      list(APPEND QEDGE_VEC_SIMD_OPTIONS "-flax-vector-conversions")
+    endif()
   elseif(QEDGE_TARGET_IS_X86_64 AND NOT APPLE)
     # Two separate reasons this is not just a -D:
     #   1. GCC and Clang refuse to inline the always_inline _mm256_* intrinsics unless the AVX
