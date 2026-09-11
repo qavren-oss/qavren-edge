@@ -2821,7 +2821,7 @@ Two loop-safety rules, because this is the one chunker that can fail to terminat
 
 - [ ] **Step 6: the golden harness and the twenty files** (plan adjustment 12)
 
-One JSON per golden, holding `{ index, startChar, endChar, tokenCount, headingPath, text }` — **full text**, because the fixtures are small and a moved boundary should be legible in the diff rather than a changed hash.
+One JSON per golden, holding `{ index, startChar, endChar, tokenCount, headingPath, breadcrumb, text, embedText }` — a declared **superset** of the six fields originally listed here, kept in their original order. `breadcrumb` and `embedText` are required because `PrependHeadingPath` changes only the embed text: without them a `.no-breadcrumb` golden is byte-identical to its `.auto` counterpart and asserts nothing (amended 2026-09-11 during Task 4.1; spec §14.1 carries the same amendment). **Full text**, because the fixtures are small and a moved boundary should be legible in the diff rather than a changed hash.
 
 The rules that make a golden test a gate rather than a rubber stamp, and both are SP2's `reference-vectors.json` rule:
 
@@ -2848,7 +2848,7 @@ The rules that make a golden test a gate rather than a rubber stamp, and both ar
 | 14 | `giant-heading-section.markdown-heading.no-preamble.json` | `giant-heading-section.md` | markdown-heading | `IncludePreamble = false` | a document with no preamble is unchanged by the flag |
 | 15 | `headings.markdown-heading.no-breadcrumb.json` | `headings.md` | markdown-heading | `PrependHeadingPath = false` | embed text loses the breadcrumb; **stored** text never had it |
 | 16 | `tables-lists.markdown-heading.no-breadcrumb.json` | `tables-lists.md` | markdown-heading | `PrependHeadingPath = false` | table rows keep their header without the breadcrumb |
-| 17 | `giant-heading-section.markdown-heading.no-breadcrumb.json` | `giant-heading-section.md` | markdown-heading | `PrependHeadingPath = false` | the budget freed by the missing breadcrumb changes the split |
+| 17 | `giant-heading-section.markdown-heading.no-breadcrumb.json` | `giant-heading-section.md` | markdown-heading | `PrependHeadingPath = false` | the flag shows in `embedText`; the boundaries are unchanged by design (amended 2026-09-11: `ChunkOptions.Resolve` subtracts `HeadingPathTokenBudget` whether or not the breadcrumb is prepended, so no budget is freed) |
 | 18 | `long-token.token-window.json` | `long-token.txt` | token-window | defaults | the terminal fallback, explicitly |
 | 19 | `three-paragraphs.token-window.json` | `three-paragraphs.txt` | token-window | defaults | sentence-aware nudge inside the 15% look-back |
 | 20 | `giant-heading-section.token-window.json` | `giant-heading-section.md` | token-window | defaults | overlap exactness over a long run |

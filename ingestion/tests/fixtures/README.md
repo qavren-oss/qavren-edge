@@ -121,7 +121,92 @@ skips with the printed reason "spec 14.5 is owed".
 
 ## Golden generation
 
-<!-- Filled by Task 4.1 Step 6 (wave 4): which vocabulary the twenty goldens were generated
-     against and its SHA-256, the MiniLM triple 222/32/27 they pin, and the
-     QAVREN_EDGE_WRITE_GOLDEN rule. Do not delete this heading; Task 4.1 replaces this comment
-     and nothing else in this file. -->
+`golden/` holds twenty JSON files, one per (fixture x chunker configuration). Each is an array of
+`{ index, startChar, endChar, tokenCount, headingPath, breadcrumb, text, embedText }` -- **full
+text**, because the fixtures are small and a moved boundary should be legible in the diff rather
+than hidden behind a changed hash. Every offset is an index into `ExtractedDocument.Text`, the
+normalised buffer.
+
+`breadcrumb` and `embedText` are a **declared superset** of the six fields the plan's Task 4.1
+Step 6 lists, and the reason is the `.no-breadcrumb` variants: `PrependHeadingPath` changes the
+EMBED text and nothing else, so without those two fields goldens 15-17 are byte-identical to their
+`auto` counterparts and record none of what their row of that table claims. The six pinned fields
+are all still written, in the pinned order.
+
+### The vocabulary they are pinned against
+
+| Fact | Value |
+|---|---|
+| Vocabulary | `bert-base-uncased` shape, 30,522 entries, 231,508 bytes |
+| SHA-256 | `07eced375cec144d27c900241f3e339478dec958f92fddbc551f295c992038a3` |
+| Resolved from | `%QAVREN_EDGE_VOCAB%`, then `%QAVREN_EDGE_MODEL_DIR%\vocab.txt`, then `%LOCALAPPDATA%\Temp\qedge-model\vocab.txt` |
+| Tokenizer | `EdgeTokenCounter.CreateWordPiece(vocab, 256, lowerCase: true)` -> `MlChunkTokenizer`, `SpecialTokenOverhead = 2` |
+| Model profile | `all-minilm-l6-v2-int8`, 384 dims, `MaxSequenceLength` 256, mean pooling, no document prefix |
+| **The pinned triple** | **`MaxTokens` 222 / `OverlapTokens` 32 / `MinTokens` 27**, with `HeadingPathTokenBudget` 32 |
+
+`256 - 2 - 32 - 0 = 222`; `222 * 15 / 100 = 33 -> 33 / 8 * 8 = 32`; `222 / 8 = 27`. Both rules
+truncate; neither rounds to nearest.
+
+**There is no toy-vocabulary fallback.** A vocabulary whose digest is not the one above FAILS the
+suite rather than generating against a substitute -- a golden generated that way pins boundaries no
+shipped configuration produces. A lane with no vocabulary at all (a device, where there never will
+be one) SKIPS the golden class with a printed reason. Re-provision it with one request, digest
+checked, from `sentence-transformers/all-MiniLM-L6-v2` at revision
+`1110a243fdf4706b3f48f1d95db1a4f5529b4d41`.
+
+### The twenty, by name
+
+Naming is `<fixture-stem>.<chunker-id>[.<variant>].json`, so a diff's file list alone says what
+moved. **12 + 5 + 3 = 20.**
+
+Twelve `auto` goldens, the shipped defaults over every text and Markdown fixture:
+`empty.auto.json`, `whitespace-only.auto.json`, `three-paragraphs.auto.json`,
+`crlf-and-lone-cr.auto.json`, `long-token.auto.json`, `unicode.auto.json`, `bom.auto.json`,
+`headings.auto.json`, `fences.auto.json`, `tables-lists.auto.json`, `raw-html.auto.json`,
+`giant-heading-section.auto.json`.
+
+Five option-variant goldens under an explicit `markdown-heading`:
+`headings.markdown-heading.no-preamble.json`,
+`giant-heading-section.markdown-heading.no-preamble.json`,
+`headings.markdown-heading.no-breadcrumb.json`,
+`tables-lists.markdown-heading.no-breadcrumb.json`,
+`giant-heading-section.markdown-heading.no-breadcrumb.json`.
+
+Three explicit `token-window` goldens, the terminal fallback:
+`long-token.token-window.json`, `three-paragraphs.token-window.json`,
+`giant-heading-section.token-window.json`.
+
+### What a golden does NOT pin, and where that claim lives instead
+
+A golden records what its fixture actually produces at the pinned triple. Four of the twenty
+produce less than the plan's table row for them implies, and every one of those claims is asserted
+somewhere -- on synthetic input, the way Markdown rule 6 is -- rather than quietly dropped:
+
+| Golden | The row claims | What the fixture actually does | Where the claim is asserted |
+|---|---|---|---|
+| `long-token.auto.json`, `long-token.token-window.json` | the hard split with no separator to back up to; the terminal fallback | `long-token.txt` is 5,000 `A`s, and WordPiece collapses a 5,000-char word to ONE `[UNK]` (`max_input_chars_per_word`), so it costs 1 token and never reaches a cut | `ChunkerRuleTests.A_run_with_no_separator_splits_hard_and_every_piece_stays_in_budget` and `.The_token_window_is_the_terminal_fallback_and_carries_its_overlap`, over a 1,860-char run with no whitespace anywhere |
+| `three-paragraphs.token-window.json` | the sentence-aware nudge inside the 15% look-back | the fixture costs 38 tokens against a 222-token budget: one chunk, no cut | `ChunkerRuleTests.A_cut_is_nudged_back_to_a_sentence_end_inside_the_look_back_window`, plus `SentenceBoundaryTests` on `FindBackwards` directly |
+| `giant-heading-section.markdown-heading.no-breadcrumb.json` | the budget freed by the missing breadcrumb changes the split | `HeadingPathTokenBudget` is subtracted from the sequence length in `ChunkOptions.Resolve` whether or not the breadcrumb is prepended, so `PrependHeadingPath` frees no content budget and the boundaries are identical; the `embedText` field is where the flag shows | the `embedText` column of that golden, and `ChunkerRuleTests.PrependHeadingPath_false_removes_the_breadcrumb_from_the_embed_text_only` |
+
+The corpus is frozen -- `manifest.json` pins every fixture's bytes and `FixtureDriftTests` re-checks
+them from the embedded resources -- so a fixture is never edited to make a golden say more.
+
+Four pairs are byte-identical, and each identity is the point rather than an oversight:
+`empty` and `whitespace-only` are both `[]`; `giant-heading-section`'s `.no-preamble` equals its
+`auto` because that document has no preamble, which is exactly what its row asserts; and the
+`long-token` and `three-paragraphs` pairs are the degenerate fixtures in the table above.
+
+### Writing one
+
+Goldens are written **only** under `QAVREN_EDGE_WRITE_GOLDEN=1`, and **the writer refuses to
+overwrite a file that already exists**:
+
+```powershell
+$env:QAVREN_EDGE_WRITE_GOLDEN = '1'
+dotnet run --project ingestion/tests/Qavren.Edge.Ingestion.Tests -c Release -f net10.0
+Remove-Item Env:\QAVREN_EDGE_WRITE_GOLDEN
+```
+
+A run that rewrites a committed golden is the failure that refusal exists for. **Deleting a golden
+is the deliberate act**, and regeneration is its own PR with the reason in the body. The files are
+embedded resources, so a freshly written golden is compared only on the next build.

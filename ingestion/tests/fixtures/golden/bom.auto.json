@@ -1,0 +1,12 @@
+[
+  {
+    "index": 0,
+    "startChar": 0,
+    "endChar": 70,
+    "tokenCount": 17,
+    "headingPath": [],
+    "breadcrumb": null,
+    "text": "A document that opens with a UTF-8 byte order mark.\n\nSecond paragraph.",
+    "embedText": "A document that opens with a UTF-8 byte order mark.\n\nSecond paragraph."
+  }
+]

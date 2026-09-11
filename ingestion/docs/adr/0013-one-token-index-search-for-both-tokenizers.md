@@ -41,6 +41,16 @@ string** for every budget from 1 to 11 in the table above. A
 chunk regardless of budget, which `ChunkExceedsTokenBudget` (6151) would then
 throw on for any real document — the ONNX-free path would not work at all.
 
+The table above was measured on a toy vocabulary. The measurement was repeated
+against the real 30,522-entry `bert-base-uncased` vocabulary (plan Risk 1,
+Task 2.1 Step 1, 2026-09-11) and confirms the same behaviour: at
+`considerNormalization: false` the shipped `BertTokenizer` returns
+`text.Length` with `tokenCount` 1 for every budget, and at
+`considerNormalization: true` the returned index is into the normalised string.
+Both settings are therefore unusable for a character offset that is persisted,
+which is the reason this ADR's decision stands on the real vocabulary and not
+only on the toy one.
+
 ## Decision
 
 Neither of the spec's two derivations is used. Instead, `Qavren.Edge.Ingestion`

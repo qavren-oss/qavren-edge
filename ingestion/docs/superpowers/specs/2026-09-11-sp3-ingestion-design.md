@@ -804,9 +804,13 @@ avoided everywhere else.
 
 So the contract is met per implementation, and the seam is the reason that is possible:
 
-- **`MlChunkTokenizer`** (the ONNX-free path) holds the real `Tokenizer` and calls
-  `GetIndexByTokenCount(text, maxTokens, out _, out tokenCount, considerNormalization: false)`
-  directly. One call per cut, index into the original by construction.
+- **`MlChunkTokenizer`** (the ONNX-free path) holds the real `Tokenizer` and
+  derives `IndexByTokenCount` from `CountTokens` through a shared prefix search
+  (`Internal.TokenIndexSearch`); `Tokenizer.GetIndexByTokenCount` is not used,
+  because `considerNormalization: true` returns an index into the normalised
+  string and `considerNormalization: false` makes the shipped `BertTokenizer`
+  return `text.Length` with `tokenCount` 1 for every budget (measured against the
+  real 30,522-entry vocabulary, 2026-09-11).
 - **`EdgeChunkTokenizer`** (the ONNX satellite) has only `IEdgeTokenizer`, so it does
   **not** forward `IndexByTokenCount` at all. It derives the index itself from
   `CountTokens`, which SP2 forwards verbatim (`_tokenizer.CountTokens(text)`) and
@@ -2484,7 +2488,12 @@ setext heading, a `#` line **inside a fence**, YAML front matter); `fences.md`
 keep the breadcrumb on every piece).
 
 **Golden files.** One JSON per (fixture × chunker config) holding
-`{ index, startChar, endChar, tokenCount, headingPath, text }` — **full text**,
+`{ index, startChar, endChar, tokenCount, headingPath, breadcrumb, text, embedText }`
+— a declared **superset** of the six fields this section originally pinned, which
+are kept in their original order. `breadcrumb` and `embedText` are required because
+`PrependHeadingPath` changes only the embed text: without them a
+`.no-breadcrumb` golden is byte-identical to its `.auto` counterpart and asserts
+nothing about the flag it exists to cover (amended 2026-09-11, Task 4.1). **Full text**,
 because the fixtures are small and a moved boundary should be legible in the diff
 rather than a changed hash. Written only under `QAVREN_EDGE_WRITE_GOLDEN=1`, and
 **the writer refuses to overwrite an existing file**: deleting it is the deliberate
