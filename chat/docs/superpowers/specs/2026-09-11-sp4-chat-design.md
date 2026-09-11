@@ -2089,8 +2089,14 @@ public sealed class ExtractiveChatClient : IChatClient
     /// <see cref="ExtractiveChatOptions.NoResultsAnswer"/> with the grounded flag clear. That is
     /// the honest answer: it has no model and was given no sources.
     /// </para>
+    /// <para>
+    /// <paramref name="loggerFactory"/> is optional and is the only raise site for
+    /// <c>EdgeRagEventIds.ExtractiveAnswer</c> (966): the floor logs the ordinal count it
+    /// answered from, never source text. Passing <c>null</c> disables that one event and
+    /// changes nothing else.
+    /// </para>
     /// </summary>
-    public ExtractiveChatClient(ExtractiveChatOptions? options = null);
+    public ExtractiveChatClient(ExtractiveChatOptions? options = null, ILoggerFactory? loggerFactory = null);
     public Task<ChatResponse> GetResponseAsync(IEnumerable<ChatMessage> messages, ChatOptions? options = null, CancellationToken cancellationToken = default);
     public IAsyncEnumerable<ChatResponseUpdate> GetStreamingResponseAsync(IEnumerable<ChatMessage> messages, ChatOptions? options = null, CancellationToken cancellationToken = default);
     public object? GetService(Type serviceType, object? serviceKey = null);

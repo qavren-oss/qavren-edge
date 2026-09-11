@@ -196,6 +196,16 @@ disk, not estimated:
 - Per ABI: `libonnxruntime-genai.so` **5.2 MB**, `libonnxruntime-genai-jni.so`
   **1.9 MB**, and **`libmat.so` 32.7 MB** — a library whose purpose is
   documented nowhere upstream and which there is no known way to exclude.
+- **`libmat.so` also fails the Android 16 page-size check.** Every Android
+  device-lane build (tier 0's `tier0-android` leg included) emits
+  `warning XA0141: Android 16 will require 16 KB page sizes, shared library
+  'libmat.so' does not have a 16 KB page size` against
+  `microsoft.ml.onnxruntimegenai` 0.15.2's AAR. This is upstream — the
+  package ships the misaligned binary, there is nothing in this repo to fix
+  — and it is an Android-16-only caveat: the warning does not fail the
+  build and chat still runs on the vivo X300 (Android 16) tier-0 leg. Track
+  the upstream NuGet's release notes for a re-linked `libmat.so` rather than
+  suppressing the warning.
 - Only **`arm64-v8a`** and **`x86_64`** ship in the AAR's `jni/` — there is
   no `armeabi-v7a` slice. An `armeabi-v7a` device therefore gets the
   database and the embeddings model and **has no chat at all**;
@@ -347,18 +357,39 @@ itself stays LF-stable everywhere; only the base64 payload is host-dependent.)
 
 Tier 0 (Task 1.5, the five-target link-and-generate smoke) proves each of
 these legs independently, over the committed tier-2 fixture, before any
-SP4 API is written. This table's rows are written now, empty; Task 1.6
-Step 4 fills in pass/fail and the printed `key=value` block for each once
-the workflow has run.
+SP4 API is written. All six legs are **PASS**, from workflow run
+[`34637304766`](https://github.com/qavren-oss/qavren-edge/actions/runs/34637304766)
+on `feat/sp4-chat` commit `58dde19` (Task 1.6 Step 3's push-triggered
+dispatch). The two console legs (`tier0-windows`, `tier0-linux`) run the
+smoke directly and print the `key=value` diagnostic block; the four device
+legs run it as one xUnit device-runner fact,
+`Tier0SmokeFacts.LoadsAndGeneratesOneToken`, whose pass/fail and VSTest
+totals are what the visual runner reports to the job log — the shared
+smoke body's own `key=value` prints are not surfaced through that runner.
 
-| Leg | Result | `key=value` |
+| Leg | Result | `key=value` / test output |
 |---|---|---|
-| `tier0-windows` | *(pending — Task 1.6 Step 4)* | |
-| `tier0-linux` | *(pending — Task 1.6 Step 4)* | |
-| `tier0-winui` | *(pending — Task 1.6 Step 4)* | |
-| `tier0-android` | *(pending — Task 1.6 Step 4)* | |
-| `tier0-ios` | *(pending — Task 1.6 Step 4)* | |
-| `tier0-maccatalyst` | *(pending — Task 1.6 Step 4)* | |
+| `tier0-windows` | **PASS** | `ichatClientAssignable=True` `modelLoadMs=93.2` `firstTokenId=33` `firstTokenText=!` |
+| `tier0-linux` | **PASS** | `ichatClientAssignable=True` `modelLoadMs=23.1` `firstTokenId=33` `firstTokenText=!` |
+| `tier0-winui` | **PASS** | `LoadsAndGeneratesOneToken` — Passed; `Total=1, Passed=1, Failed=0, Skipped=0` |
+| `tier0-android` | **PASS** | `LoadsAndGeneratesOneToken` — Passed; `Total=1, Passed=1, Failed=0, Skipped=0` |
+| `tier0-ios` | **PASS** | `LoadsAndGeneratesOneToken` — Passed; `Total=1, Passed=1, Failed=0, Skipped=0` |
+| `tier0-maccatalyst` | **PASS** | `LoadsAndGeneratesOneToken` — Passed; `Total=1, Passed=1, Failed=0, Skipped=0` |
+
+`tier0-android` failed once, on the immediately prior run
+[`34635404329`](https://github.com/qavren-oss/qavren-edge/actions/runs/34635404329)
+(commit `77510db`, five legs green): the workflow's own job-level `DEVICE`
+environment variable (naming the smoke device-head csproj path) collided
+with MSBuild's `$(Device)` property, which Android's `Install`/AdbTarget
+device-spec resolution reads — so the build tried to resolve the running
+emulator against a device spec built from a csproj path and failed with
+`XABAS0000: [BT:1.17.0] Error: Unable to find the requested device.` The
+workflow's env var was renamed off `DEVICE` (`SMOKE`/`DEVICE_HEAD` in
+`58dde19`) and the leg is green on every run since. `tier0-ios` also
+logged a transient `Failed to boot simulator '…'` message on the passing
+run before the build step retried against the same UDID and the smoke
+still passed — noted here because it is in the log, not because it
+changed the leg's PASS.
 
 **What tier 0 does not close.** The packaged (MSIX) MAUI WinUI path is
 **untested, because this repo has no signing identity** —

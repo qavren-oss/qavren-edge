@@ -1,6 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <!-- net10.0 alone, for exactly Qavren.Edge.VectorData's reason: it touches no platform API and
+    <!-- net10.0 alone, for exactly sub-project 2's vector-store package's reason: it touches no
+         platform API and
          every platform TFM consumes a net10.0 library unchanged. Multi-targeting it would add three
          build legs for nothing. It references NO ONNX package - that is what lets UseRag() sit over
          an Azure OpenAI client, and it is asserted rather than asserted-about in

@@ -42,6 +42,12 @@
     <Compile Include="..\fixtures\TinyChatModel.g.cs" Link="Fixtures\TinyChatModel.g.cs" />
   </ItemGroup>
 
+  <!-- LINKED, never copied: fetch_chat_model_hashes.py owns chat/tests/fixtures/GenAiConfigFixtures.g.cs
+       and ChatPresets.g.cs pins the same two digests (plan adjustment 24). -->
+  <ItemGroup>
+    <Compile Include="..\fixtures\GenAiConfigFixtures.g.cs" Link="Fixtures\GenAiConfigFixtures.g.cs" />
+  </ItemGroup>
+
   <ItemGroup>
     <PackageReference Include="Microsoft.Extensions.DependencyInjection" />
     <PackageReference Include="Microsoft.Extensions.Logging" />
