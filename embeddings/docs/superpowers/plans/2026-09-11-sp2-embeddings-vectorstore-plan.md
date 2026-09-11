@@ -2334,7 +2334,7 @@ fts AS (
          ROW_NUMBER() OVER (ORDER BY f.rank) AS rank,
          f.rank AS bm25
   FROM "notes_fts" f
-  WHERE f MATCH $keywords
+  WHERE f."notes_fts" MATCH $keywords
     AND f.rowid IN (SELECT "_rowid" FROM "notes" WHERE <filter>)
   ORDER BY f.rank
   LIMIT $cand
@@ -2353,7 +2353,7 @@ LIMIT $top OFFSET $skip
 
 Four things in that query are traps and each has its own test:
 
-1. **`f MATCH $keywords`, not `"notes_fts" MATCH $keywords`.** FTS5's `<table> MATCH <expr>` form names the table, and once a table is aliased in SQLite the original name is out of scope — so inside a CTE that says `FROM "notes_fts" f` the alias is the only spelling that parses.
+1. **`f."notes_fts" MATCH $keywords` — the alias QUALIFYING the table-named hidden column, not the bare alias.** FTS5 gives every table a hidden column named after the TABLE, and `<x> MATCH <expr>` is an ordinary comparison against a column — so inside a CTE that says `FROM "notes_fts" f`, the bare alias `f MATCH ...` resolves as a column reference and SQLite answers `no such column: f`. The spelling that parses is `f."notes_fts" MATCH $keywords`. Reproduced twice independently against SQLite 3.50.4 and 3.53.4 + FTS5 on 2026-09-11; the golden-SQL test asserts this byte for byte.
 2. **The `IncludeVectors` bracket appears twice and both halves are required.** The `LEFT JOIN` makes `nv` available and the `, nv."embedding"` projects it. A join with no matching projection costs a join, returns no vectors, and throws nothing — because `VectorSearchResult` simply leaves the vector property at its default. The golden test covers `IncludeVectors` on and off; Task 5.1's behavioural test is what actually makes a half-applied bracket fail.
 3. **Both lanes rank ascending.** FTS5's `bm25()` is the standard score multiplied by −1, so better matches are numerically **lower** and `ORDER BY rank` is ascending-best-first; vec0's `distance` is a distance, so it is ascending too. The hidden `rank` column is used rather than calling `bm25(f)` directly, which SQLite's own docs say is faster.
 4. **The fused score is a similarity — higher is better — the opposite polarity to `SearchAsync`.** Asserted in a test whose *name* states the inversion.
@@ -3161,7 +3161,10 @@ public async Task AdditionalPropertiesAndRawRepresentationFactoryAreIgnoredRathe
     // method returns; handing a consumer disposed native memory is worse than handing them none.
     Assert.Single(result);
     Assert.False(invoked);
-    Assert.Null(result[0].RawRepresentation);
+    // `RawRepresentation` does NOT exist on Microsoft.Extensions.AI.Abstractions 10.10.0's
+    // Embedding - it declares CreatedAt/Dimensions/ModelId/AdditionalProperties only - so
+    // the assertion that carries the same meaning is:
+    Assert.Null(result[0].AdditionalProperties);
 }
 ```
 
@@ -3310,7 +3313,7 @@ The one that decides *what vectors come out* is **`DefaultInputKind = EmbeddingI
 
 - [ ] **Step 7: Diagnostics**
 
-`ComponentName = "Qavren.Edge.Embeddings.Onnx"` reporting `preset`, `presetLicense`, `modelFile`, `modelSha256`, `dimensions`, `pooling`, `normalize`, `maxSequenceLength`, `sequenceBuckets`, `queryPrefix`, `documentPrefix`, `tokenizerKind`, `tokenizerFile`, `vocabSize` (from `IEdgeTokenizerProvider.Current`, `null` until the first embed or a warm-up, so reporting it never forces provisioning), `pinnedSequenceLength`, `maxBatchSize`, `effectiveBatchSize`, `maxConcurrency`, plus rolling counters `embeddingsGenerated`, `batchesRun`, `tokensEncoded`, `truncatedInputs`, `runMsP50`, `runMsP95`.
+`ComponentName = "Qavren.Edge.Embeddings.Onnx"` reporting `preset`, `presetLicense`, `modelFile`, `modelSha256`, `dimensions`, `pooling`, `normalize`, `maxSequenceLength`, `sequenceBuckets`, `queryPrefix`, `documentPrefix`, `tokenizerKind`, `tokenizerFile`, `vocabSize` (from `IEdgeTokenizerProvider.Find(preset.Id)` — **this registration's** preset, not `.Current`, which in a keyed multi-preset app is whichever tokenizer was built last; `null` until the first embed or a warm-up, so reporting it never forces provisioning), `pinnedSequenceLength`, `maxBatchSize`, `effectiveBatchSize`, `maxConcurrency`, plus rolling counters `embeddingsGenerated`, `batchesRun`, `tokensEncoded`, `truncatedInputs`, `runMsP50`, `runMsP95`.
 
 - [ ] **Step 8: Verify**
 

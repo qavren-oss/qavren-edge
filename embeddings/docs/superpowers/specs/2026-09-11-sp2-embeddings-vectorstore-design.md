@@ -845,7 +845,8 @@ public enum EmbeddingTruncation { Truncate = 0, Throw = 1 }
 
 /// <summary>One padded batch, row-major, ready to wrap in OrtValues.</summary>
 public sealed record TokenizedBatch(
-    long[] InputIds,          // [BatchSize * SequenceLength]
+    long[] InputIds,          // row-major; the first BatchSize * SequenceLength elements
+                              // carry the batch (the buffers are pool-rented and may be longer)
     long[] AttentionMask,     // 1 = real token, 0 = padding
     long[] TokenTypeIds,      // all zeros for a single-sequence encoder
     int BatchSize,
@@ -1264,6 +1265,11 @@ public sealed class EdgeVectorStoreCollectionOptions : MEVD.VectorStoreCollectio
     /// <see cref="EdgeVectorData.QueryGeneratorServiceKey"/> sibling. The only correct way to drive a model
     /// with asymmetric prefixes, because MEVD always calls GenerateAsync with NO options.</summary>
     public IEmbeddingGenerator? QueryEmbeddingGenerator { get; set; }
+
+    // Also present, deliberately NOT public: `internal int? RemoveDiacritics`, which carries
+    // EdgeVectorStoreOptions.FullTextRemoveDiacritics down from the store when EdgeVectorStore
+    // builds a collection. Internal because it is a store-level decision, not a per-collection
+    // one; no public-surface or golden-API impact.
 }
 
 /// <summary>Per-query RRF tuning. A caller passing the plain MEVD
@@ -1306,7 +1312,14 @@ public sealed class EdgeVectorStore : MEVD.VectorStore
     /// recognised from its own DDL in <c>sqlite_master.sql</c>
     /// (<c>USING vec0</c> / <c>USING fts5</c>), and FTS5's shadow tables are recognised by being
     /// the <c>_data</c>/<c>_idx</c>/<c>_content</c>/<c>_docsize</c>/<c>_config</c> children of a
-    /// name that is itself an fts5 virtual table. Name-prefix filtering would be wrong in both
+    /// name that is itself an fts5 virtual table. vec0's shadow tables are recognised the same
+    /// way — a KNOWN child name under a parent that is itself a vec0 virtual table:
+    /// <c>_info</c>, <c>_chunks</c>, <c>_rowids</c>, <c>_auxiliary</c>, plus the numbered
+    /// <c>_vector_chunksNN</c> / <c>_metadatachunksNN</c> / <c>_metadatatextNN</c> families
+    /// (sqlite-vec 0.1.9). The child set is enumerated rather than treating ANY child of a
+    /// vec0 table as a shadow, because the broader rule silently hides a consumer's own
+    /// <c>notes_vec_archive</c> sitting next to vec0 <c>notes_vec</c>.
+    /// Name-prefix filtering would be wrong in both
     /// directions, because <see cref="EdgeVectorStoreOptions.VectorTableNameFormat"/> and
     /// <see cref="EdgeVectorStoreCollectionOptions.VectorTableName"/> let a sidecar be called
     /// anything, and a consumer's own data table may legitimately be called <c>foo_vec</c>.
@@ -1882,8 +1895,12 @@ The first `GenerateAsync` awaits `provider.GetAsync(preset, ct)`, which awaits
 builds the tokenizer under a `SemaphoreSlim(1)`, and caches it for the process.
 Concurrent first callers share one build. `WarmUpEmbeddingsAtStartup` (order 220,
 off by default) is how an app moves that cost to launch deliberately;
-`IEdgeTokenizerProvider.Current` is what diagnostics read, so reporting a vocab size
-never forces a download.
+Diagnostics read `IEdgeTokenizerProvider.Find(preset.Id)` — the tokenizer for the
+reporting registration's own preset — so reporting a vocab size never forces a download
+and a keyed multi-preset app does not report its neighbour's vocabulary. `Current` is the
+most recently built tokenizer process-wide and is not registration-scoped; for the same
+reason each `OnnxEmbeddingGenerator` latches its own tokenizer on its first embed and
+reports that, rather than following `Current`.
 
 **There is no attention-mask API in the library, and `GetSpecialTokensMask` is not
 one.** A grep for "attention" across the whole of `Microsoft.ML.Tokenizers` returns
@@ -1932,6 +1949,14 @@ always ours. Mean is the masked mean, `sum(h[b,t,:] * mask[b,t]) / max(1, sum(ma
 CLS copies row 0. The mode comes from the preset, never a default — bge-small is
 CLS and everything else here is mean, and getting it wrong is a silent ~10-point
 retrieval regression with no exception anywhere.
+
+A graph whose declared output is already **rank-2** `[batch, dim]` — one that pooled
+in its own head — is accepted as well: that row is taken verbatim and
+`EmbeddingPreset.Pooling` is **not** applied to it. None of the four presets ships
+such a graph, so the rank-3 path above is what this release runs; the rank-2 path
+exists so that a consumer-supplied pre-pooled graph does not fault on a stride
+computed for three ranks. It is declared on `EmbeddingPreset.Pooling`'s XML doc and
+pinned by `GeneratorTests.AGraphThatPoolsInItsOwnDeclaredOutputIsUsedVerbatim`.
 
 **Layer-norm, when the preset says so.** `EmbeddingPooler.LayerNorm(vector, eps)`
 runs between pooling and L2 when `preset.PostPoolLayerNorm` is set — true for
@@ -2331,7 +2356,7 @@ fts AS (
          ROW_NUMBER() OVER (ORDER BY f.rank) AS rank,
          f.rank AS bm25
   FROM "notes_fts" f
-  WHERE f MATCH $keywords
+  WHERE f."notes_fts" MATCH $keywords
     [AND f.rowid IN (SELECT "_rowid" FROM "notes" WHERE <filter>)]
   ORDER BY f.rank
   LIMIT $cand
@@ -2349,12 +2374,16 @@ ORDER BY score DESC
 LIMIT $top OFFSET $skip;
 ```
 
-Note `f MATCH $keywords`, not `"notes_fts" MATCH $keywords`. FTS5's
-`<table> MATCH <expr>` form names the table, and once a table is aliased in SQLite
-the original name is out of scope — so inside a CTE that says `FROM "notes_fts" f`
-the alias is the only spelling that parses. `BuildHybridRrfSql` emits the alias, and
-§16.1's golden-SQL test asserts this query byte for byte, so the text above is the
-expected value rather than an illustration.
+Note `f."notes_fts" MATCH $keywords` — the alias **qualifying** the table-named hidden
+column, not the bare alias. FTS5 gives every table a hidden column named after the
+TABLE, and `<x> MATCH <expr>` is an ordinary comparison against a column — so inside
+a CTE that says `FROM "notes_fts" f`, the bare alias `f MATCH ...` resolves as a
+column reference and SQLite answers `no such column: f`. The spelling that parses is
+the alias qualifying the table-named hidden column, `f."notes_fts" MATCH $keywords`.
+Reproduced twice independently against SQLite 3.50.4 and 3.53.4 + FTS5 on 2026-09-11.
+`BuildHybridRrfSql` emits exactly that, and §16.1's golden-SQL test asserts this query
+byte for byte, so the text above is the normative expected value rather than an
+illustration.
 
 Note that the `IncludeVectors` bracket appears **twice** and both halves are
 required: the `LEFT JOIN` makes `nv` available and the `, nv."embedding"` projects
@@ -2439,8 +2468,12 @@ with its real cause rather than as a `FileNotFoundException` from inside ORT.
 
 ### 14.2 Lifecycle observers
 
-Both register with `TryAddEnumerable`, exactly as SP1's SQLite observer does, and
-both derive from SP1's no-op `EdgeLifecycleObserver`.
+`OnnxLifecycleObserver` registers with `TryAddEnumerable`, exactly as SP1's SQLite
+observer does. `VectorDataLifecycleObserver` is **inserted at the head of the observer
+list, idempotently** — not appended — because the `Sleeping` ordering below requires the
+FTS merge to run before SP1's `SqliteLifecycleObserver`, and `AddSqlite` has already
+registered that one by the time `AddVectorStore` runs; `TryAddEnumerable` appends, so it
+cannot express that requirement. Both derive from SP1's no-op `EdgeLifecycleObserver`.
 
 `OnnxLifecycleObserver`
 
@@ -2492,13 +2525,20 @@ inputNames, outputNames, loadMs, loadCount, leases, loaded}`; and the live snaps
 `availableMemoryBytes`, `isLowMemory`, `thermalState`, `thermalHeadroom`,
 `isLowPowerMode`, `lastMemoryPressure` (the latch §14.2 sets and §11 reads).
 
-`"Qavren.Edge.Embeddings.Onnx"` — `preset`, `presetLicense`, `modelFile`,
-`modelSha256`, `dimensions`, `pooling`, `normalize`, `maxSequenceLength`,
-`sequenceBuckets`, `queryPrefix`, `documentPrefix`, `tokenizerKind`,
-`tokenizerFile`, `vocabSize` (from `IEdgeTokenizerProvider.Current`, so reporting it
-never forces provisioning; `null` until the first embed or a warm-up),
+`"Qavren.Edge.Embeddings.Onnx"` — the bare literal for **every** registration, keyed or
+not; a keyed one is told apart by the `serviceKey` detail (`null` for the unkeyed one)
+rather than by a decorated component name, so a consumer matching on the name keeps
+working when an app goes keyed. Details: `serviceKey`, `preset`, `presetLicense`, `modelFile`,
+`modelSha256`, `dimensions`, `pooling`, `postPoolLayerNorm`, `normalize`, `maxSequenceLength`,
+`sequenceBuckets`, `queryPrefix`, `documentPrefix`, `truncation`, `defaultInputKind`,
+`tokenizerKind`, `tokenizerFile`, `vocabSize` (from `IEdgeTokenizerProvider.Find(preset.Id)`
+— **this registration's** preset, NOT `.Current`, which in a keyed multi-preset app is
+whichever tokenizer was built last and belongs to some other generator; reporting it still
+never forces provisioning, and it is `null` until the first embed or a warm-up),
 `pinnedSequenceLength`, `maxBatchSize`, `effectiveBatchSize`, `maxConcurrency`, plus rolling counters `embeddingsGenerated`, `batchesRun`,
-`tokensEncoded`, `truncatedInputs`, `runMsP50`, `runMsP95`.
+`tokensEncoded`, `truncatedInputs`, `runMsP50`, `runMsP95`. Every one of those is emitted on
+every path: a generator that has never run reports real zeros for the four counts and `null`
+for the two percentiles, never an abbreviated block.
 
 `"Qavren.Edge.VectorData"` — `database`, `sqliteVersion`, `vecVersion` (note
 `vec_version()` returns `"v0.1.9"` **with a leading v**, as SP1 already documents);

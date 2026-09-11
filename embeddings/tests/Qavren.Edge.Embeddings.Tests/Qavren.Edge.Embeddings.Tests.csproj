@@ -44,4 +44,10 @@
     <PackageReference Include="Microsoft.Extensions.Logging" />
     <ProjectReference Include="..\..\src\Qavren.Edge.Embeddings.Onnx\Qavren.Edge.Embeddings.Onnx.csproj" />
   </ItemGroup>
+
+  <!-- LINKED, never copied: one file under tests/fixtures is compiled into each project that
+       needs it. Nothing binary is committed; TinyModels.g.cs holds base64 const strings. -->
+  <ItemGroup>
+    <Compile Include="..\fixtures\TinyModels.g.cs" Link="Fixtures\TinyModels.g.cs" />
+  </ItemGroup>
 </Project>

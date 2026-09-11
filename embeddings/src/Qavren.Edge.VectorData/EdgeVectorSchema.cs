@@ -280,8 +280,17 @@ public sealed class EdgeVectorSchema
     /// Both lanes rank <b>ascending</b>. FTS5's <c>bm25()</c> is the standard score multiplied by
     /// -1, so a better match is numerically lower, and vec0's <c>distance</c> is a distance. The
     /// hidden <c>rank</c> column is used rather than calling <c>bm25(f)</c>, which SQLite's own
-    /// docs say is faster. The keyword lane says <c>f MATCH $keywords</c>, not
-    /// <c>"&lt;table&gt;" MATCH</c>: once a table is aliased the original name is out of scope.
+    /// docs say is faster.
+    /// </para>
+    /// <para>
+    /// The keyword lane says <c>f."&lt;fts table&gt;" MATCH $keywords</c> - the alias
+    /// <b>qualifying the table-named hidden column</b> - and not the bare alias
+    /// <c>f MATCH $keywords</c>. FTS5 gives every table a hidden column named after the table, and
+    /// <c>&lt;x&gt; MATCH &lt;expr&gt;</c> is an ordinary comparison against a column, so a bare
+    /// alias resolves as a column reference and SQLite answers <c>no such column: f</c>. Measured
+    /// against SQLite 3.53.4 + FTS5 on 2026-09-11; spec 13.3's claim that the bare alias is the
+    /// only spelling that parses is wrong in both directions, and the spec is the side that is
+    /// being corrected.
     /// </para>
     /// <para>
     /// The fused <c>score</c> is a <b>similarity</b> - higher is better - the opposite polarity to
@@ -323,7 +332,12 @@ public sealed class EdgeVectorSchema
         sql.Append("         ROW_NUMBER() OVER (ORDER BY f.rank) AS rank,").Append(Newline);
         sql.Append("         f.rank AS bm25").Append(Newline);
         sql.Append("  FROM \"").Append(fts).Append("\" f").Append(Newline);
-        sql.Append("  WHERE f MATCH $keywords");
+        // "f.\"notes_fts\"", not the bare alias. FTS5 gives every table a hidden column named
+        // after the TABLE, and `<name> MATCH <expr>` is an ordinary comparison against that
+        // column - so a bare alias resolves as a column reference and SQLite answers
+        // "no such column: f". Measured against sqlite 3.53.4 + FTS5 on 2026-09-11; spec 13.3's
+        // "the alias is the only spelling that parses" is wrong in both directions.
+        sql.Append("  WHERE f.\"").Append(fts).Append("\" MATCH $keywords");
         if (hasFilter)
         {
             sql.Append(Newline).Append("    AND f.rowid IN (").Append(FilterSubquery()).Append(')');
@@ -365,7 +379,14 @@ public sealed class EdgeVectorSchema
     {
         var columns = string.Join(",", _dataColumns.Select(c => $"\"{c}\""));
         var values = string.Join(",", _dataColumns.Select(c => $"${c}"));
-        var updates = string.Join(",", _dataColumns.Skip(1).Select(c => $"\"{c}\"=excluded.\"{c}\""));
+
+        // A record with no data properties at all - a key and a pre-computed vector and nothing
+        // else - would otherwise emit "DO UPDATE SET" with an empty assignment list, which is a
+        // syntax error at the RETURNING that follows. Re-assigning the key is a no-op that keeps
+        // the conflicting row RETURNING its rowid, which the vec0 write then needs.
+        var updates = _dataColumns.Count > 1
+            ? string.Join(",", _dataColumns.Skip(1).Select(c => $"\"{c}\"=excluded.\"{c}\""))
+            : $"\"{KeyColumn}\"=excluded.\"{KeyColumn}\"";
 
         return $"INSERT INTO \"{DataTable}\"({columns}) VALUES ({values})" + Newline +
                $"  ON CONFLICT(\"{KeyColumn}\") DO UPDATE SET {updates}" + Newline +

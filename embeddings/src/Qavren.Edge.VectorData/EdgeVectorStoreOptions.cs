@@ -127,6 +127,13 @@ public sealed class EdgeVectorStoreCollectionOptions : MEVD.VectorStoreCollectio
     /// <summary>Overrides <see cref="EdgeVectorStoreOptions.KeywordCombinator"/> for this collection.</summary>
     public KeywordCombinator? KeywordCombinator { get; set; }
 
+    /// <summary>
+    /// Carries <see cref="EdgeVectorStoreOptions.FullTextRemoveDiacritics"/> down from the store
+    /// when <see cref="EdgeVectorStore"/> builds a collection. Internal on purpose: it is a store
+    /// -level decision, not a per-collection one, and spec 8 lists no public member for it.
+    /// </summary>
+    internal int? RemoveDiacritics { get; set; }
+
     /// <summary>Overrides <see cref="EdgeVectorStoreOptions.Rrf"/> for this collection.</summary>
     public RrfDefaults? Rrf { get; set; }
 

@@ -259,7 +259,7 @@ public class GoldenSqlTests
                 "         ROW_NUMBER() OVER (ORDER BY f.rank) AS rank,",
                 "         f.rank AS bm25",
                 "  FROM \"notes_fts\" f",
-                "  WHERE f MATCH $keywords",
+                "  WHERE f.\"notes_fts\" MATCH $keywords",
                 "    AND f.rowid IN (SELECT \"_rowid\" FROM \"notes\" WHERE " + Filter + ")",
                 "  ORDER BY f.rank",
                 "  LIMIT $cand",
@@ -294,7 +294,7 @@ public class GoldenSqlTests
                 "         ROW_NUMBER() OVER (ORDER BY f.rank) AS rank,",
                 "         f.rank AS bm25",
                 "  FROM \"notes_fts\" f",
-                "  WHERE f MATCH $keywords",
+                "  WHERE f.\"notes_fts\" MATCH $keywords",
                 "  ORDER BY f.rank",
                 "  LIMIT $cand",
                 ")",
@@ -328,15 +328,17 @@ public class GoldenSqlTests
     }
 
     [Fact]
-    public void TheKeywordLaneMatchesOnTheAliasNotTheTableName()
+    public void TheKeywordLaneMatchesOnTheHiddenColumnQualifiedByTheAlias()
     {
-        // FTS5's <table> MATCH <expr> form names the table, and once a table is aliased in SQLite
-        // the original name is out of scope - so inside a CTE that says FROM "notes_fts" f the
-        // alias is the only spelling that parses.
+        // FTS5 gives every table a HIDDEN COLUMN named after the table, and
+        // "<name> MATCH <expr>" is an ordinary comparison against that column - it is not a
+        // table-level operator. So inside a CTE that says FROM "notes_fts" f, the bare alias
+        // resolves as a column reference and SQLite answers "no such column: f"; the column has to
+        // be named, qualified by the alias. Measured against sqlite 3.53.4 + FTS5 on 2026-09-11.
         var sql = NoteSchema.BuildHybridRrfSql(hasFilter: false, includeVectors: false);
 
-        Assert.Contains("  WHERE f MATCH $keywords", sql, StringComparison.Ordinal);
-        Assert.DoesNotContain("\"notes_fts\" MATCH", sql, StringComparison.Ordinal);
+        Assert.Contains("  WHERE f.\"notes_fts\" MATCH $keywords", sql, StringComparison.Ordinal);
+        Assert.DoesNotContain("WHERE f MATCH", sql, StringComparison.Ordinal);
     }
 
     [Fact]
