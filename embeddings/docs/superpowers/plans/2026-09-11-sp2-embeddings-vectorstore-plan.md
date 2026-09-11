@@ -134,7 +134,7 @@ Every place this plan departs from the approved spec is enumerated here — whet
 
 11. **`EdgeMemoryPressure` is confirmed untouched.** The merged enum is `{ Low, Moderate, Critical }` with `Low = 0` and `EdgeLifecycleRecord.Level` is already `EdgeMemoryPressure?`. §6.4's nullable latch is therefore idiomatic and no renumbering is proposed. Recorded as a confirmation so a later reader does not re-open it.
 
-12. **Every verify command is `dotnet run --project <test csproj> -c Release -f net10.0 -p:TargetFrameworks=net10.0`, never `dotnet test`.** SP1 adjustment 36: the test projects multi-target for the device host, `dotnet run` refuses to pick a TFM, and `-f` alone does not stop restore walking the full `TargetFrameworks` list of the project *and everything it references* — so the workload check fires for TFMs this host cannot build. The two single-TFM projects (`…Conformance.Tests`, `…TrimSmoke`) take `-p:TargetFrameworks=net10.0` and no `-f`. **In a parallel phase every one of them also carries `-p:ArtifactsPath=D:\Local\Temp\qedge-sp2\w<wave>\t<task>`** (plan adjustment 26); the wave's close task re-runs the identical commands with that switch removed. (Every task.)
+12. **Every verify command is `dotnet run --project <test csproj> -c Release -f net10.0 -p:TargetFrameworks=net10.0`, never `dotnet test`.** SP1 adjustment 36: the test projects multi-target for the device host, `dotnet run` refuses to pick a TFM, and `-f` alone does not stop restore walking the full `TargetFrameworks` list of the project *and everything it references* — so the workload check fires for TFMs this host cannot build. The two single-TFM projects (`…Conformance.Tests`, `…TrimSmoke`) take `-p:TargetFrameworks=net10.0` and no `-f`. **In a parallel phase every one of them also carries `-p:ArtifactsPath=D:\Local\Temp\qedge-sp2\w<wave>\t<task>`** (plan adjustment 26); the wave's close task re-runs the identical commands with that switch removed. (Every task.) **Exception - a device-TFM build carries `-f <tfm>` and NO `-p:TargetFrameworks`.** `-p:` sets a *global* property that overrides `TargetFrameworks` in every project of the reference closure, not just the head, so a device TFM forces `Qavren.Edge.Core`, `Qavren.Edge.Sqlite` and `Qavren.Edge.VectorData` (singular `<TargetFramework>net10.0</TargetFramework>`) and `Qavren.Edge.Sqlite.Provider` and `Qavren.Edge.Sqlite.Native` (`net10.0;net10.0-ios`) to restore or build at a TFM they do not have - `NETSDK1005`, measured 2026-09-11. `ci.yml`'s four device lanes already pass `-f <tfm>` alone, and the per-OS `TargetFrameworks` guards inside the device heads' csproj do the job the flag was reaching for. The flag stays on the `net10.0` host-lane commands, where every project in the closure has `net10.0`.
 
 13. **The Apple TFM legs of `Qavren.Edge.Onnx` are compiled in CI, and a local probe decides whether they can also be compiled here.** Restore for `net10.0-ios` / `net10.0-maccatalyst` demonstrably works on this Windows host; whether the *compile* of `Platforms/iOS/**` (which touches `NSUrl`, `NSFileManager` and `DllImport("__Internal")`) succeeds without a Mac is not established, and §19 item 4 asks the question. Task 2.2 Step 8 runs the probe, prints the answer, and — like SP1's ARM64-toolset probe — **skips with a printed reason** rather than failing if the host refuses. The Apple compile is a CI gate either way.
 
@@ -4239,7 +4239,7 @@ No CI assertion is added for the platform floors, deliberately. A `SupportedOSPl
 
 ```powershell
 $p = "C:\Users\steve\projects\qavren-edge-sp2\foundation\tests\Qavren.Edge.DeviceTests\Qavren.Edge.DeviceTests.csproj"
-dotnet build $p -c Release -f net10.0-android -p:TargetFrameworks=net10.0-android
+dotnet build $p -c Release -f net10.0-android
 ```
 
 **If it succeeds:** nothing else changes. `Qavren.Edge.DeviceTests` keeps `21.0`, §5's "two edits and no others" holds for every shipped package, and the third edit is three lines of `ProjectReference`.
@@ -4258,7 +4258,7 @@ Record which branch was taken in `embeddings/docs/adr/0008-raised-platform-floor
 - [ ] **Step 3: Build for Windows**
 
 ```powershell
-dotnet build $p -c Release -f net10.0-windows10.0.19041.0 -p:TargetFrameworks=net10.0-windows10.0.19041.0
+dotnet build $p -c Release -f net10.0-windows10.0.19041.0
 ```
 
 Expected: succeeds. This proves the three five-TFM test libraries are referenceable from the Windows device head, which is the whole reason they carry `net10.0-windows10.0.19041.0` at all.
@@ -4315,8 +4315,8 @@ The existing page renders three more components with **no code change** — `Edg
 
 ```powershell
 $p = "C:\Users\steve\projects\qavren-edge-sp2\foundation\samples\Qavren.Edge.Sample\Qavren.Edge.Sample.csproj"
-dotnet build $p -c Release -f net10.0-windows10.0.19041.0 -p:TargetFrameworks=net10.0-windows10.0.19041.0
-dotnet build $p -c Release -f net10.0-android -p:TargetFrameworks=net10.0-android
+dotnet build $p -c Release -f net10.0-windows10.0.19041.0
+dotnet build $p -c Release -f net10.0-android
 ```
 
 Expected: both succeed. Then launch the Windows head and confirm the Embeddings page reports an accepted execution provider and the Search page shows three score columns. Apple heads are CI-only.
@@ -4340,7 +4340,7 @@ $heads = @(
   "foundation\samples\Qavren.Edge.Sample\Qavren.Edge.Sample.csproj")
 foreach ($h in $heads) {
   foreach ($tfm in 'net10.0-windows10.0.19041.0','net10.0-android') {
-    dotnet build "$root\$h" -c Release -f $tfm -p:TargetFrameworks=$tfm
+    dotnet build "$root\$h" -c Release -f $tfm
     if ($LASTEXITCODE -ne 0) { throw "FAILED: $h / $tfm" }
   }
 }

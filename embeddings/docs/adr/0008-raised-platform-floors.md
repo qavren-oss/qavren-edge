@@ -36,6 +36,22 @@ via `otool -l` or `vtool -show` on a Mac), because ORT's Apple build-settings
 file defines only its iphoneos, iphonesimulator and macosx archs and says
 nothing about which one the Mac Catalyst slice was actually cut from.
 
+Spec §19 item 2(a) is now answered, and the answer is the contingency branch.
+Building `Qavren.Edge.DeviceTests` for `net10.0-android` in Release with the
+three SP2 test libraries referenced FAILED the manifest merge while the host
+declared `21.0`: `XAAMM0000 / AMM0000 — uses-sdk:minSdkVersion 21 cannot be
+smaller than version 24 declared in library …/lp/172/jl/AndroidManifest.xml`,
+and the merger names the source directly: `Directory 'obj/Release/
+net10.0-android/lp/172' is from 'onnxruntime.aar'`. ORT's AAR floor is not
+silently absorbed — it is a hard build break. `Qavren.Edge.DeviceTests`
+therefore takes §16.4's one-line bump to `android 24.0`. It is SP1's test
+host, not a shipped package; §5's 'two edits and no others' holds for every
+shipped SP1 package, none of which moved. After the bump the merged manifest
+reads `<uses-sdk android:minSdkVersion="24" android:targetSdkVersion="36" />`
+and both the android and windows heads build with 0 warnings, 0 errors.
+
+Measured 2026-09-11 on Windows, .NET SDK 10.0.401, Microsoft.Android.Sdk.Windows 36.1.69.
+
 ## Decision
 
 SP2's own projects (`Qavren.Edge.Onnx`, `Qavren.Edge.Embeddings.Onnx`,
