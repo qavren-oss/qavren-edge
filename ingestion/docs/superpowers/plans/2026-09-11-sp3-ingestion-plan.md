@@ -2163,6 +2163,18 @@ Steps 2 and 3 printed their `OK` lines and `git status --short` is clean. Wave 2
 - Create: `ingestion\src\Qavren.Edge.Ingestion\IngestionMediaTypes.cs`
 - Create: `ingestion\tests\Qavren.Edge.Ingestion.Tests\*` (the suites named in Step 9)
 
+> **Hand-off from Task 3.1 — this task is NOT done.** Task 3.1 ran ahead of it and wrote
+> eight of these files in `ingestion\src\Qavren.Edge.Ingestion` as a **minimal
+> compile-against slice**, not as their real declarations: `AssemblyInfo.cs`,
+> `EdgeIngestionEventIds.cs`, `EdgeIngestionStartupOrder.cs`, `IngestionExceptions.cs`,
+> `DocumentModel.cs`, `IDocumentExtractor.cs`, `IngestionMediaTypes.cs`, and a ninth file
+> **`ExtractionOptions.cs`** that is not on this list at all. When 2.1 runs it must:
+> (a) **overwrite** those eight with the full declarations §11 lists; (b) **delete**
+> `ExtractionOptions.cs`, whose type belongs inside `IngestionOptions.cs` per this Files
+> list; and (c) decide `IngestionMediaTypes.Unknown`, which 3.1 left `internal` — keep it
+> internal or add it to §11's four public constants. `IngestionSource.cs` also exists
+> already, carrying both 2.1's abstract class and 3.1's five static factories.
+
 **Approach.** This is the wave that gives every later task something to compile against, so it declares the **whole** public surface §11 lists that does not depend on a running pipeline, and implements for real the things that are pure functions: hashing, the budget arithmetic, the recipe hash, the schema definition, the record mapper, and the two tokenizers. Nothing here opens a connection, touches a file, or needs DI. `AddIngestion` is **not** in this task — §11.1's five steps need the registry, the state store and the pipeline, and those are Task 5.1's.
 
 `AssemblyInfo.cs` carries **two** `InternalsVisibleTo` grants, and the second one is issued here — three waves before its consumer exists — for a structural reason, not a stylistic one (plan adjustment 24):
@@ -2677,7 +2689,7 @@ Resolves by media type first, then by extension, lower-case and dotted. **Consum
 2. **Strict UTF-8 probe** over the first 64 KiB with `new UTF8Encoding(false, throwOnInvalidBytes: true)`.
 3. **Fallback** to `Encoding.Latin1` — byte-preserving and in the BCL — logged as event 914. `StrictUtf8 = true` raises `DocumentEncodingUndecodable` (6106) instead.
 
-`UTF.Unknown` is **not** taken: MPL-1.1 in an MIT suite, and it drags the full legacy code-page tables into a mobile app for a case a notes corpus essentially never hits. Reading is line-at-a-time over the `StreamReader` into the text buffer; blocks are `Paragraph`s split on blank lines.
+`UTF.Unknown` is **not** taken: MPL-1.1 in an MIT suite, and it drags the full legacy code-page tables into a mobile app for a case a notes corpus essentially never hits. Reading is streamed off the `StreamReader` in fixed char blocks into the text buffer — `ReadLine` drops the terminator, so a line loop cannot reproduce the raw decode the `NormalizeText = false` offset path is defined against; blocks are `Paragraph`s split on blank lines.
 
 - [ ] **Step 6: `MarkdownExtractor`**
 
@@ -2691,7 +2703,7 @@ new MarkdownPipelineBuilder()
     .Build();
 ```
 
-never `UseAdvancedExtensions()`, which pulls in roughly eighteen. Blocks come from the top-level `MarkdownDocument` children; every `MarkdownObject` carries a `SourceSpan`, so a block's `[Start, End)` is the verbatim source range and chunk text is a **source substring**, not a lossy re-render — fences, tables and links survive intact. Setext headings are headings. Fenced code becomes `Code` blocks rather than being dropped. YAML front matter becomes `ExtractedDocument.Metadata`; no key is promoted. A Markdig parse fault is `MarkdownParseFailed` (6155), recorded per document.
+never `UseAdvancedExtensions()`, which pulls in roughly eighteen. Blocks come from the top-level `MarkdownDocument` children, except `Table` and `ListBlock`, which are descended one level so a table yields one `TableRow` block per row and a list one `ListItem` block per top-level item; every `MarkdownObject` carries a `SourceSpan`, so a block's `[Start, End)` is the verbatim source range and chunk text is a **source substring**, not a lossy re-render — fences, tables and links survive intact. Setext headings are headings. Fenced code becomes `Code` blocks rather than being dropped. YAML front matter becomes `ExtractedDocument.Metadata`; no key is promoted. A Markdig parse fault is `MarkdownParseFailed` (6155), recorded per document.
 
 **§17 item 9 is this step's gate.** Confirm that `HeadingBlock.Span` and leaf-block spans index the *original* source rather than a normalised copy. If they do, normalise first and record spans against the normalised buffer — that is the design. If they do **not**, the extractor normalises first and re-parses the normalised text, and records offsets against that; either way the invariant that offsets index `ExtractedDocument.Text` holds, and the task records which branch was taken. A test asserts `document.Text.Substring(block.Start, block.End - block.Start)` equals the expected source slice for every block of `headings.md` and `fences.md`.
 
@@ -2703,7 +2715,7 @@ In `Qavren.Edge.Ingestion.Tests\Extraction\`:
 
 - `TextNormalizerTests` — CRLF, lone CR, BOM, NFC; and that offsets recorded afterward land where expected.
 - `EncodingFallbackTests` — BOM detection for all five encodings, the strict probe, the Latin-1 fallback with event 914 asserted through a capturing logger, and 6106 under `StrictUtf8`.
-- `SeekabilityTests` — a non-seekable **small** stream is buffered once and ingests; a non-seekable stream over `NonSeekableBufferLimitBytes` raises 6053 **without being read to the end** (asserted with a counting stream); `OpenAsync` is called exactly twice per document by a spy source.
+- `SeekabilityTests` — a non-seekable **small** stream is buffered once and ingests; a non-seekable stream over `NonSeekableBufferLimitBytes` raises 6053 **without being read to the end** (asserted with a counting stream); `OpenAsync` is called exactly **once** per extraction by a spy source and the item is re-openable. *(The "exactly twice per document" assertion this step used to carry moved to Task 5.1 Step 8 — extraction opens once, and the hash pass that makes it two does not exist until the pipeline lands.)*
 - `NoReadAllBytesTests` — the assertion §7.1 asks for: reflect over `Qavren.Edge.Ingestion`'s IL, or grep the source tree from the test, and fail if `File.ReadAllBytes` or `File.ReadAllText` appears anywhere in `ingestion/src/**`. A source grep is the honest version here and is what the task ships, with the path resolved from the assembly location; on a device lane the test skips with a printed reason, because the source tree is not there.
 - `ExtractorRegistryTests` — resolution order (consumer first), media type before extension, 6004 on a duplicate id, 6101's remediation naming the right satellite for `.pdf` and `.docx`, and `Describe()`'s format.
 - `PlainTextExtractorTests` and `MarkdownExtractorTests` over the twelve committed fixtures: block kinds, block spans as verbatim substrings, the fenced `#` line not becoming a heading, the setext heading becoming one, the preamble surviving, front matter reaching `Metadata`, `empty.txt` and `whitespace-only.txt` yielding zero blocks and no throw.
@@ -3117,6 +3129,7 @@ In `Qavren.Edge.Ingestion.Tests\Runtime\` — unit and near-unit only; the full 
 - `DuplicateDocumentIdTests` — **6054**: a source yielding `"a.md"`, `"b.md"`, `"a.md"` produces `DocumentsSeen == 3`, `DocumentsIndexed == 2`, `DocumentsFailed == 1`; the third result carries `IngestionDuplicateDocumentId`; the extractor was invoked **twice**, not three times; and the first `a.md`'s chunks and state row are untouched. Plus the ordinal-comparison case: `"A.md"` and `"a.md"` in one run are **two** documents, not a duplicate.
 - `ExtractionFaultTests` — **6102**: an extractor that throws a bare `InvalidOperationException` yields a document recorded `Failed` with `ExtractionFailed`, `ExtractorId` set, the original as `InnerException`, event 907 logged, and the run `Completed`. Parameterised alongside four extractors that throw 6103 / 6104 / 6106 / 6107, each of which must arrive **unchanged** rather than re-wrapped as 6102 — the split is what makes the code worth having.
 - `NoDocumentTextInLogsTests` — as described in Step 7.
+- `SourceOpenCountTests` — **re-filed here from Task 3.1 Step 7**: `OpenAsync` is called exactly **twice** per document by a spy source, the hash pass plus the extraction pass (§9.4). Wave 3 could only prove the extraction half, because the hash pass does not exist until this task.
 
 - [ ] **Step 9: Verify**
 

@@ -44,3 +44,8 @@ dotnet_diagnostic.CA1859.severity = none
 [embeddings/tests/**/*.cs]
 dotnet_diagnostic.CA1707.severity = none
 dotnet_diagnostic.CA1859.severity = none
+
+# SP3 test projects get the same relaxations as SP1's and SP2's.
+[ingestion/tests/**/*.cs]
+dotnet_diagnostic.CA1707.severity = none
+dotnet_diagnostic.CA1859.severity = none

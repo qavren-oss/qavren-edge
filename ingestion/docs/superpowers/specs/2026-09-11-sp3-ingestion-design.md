@@ -408,7 +408,11 @@ converts `IngestionDocumentImage` to nothing and logs event 917 once per documen
 
 Extractors stream internally and append into the text buffer as they go — PDF
 page-at-a-time, DOCX through `OpenXmlPartReader` above a threshold, text and
-Markdown line-at-a-time over a `StreamReader`. The buffer is the one thing held
+Markdown streamed off a `StreamReader` in fixed char blocks into the text
+buffer. `ReadLine` is deliberately not used: it drops the terminator, so a line
+loop cannot reproduce the raw decode the `NormalizeText = false` offset path is
+defined against — it would rewrite every CRLF to LF and move every offset. The
+buffer is the one thing held
 whole, which is why `MaxDocumentBytes` exists (§9.1) and why verification item 5
 measures peak RSS on a device rather than asserting it here.
 
@@ -515,7 +519,9 @@ dependencies on net10.0).
 
 Pipeline is built explicitly — `UsePipeTables().UseYamlFrontMatter().UsePreciseSourceLocation()`
 — never `UseAdvancedExtensions()`, which pulls in roughly eighteen. Blocks come
-from the top-level `MarkdownDocument` children; every `MarkdownObject` carries a
+from the top-level `MarkdownDocument` children, except `Table` and `ListBlock`,
+which are descended one level so a table yields one `TableRow` block per row and
+a list one `ListItem` block per top-level item; every `MarkdownObject` carries a
 `SourceSpan`, so a block's `[Start, End)` is the verbatim source range and chunk
 text is a source substring, not a lossy re-render. Fences, tables and links
 survive intact.
@@ -1419,6 +1425,22 @@ public static class IngestionMediaTypes
     /// so a caller can hand the result straight to DocumentSourceItem.MediaType.
     /// </summary>
     public static string FromExtension(string fileNameOrExtension);
+}
+
+/// <summary>§7.2. Built in; registered by AddIngestion after any consumer extractor.</summary>
+public sealed class PlainTextExtractor : IDocumentExtractor
+{
+    public PlainTextExtractor();
+    /// <summary>The only way PlainTextExtractorOptions can ever apply.</summary>
+    public PlainTextExtractor(PlainTextExtractorOptions options);
+}
+
+/// <summary>§7.3. Built in; registered by AddIngestion after any consumer extractor.</summary>
+public sealed class MarkdownExtractor : IDocumentExtractor
+{
+    public MarkdownExtractor();
+    /// <summary>The only way MarkdownExtractorOptions can ever apply.</summary>
+    public MarkdownExtractor(MarkdownExtractorOptions options);
 }
 
 // ── Chunking ──────────────────────────────────────────────────────────────────
