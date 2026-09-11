@@ -1,0 +1,16 @@
+# Sub-project 4 tier-2 fixture toolchain. Run BY HAND; never a build step and never CI.
+# Resolved and verified on this box 2026-09-11 for CPython 3.14.5 / win-x64 (43 packages, onnx-ir included).
+# onnxruntime matches the .NET pin exactly so a fixture that loads here loads there; onnx and
+# numpy are pinned for the same reason sub-project 2 pins them - they are what serialises the
+# initializers whose exact byte counts Step 5 asserts.
+onnxruntime-genai==0.15.2
+onnxruntime==1.30.0
+onnx==1.22.0
+numpy==2.5.3
+torch==2.14.0
+transformers==5.17.0
+# onnx-ir is a HARD dependency of onnxruntime_genai.models.builder that the 0.15.2 wheel does not
+# declare: `import onnx_ir as ir` is line 18 of builder.py and the install fails at runtime with
+# ModuleNotFoundError without it. Pinned like the rest - ir.save() is what writes model.onnx and
+# model.onnx.data, whose byte counts the generated Length consts assert.
+onnx-ir==1.0.0
