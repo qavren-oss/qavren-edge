@@ -204,7 +204,7 @@ jobs:
 
       - name: Publish JUnit results
         if: always()
-        uses: dorny/test-reporter@v1
+        uses: dorny/test-reporter@v3
         with:
           name: device tests (android)
           path: artifacts/junit/*.xml
@@ -269,7 +269,7 @@ jobs:
 
       - name: Publish JUnit results
         if: always()
-        uses: dorny/test-reporter@v1
+        uses: dorny/test-reporter@v3
         with:
           name: device tests (ios)
           path: artifacts/junit/*.xml
@@ -323,7 +323,7 @@ jobs:
 
       - name: Publish JUnit results
         if: always()
-        uses: dorny/test-reporter@v1
+        uses: dorny/test-reporter@v3
         with:
           name: device tests (maccatalyst)
           path: artifacts/junit/*.xml
@@ -370,7 +370,7 @@ jobs:
 
       - name: Publish JUnit results
         if: always()
-        uses: dorny/test-reporter@v1
+        uses: dorny/test-reporter@v3
         with:
           name: device tests (windows)
           path: artifacts/junit/*.xml
