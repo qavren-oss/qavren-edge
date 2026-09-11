@@ -103,6 +103,29 @@ task that implements it. If a reader diffing the spec against the plan finds a d
     `pull_request`, so `release.yml` still always builds. `assert-workflows.py` fails the build if
     `force` reappears anywhere or if the cache key loses a component. (Task 6.2 Steps 5, 6, 7 and
     the workflow contract check.)
+
+**Spec adjustment (post-merge, 2026-09-11) — `native.yml` loses its own triggers, and `reuse`
+repairs a missing cache instead of failing.** Adjustments 28 and 34 left `native.yml` carrying
+`on: push`/`on: pull_request` *and* being called by `ci.yml`, so every push and every pull request
+ran each native leg **twice, in parallel**. On the first push to the default branch the two
+Windows legs raced for the identical `qedge-native-windows-<hash>` cache key; the loser logged
+"Unable to reserve cache with key ...", so no Windows cache entry was ever saved. The next
+managed-only PR (a `.github/dependabot.yml` edit) then took the `reuse` path, restored Linux and
+Apple but not Windows, and hard-failed — taking `native-gate` and `ci-gate` red on a YAML-only
+change. Three corrections, all inside `.github/` and the contract check:
+(a) `native.yml` is reachable **only** via `workflow_call` and `workflow_dispatch`, so each leg is
+built exactly once per event and the cache race cannot recur;
+(b) `reuse` no longer treats a cache miss as fatal — per leg it falls back to that leg's
+`native-*` artifact from the newest successful `ci` run on the default branch
+(`.github/scripts/reuse-native-artifact.sh`), re-seeds the cache from it, and republishes it under
+the unchanged artifact name; only when both the cache entry and the artifact are gone does it fail
+with the `workflow_dispatch` instruction. `ci.yml`'s `natives` job grants `actions: read`, because
+a called workflow can only narrow the caller's token;
+(c) with no standalone run, the gate's check-run name on a PR is `natives / native-gate`, not
+`native-gate`, so `branch-protection.json` and `assert-workflows.py` now name that context.
+Adjustment 28's reasoning is unchanged — only the string GitHub reports it under. (Task 6.2 and
+the workflow contract check.)
+
 35. **§8.7 — `MemoryPressure(Critical)` calls `ClearAllPools()`, not `ClearPool(...)` per database.**
     The spec says "`SqliteConnection.ClearPool(...)` **for each database**". `ClearPool(connection)`
     resolves to `connection.PoolGroup.Clear()`, and pool groups are keyed on the **raw connection
