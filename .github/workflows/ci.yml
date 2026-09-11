@@ -100,6 +100,28 @@ jobs:
             Write-Host "OK $tfm -> $got"
           }
 
+      # PdfPig ships NO net10.0 TFM and must resolve lib/net9.0 on every TFM. The failure this
+      # guards is a static-constructor throw on a device with no compile error anywhere: the
+      # netstandard2.0 copy of UglyToad.PdfPig.Fonts.dll contains neither AndroidSystemFontLister
+      # nor IOSSystemFontLister and raises NotSupportedException the first time a PDF references
+      # a non-embedded font (spec 14.6). Written against the PdfPig id directly - unlike ORT's
+      # native package, PdfPig carries its own compile assets, so the assertion is not vacuous.
+      - name: Assert PdfPig asset resolution
+        if: matrix.os == 'windows-2025'
+        shell: pwsh
+        run: |
+          $assets = 'ingestion/tests/Qavren.Edge.Ingestion.Extractors.Tests/obj/project.assets.json'
+          if (-not (Test-Path $assets)) { throw "no project.assets.json at $assets" }
+          $a = Get-Content $assets -Raw | ConvertFrom-Json
+          foreach ($tfm in 'net10.0','net10.0-android','net10.0-ios','net10.0-maccatalyst','net10.0-windows10.0.19041.0') {
+            $entry = $a.targets.$tfm.'PdfPig/0.1.16'
+            if (-not $entry) { throw "$tfm did not resolve PdfPig 0.1.16" }
+            $names = $entry.compile.PSObject.Properties.Name
+            $bad = $names | Where-Object { $_ -notlike 'lib/net9.0/*' }
+            if ($bad) { throw "$tfm resolved PdfPig to '$($bad -join ',')'; expected lib/net9.0" }
+            Write-Host "OK $tfm -> lib/net9.0 ($($names.Count) assemblies)"
+          }
+
       - name: Provider drift check
         run: >
           dotnet run --project foundation/tools/ProviderGen/ProviderGen.csproj -c Release --
@@ -159,6 +181,19 @@ jobs:
       # Single-TFM project, so no -f. It is host-only and never runs on a device lane (spec 16.4).
       - name: VectorData conformance
         run: dotnet run --project embeddings/tests/Qavren.Edge.VectorData.Conformance.Tests/Qavren.Edge.VectorData.Conformance.Tests.csproj -c Release -p:TargetFrameworks=net10.0
+
+      - name: Ingestion tests
+        run: dotnet run --project ingestion/tests/Qavren.Edge.Ingestion.Tests/Qavren.Edge.Ingestion.Tests.csproj -c Release -f net10.0 -p:TargetFrameworks=net10.0
+
+      - name: Ingestion extractor tests
+        run: dotnet run --project ingestion/tests/Qavren.Edge.Ingestion.Extractors.Tests/Qavren.Edge.Ingestion.Extractors.Tests.csproj -c Release -f net10.0 -p:TargetFrameworks=net10.0
+
+      # Single-TFM projects, so no -f. Both are host-only and never run on a device lane (spec 4.2).
+      - name: Ingestion Onnx tests
+        run: dotnet run --project ingestion/tests/Qavren.Edge.Ingestion.Onnx.Tests/Qavren.Edge.Ingestion.Onnx.Tests.csproj -c Release -p:TargetFrameworks=net10.0
+
+      - name: Ingestion MEDI tests
+        run: dotnet run --project ingestion/tests/Qavren.Edge.Ingestion.DataIngestion.Tests/Qavren.Edge.Ingestion.DataIngestion.Tests.csproj -c Release -p:TargetFrameworks=net10.0
 
       - name: Pack
         if: matrix.os == 'windows-2025'
@@ -465,6 +500,18 @@ jobs:
       - name: Run trimmed
         run: ./artifacts/trim-smoke/Qavren.Edge.TrimSmoke
 
+      - name: Publish trimmed with both ingestion satellites
+        continue-on-error: true
+        run: >
+          dotnet publish embeddings/tools/Qavren.Edge.TrimSmoke/Qavren.Edge.TrimSmoke.csproj
+          -c Release -r linux-x64 --self-contained true -o ./artifacts/trim-smoke-satellites
+          -p:PublishTrimmed=true -p:QedgeTrimSatellites=true
+          -p:TargetFrameworks=net10.0 -p:TargetFramework=net10.0
+
+      - name: Run the satellite trim smoke
+        continue-on-error: true
+        run: ./artifacts/trim-smoke-satellites/Qavren.Edge.TrimSmoke
+
       - name: Publish AOT
         continue-on-error: true
         run: >
@@ -529,6 +576,36 @@ jobs:
       # constructor, which is why the session is built inside the test body (spec 16.3).
       - name: Tier-3 embedding tests
         run: dotnet run --project embeddings/tests/Qavren.Edge.Embeddings.Tests/Qavren.Edge.Embeddings.Tests.csproj -c Release -f net10.0 -p:TargetFrameworks=net10.0
+
+      - name: Ingestion tier-3 (real model)
+        run: dotnet run --project ingestion/tests/Qavren.Edge.Ingestion.Tests/Qavren.Edge.Ingestion.Tests.csproj -c Release -f net10.0 -p:TargetFrameworks=net10.0
+        env:
+          QAVREN_EDGE_TIER3: '1'
+
+      # Real-world document lane. Fetches by pinned SHA-256 into the same content-hash cache and
+      # commits nothing; the manifest (Task 1.3 Step 6b) is a committed file with a schema, not a
+      # URL in a YAML comment (plan adjustment 26). An empty manifest is a visible ::warning::, not
+      # a silent no-op, and a wrong digest fails the job loudly.
+      - name: Fetch the real-world document corpus
+        shell: bash
+        run: |
+          set -euo pipefail
+          manifest=ingestion/tests/fixtures/realworld-corpus.json
+          mkdir -p "$QAVREN_EDGE_DOCS_DIR"
+          count=$(jq '.documents | length' "$manifest")
+          if [ "$count" -eq 0 ]; then
+            echo "::warning title=Spec 14.5 owed::realworld-corpus.json is empty; the real-world document lane asserts nothing. Add entries to ingestion/tests/fixtures/realworld-corpus.json."
+            exit 0
+          fi
+          jq -r '.documents[] | [.id, .url, .sha256] | @tsv' "$manifest" |
+          while IFS=$'\t' read -r id url sha; do
+            out="$QAVREN_EDGE_DOCS_DIR/$id"
+            curl -fsSL --retry 3 -o "$out" "$url"
+            echo "$sha  $out" | sha256sum -c -
+          done
+          echo "fetched $count real-world documents"
+        env:
+          QAVREN_EDGE_DOCS_DIR: ${{ github.workspace }}/.docs-cache
 
   # The required status check for ci (adjustment 28). It always reports; it is red if any job
   # it depends on failed or was cancelled, green if they all succeeded or were skipped.
