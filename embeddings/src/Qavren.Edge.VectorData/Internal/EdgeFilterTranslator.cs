@@ -85,21 +85,8 @@ public sealed class EdgeFilterTranslator : FilterTranslatorBase
         _ => false,
     };
 
-    private static string FormatLiteral(object? value) => value switch
-    {
-        null => "NULL",
-        string s => "'" + s.Replace("'", "''", StringComparison.Ordinal) + "'",
-        bool b => b ? "1" : "0",
-        Guid g => "'" + g.ToString("D", CultureInfo.InvariantCulture).ToUpperInvariant() + "'",
-        DateTime d => "'" + d.ToString("O", CultureInfo.InvariantCulture) + "'",
-        DateTimeOffset d => "'" + d.ToString("O", CultureInfo.InvariantCulture) + "'",
-        DateOnly d => "'" + d.ToString("O", CultureInfo.InvariantCulture) + "'",
-        TimeOnly t => "'" + t.ToString("O", CultureInfo.InvariantCulture) + "'",
-        byte[] bytes => "X'" + Convert.ToHexString(bytes) + "'",
-        IFormattable f => f.ToString(null, CultureInfo.InvariantCulture),
-        _ => throw new NotSupportedException(
-            $"This provider cannot inline a constant of type '{value.GetType()}' into SQLite SQL."),
-    };
+    private static string Quote(string value) =>
+        "'" + value.Replace("'", "''", StringComparison.Ordinal) + "'";
 
     private void TranslatePredicate(Expression node)
     {
@@ -114,15 +101,34 @@ public sealed class EdgeFilterTranslator : FilterTranslatorBase
                 return;
 
             case UnaryExpression { NodeType: ExpressionType.Not } not:
-                _sql.Append("NOT (");
+                // SQL's NOT is three-valued and C#'s is not. Over a row whose String column is
+                // NULL, "String" = 'foo' is unknown, so a bare NOT (...) is unknown too and the row
+                // is dropped - where C# evaluates !(r.String == "foo") to true and keeps it.
+                // COALESCE collapses the unknown to false before the negation, which is exactly the
+                // C# semantics MEVD's filter contract is written in.
+                _sql.Append("NOT COALESCE(");
                 TranslatePredicate(not.Operand);
-                _sql.Append(')');
+                _sql.Append(", 0)");
                 return;
 
             case BinaryExpression binary when TryComparisonOperator(binary.NodeType, out var op):
                 TranslateComparison(binary, op);
                 return;
+        }
 
+        // A bare boolean column in predicate position: r.Bool on the typed path, and
+        // (bool)r["Bool"] - a Convert over the dictionary indexer - on the dynamic one. The dynamic
+        // shape has to be recognised here, ahead of the MethodCallExpression arm below, which would
+        // otherwise hand Dictionary.get_Item to the method translator and refuse it.
+        if (node.Type == typeof(bool) && BindsToColumn(node))
+        {
+            TranslateValue(node);
+            _sql.Append(" = 1");
+            return;
+        }
+
+        switch (node)
+        {
             case MethodCallExpression call:
                 TranslateMethodCall(call);
                 return;
@@ -132,7 +138,7 @@ public sealed class EdgeFilterTranslator : FilterTranslatorBase
                 return;
 
             default:
-                // A bare boolean property or parameter in predicate position.
+                // A bare boolean parameter or constant in predicate position.
                 if (node.Type == typeof(bool))
                 {
                     TranslateValue(node);
@@ -162,6 +168,20 @@ public sealed class EdgeFilterTranslator : FilterTranslatorBase
             {
                 TranslateValue(nullOnRight ? binary.Left : binary.Right);
                 _sql.Append(binary.NodeType == ExpressionType.Equal ? " IS NULL" : " IS NOT NULL");
+                return;
+            }
+
+            // Over a nullable column, <> is three-valued where C#'s != is not: NULL <> 'foo' is
+            // unknown and drops the row, but r.String != "foo" over a null String is true and keeps
+            // it. SQLite's IS NOT is the two-valued form of the same comparison - identical for
+            // non-NULL operands - so it is used exactly where a NULL can actually turn up. A
+            // non-nullable column keeps plain <>, which reads better and stays index-friendly.
+            if (binary.NodeType == ExpressionType.NotEqual
+                && (BindsToNullableColumn(binary.Left) || BindsToNullableColumn(binary.Right)))
+            {
+                TranslateValue(binary.Left);
+                _sql.Append(" IS NOT ");
+                TranslateValue(binary.Right);
                 return;
             }
         }
@@ -276,7 +296,7 @@ public sealed class EdgeFilterTranslator : FilterTranslatorBase
         switch (Unwrap(argument))
         {
             case ConstantExpression { Value: string constant }:
-                _sql.Append(FormatLiteral(prefix + EscapeLikePattern(constant) + suffix));
+                _sql.Append(Quote(prefix + EscapeLikePattern(constant) + suffix));
                 break;
 
             case QueryParameterExpression { Value: string captured }:
@@ -305,6 +325,16 @@ public sealed class EdgeFilterTranslator : FilterTranslatorBase
         }
         catch (InvalidOperationException ex)
         {
+            // A DYNAMIC filter naming a property the collection does not have is the caller's
+            // mistake, and MEVD's own InvalidOperationException - which quotes the bad name - is
+            // both what the abstraction documents and what the conformance suite asserts, so it is
+            // left to travel. A TYPED member that maps to no column is a provider-side gap in the
+            // model, and that one owes the caller a NotSupportedException naming the member.
+            if (unwrapped is MethodCallExpression)
+            {
+                throw;
+            }
+
             throw new NotSupportedException(
                 $"This provider cannot translate the expression '{unwrapped}': {ex.Message}", ex);
         }
@@ -322,7 +352,7 @@ public sealed class EdgeFilterTranslator : FilterTranslatorBase
                 return;
 
             case ConstantExpression constant:
-                _sql.Append(FormatLiteral(constant.Value));
+                AppendConstant(constant.Value);
                 return;
 
             case MemberExpression member:
@@ -330,6 +360,68 @@ public sealed class EdgeFilterTranslator : FilterTranslatorBase
 
             default:
                 throw Unsupported(unwrapped);
+        }
+    }
+
+    /// <summary>
+    /// Renders an inline constant. Text, booleans and numbers are written straight into the SQL -
+    /// their SQLite spelling is unambiguous and an inlined literal keeps the emitted predicate
+    /// readable and loggable. Everything else is BOUND instead, because its stored spelling belongs
+    /// to Microsoft.Data.Sqlite rather than to this translator: a <see cref="DateTime"/> is stored
+    /// as <c>2020-01-01 12:30:45</c>, not as the round-trip <c>O</c> form, and a literal that
+    /// guessed differently would silently match nothing. Binding is the only way a filter's
+    /// spelling is guaranteed to be the writer's spelling, for every type and every version.
+    /// </summary>
+    /// <param name="value">The constant's value.</param>
+    private void AppendConstant(object? value)
+    {
+        switch (value)
+        {
+            case null:
+                _sql.Append("NULL");
+                return;
+
+            case string text:
+                _sql.Append(Quote(text));
+                return;
+
+            case bool flag:
+                _sql.Append(flag ? '1' : '0');
+                return;
+
+            case int or long or short or sbyte or byte or uint or ulong or ushort or float or double:
+                _sql.Append(((IFormattable)value).ToString(null, CultureInfo.InvariantCulture));
+                return;
+
+            default:
+                _sql.Append(AddParameter(value));
+                return;
+        }
+    }
+
+    /// <summary>Whether the expression binds to a column of this collection.</summary>
+    /// <param name="node">The candidate expression.</param>
+    /// <returns><see langword="true"/> when it names a modelled property.</returns>
+    private bool BindsToColumn(Expression node) => TryBindColumn(node) is not null;
+
+    /// <summary>Whether the expression binds to a column whose value can be SQL NULL.</summary>
+    /// <param name="node">The candidate expression.</param>
+    /// <returns><see langword="true"/> when it names a modelled property of a nullable type.</returns>
+    private bool BindsToNullableColumn(Expression node) =>
+        TryBindColumn(node) is { } property
+        && (!property.Type.IsValueType || Nullable.GetUnderlyingType(property.Type) is not null);
+
+    private PropertyModel? TryBindColumn(Expression node)
+    {
+        try
+        {
+            return TryBindProperty(Unwrap(node), out var property) ? property : null;
+        }
+        catch (InvalidOperationException)
+        {
+            // Not a column. The caller is only asking a question here; whoever goes on to translate
+            // the node reports the failure.
+            return null;
         }
     }
 

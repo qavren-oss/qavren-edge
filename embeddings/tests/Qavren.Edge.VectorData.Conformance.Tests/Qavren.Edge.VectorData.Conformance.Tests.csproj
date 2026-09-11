@@ -5,7 +5,14 @@
          lane. The MEVD conformance suite needs a file-system database and a full xunit host, it
          asserts nothing platform-specific, and four extra TFMs would add four build legs to prove
          nothing. -->
-    <TargetFramework>net10.0</TargetFramework>
+    <!-- Spelled TargetFrameworks (plural) with one entry, not <TargetFramework>. The plan's
+         verify command passes -p:TargetFrameworks=net10.0 as a global property (plan
+         adjustment 12); against a project that declares the singular property MSBuild then
+         sees both, runs the cross-targeting outer build, and the xunit.v3 buildTransitive
+         props that switch Microsoft.Testing.Platform's generated entry point off never load -
+         two Main methods and CS8892. One entry here keeps the command literal and the
+         project single-TFM. -->
+    <TargetFrameworks>net10.0</TargetFrameworks>
     <OutputType>Exe</OutputType>
     <IsPackable>false</IsPackable>
     <NoWarn>$(NoWarn);MEVD9001</NoWarn>

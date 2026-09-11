@@ -78,7 +78,21 @@ public class FilterTranslatorTests
             Sql(r => (r.Tag == "red" || r.Tag == "blue") && r.Count > 3));
 
     [Fact]
-    public void Not() => Assert.Equal("NOT (\"Tag\" = 'red')", Sql(r => !(r.Tag == "red")));
+    public void NotCollapsesTheUnknownBeforeNegating()
+    {
+        // NOT in SQL is three-valued and NOT in C# is not. Over a row whose Tag is NULL,
+        // "Tag" = 'red' is unknown, so a bare NOT (...) is unknown too and the row is dropped -
+        // where !(r.Tag == "red") is true in C# and keeps it. COALESCE collapses the unknown to
+        // false first, which is the C# semantics MEVD's filter contract is written in and what the
+        // conformance suite's Not_over_Or and Not_over_bool assert.
+        Assert.Equal("NOT COALESCE(\"Tag\" = 'red', 0)", Sql(r => !(r.Tag == "red")));
+    }
+
+    [Fact]
+    public void InequalityOverANullableColumnIsNullSafe() =>
+        // Tag is nullable, so <> would drop the NULL rows that C#'s != keeps. IS NOT is the
+        // two-valued form of the same comparison. Count, below, is not nullable and keeps <>.
+        Assert.Equal("\"Tag\" IS NOT 'red'", Sql(r => r.Tag != "red"));
 
     [Fact]
     public void IsNull() => Assert.Equal("\"Tag\" IS NULL", Sql(r => r.Tag == null));

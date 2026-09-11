@@ -216,7 +216,15 @@ public sealed class CollectionLifecycleTests
             Token);
 
         var hits = await collection
-            .HybridSearchAsync("the quick brown fox", ["quick", "fox"], top: 3, cancellationToken: Token)
+            .HybridSearchAsync(
+                "the quick brown fox",
+                ["quick", "fox"],
+                top: 3,
+                // Note has TWO full-text columns, and MEVD's GetFullTextDataPropertyOrSingle - the
+                // resolution the spec names - refuses to guess between them. Naming the lane is the
+                // contract, not a workaround.
+                new HybridSearchOptions<Note> { AdditionalProperty = n => n.Body },
+                Token)
             .ToListAsync(Token);
 
         Assert.NotEmpty(hits);
@@ -260,7 +268,12 @@ public sealed class CollectionLifecycleTests
 
         // Any of these reaching FTS5 unquoted is a syntax error, not a result set.
         var hits = await collection
-            .HybridSearchAsync("harmless text", ["harmless\" OR x:(", "NEAR("], top: 2, cancellationToken: Token)
+            .HybridSearchAsync(
+                "harmless text",
+                ["harmless\" OR x:(", "NEAR("],
+                top: 2,
+                new HybridSearchOptions<Note> { AdditionalProperty = n => n.Body },
+                Token)
             .ToListAsync(Token);
 
         Assert.NotEmpty(hits);

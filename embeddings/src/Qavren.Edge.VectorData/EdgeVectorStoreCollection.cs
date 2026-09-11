@@ -744,10 +744,10 @@ public class EdgeVectorStoreCollection<TKey, TRecord>
     {
         if (includeVectors && Model.EmbeddingGenerationRequired)
         {
-            throw new NotSupportedException(
-                $"Collection '{Name}' generates its embeddings from a source property, so there is no vector " +
-                "property to read them back into. IncludeVectors is not supported on a model with embedding " +
-                "generation.");
+            // The message is MEVD's own: a model that generates its embeddings from a source
+            // property has no vector property to read them back into, and every provider says so in
+            // the same words so that a caller can match on one string across providers.
+            throw new NotSupportedException(VectorDataStrings.IncludeVectorsNotSupportedWithEmbeddingGeneration);
         }
     }
 
@@ -906,11 +906,14 @@ public class EdgeVectorStoreCollection<TKey, TRecord>
             sql = sql.Replace(EdgeVectorSchema.FilterPlaceholder, translation.Sql, StringComparison.Ordinal);
         }
 
+        // Resolved even when the caller named no property, because that is the call that refuses an
+        // ambiguous query: with more than one full-text column and no property named, MEVD owes the
+        // caller an InvalidOperationException rather than a silent MATCH across every column.
+        var fullTextProperty = Model.GetFullTextDataPropertyOrSingle(options?.AdditionalProperty);
+
         // With one full-text column the unqualified expression already means that column, so the
         // column filter is emitted only when the caller asked for a specific property.
-        var columnFilter = options?.AdditionalProperty is null
-            ? null
-            : Model.GetFullTextDataPropertyOrSingle(options.AdditionalProperty).StorageName;
+        var columnFilter = options?.AdditionalProperty is null ? null : fullTextProperty.StorageName;
 
         var parameters = new List<SqliteParameter>
         {
@@ -1018,26 +1021,73 @@ public class EdgeVectorStoreCollection<TKey, TRecord>
             return vector;
         }
 
-        if (searchValue is not string text)
+        // The per-collection query override comes first and is string-only by construction:
+        // EdgeVectorData.QueryGeneratorServiceKey resolves an IEmbeddingGenerator<string, ...>, so a
+        // search value of any other type is not its business and falls through to the model.
+        if (searchValue is string queryText
+            && _options.QueryEmbeddingGenerator is IEmbeddingGenerator<string, Embedding<float>> queryGenerator)
         {
-            throw new NotSupportedException(
-                $"This provider cannot search with a '{searchValue?.GetType().ToString() ?? "null"}'. Pass a string, " +
-                "ReadOnlyMemory<float>, float[] or Embedding<float>.");
+            var queryEmbeddings = await queryGenerator
+                .GenerateAsync([queryText], options: null, cancellationToken)
+                .ConfigureAwait(false);
+            return queryEmbeddings[0].Vector;
         }
 
-        // The query generator, in order: the per-collection override, the sibling the builder
-        // resolved onto the model, then the document generator itself.
-        var generator = _options.QueryEmbeddingGenerator
-            ?? Model.VectorProperty.EmbeddingGenerator
-            ?? _options.EmbeddingGenerator;
-
-        if (generator is not IEmbeddingGenerator<string, Embedding<float>> typed)
+        // Then MEVD's own dispatcher, which is the only thing that knows every input type the
+        // configured generator accepts - a custom TInput from
+        // VectorStoreVectorProperty<TInput> included, which no string test could reach.
+        if (Model.VectorProperty.EmbeddingGenerationDispatcher is not null)
         {
-            throw MissingGenerator(Model.VectorProperty.ModelName);
+            var supported = Model.VectorProperty.GetSupportedInputTypes();
+            if (searchValue is null || !Array.Exists(supported, t => t.IsInstanceOfType(searchValue)))
+            {
+                throw new InvalidOperationException(
+                    VectorDataStrings.IncompatibleEmbeddingGeneratorWasConfiguredForInputType(
+                        searchValue?.GetType() ?? typeof(object),
+                        (Model.VectorProperty.EmbeddingGenerator ?? _options.EmbeddingGenerator)?.GetType()
+                            ?? Model.VectorProperty.EmbeddingGenerationDispatcher.GetType()));
+            }
+
+            var generated = await Model.VectorProperty
+                .GenerateEmbeddingAsync(searchValue, cancellationToken)
+                .ConfigureAwait(false);
+
+            if (generated is Embedding<float> embedding)
+            {
+                return embedding.Vector;
+            }
+
+            throw new InvalidOperationException(
+                VectorDataStrings.IncompatibleEmbeddingGeneratorWasConfiguredForInputType(
+                    searchValue.GetType(),
+                    generated.GetType()));
         }
 
-        var embeddings = await typed.GenerateAsync([text], options: null, cancellationToken).ConfigureAwait(false);
-        return embeddings[0].Vector;
+        // A natively-typed vector property has no dispatcher, so a store- or collection-level
+        // generator configured purely to embed the QUERY - the search-only shape - is resolved here.
+        var searchOnlyGenerator = Model.VectorProperty.EmbeddingGenerator ?? _options.EmbeddingGenerator;
+        if (searchOnlyGenerator is not null)
+        {
+            if (searchValue is string text
+                && searchOnlyGenerator is IEmbeddingGenerator<string, Embedding<float>> stringGenerator)
+            {
+                var embeddings = await stringGenerator
+                    .GenerateAsync([text], options: null, cancellationToken)
+                    .ConfigureAwait(false);
+                return embeddings[0].Vector;
+            }
+
+            throw new InvalidOperationException(
+                VectorDataStrings.IncompatibleEmbeddingGeneratorWasConfiguredForInputType(
+                    searchValue?.GetType() ?? typeof(object),
+                    searchOnlyGenerator.GetType()));
+        }
+
+        // Nothing can turn this value into a vector, and MEVD words that refusal for every provider.
+        throw new NotSupportedException(
+            VectorDataStrings.InvalidSearchInputAndNoEmbeddingGeneratorWasConfigured(
+                searchValue?.GetType() ?? typeof(object),
+                SqliteTypeMap.SupportedVectorTypes));
     }
 
     private async Task RunStatementsAsync(

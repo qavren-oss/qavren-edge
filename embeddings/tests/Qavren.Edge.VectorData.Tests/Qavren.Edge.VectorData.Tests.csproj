@@ -56,5 +56,16 @@
          stages qedge_sqlite3.dll flat beside the test binary, so the host lane runs on a dev box
          with no package installed. Same arrangement Qavren.Edge.Sqlite.Tests already uses. -->
     <ProjectReference Include="..\..\..\foundation\src\Qavren.Edge.Sqlite.Native\Qavren.Edge.Sqlite.Native.csproj" />
+    <!-- Added in wave 5, not wave 1, on purpose: until Task 4.1 froze Embeddings.Onnx this
+         reference would have put a project another task was writing into this project's build
+         graph. This is also the ONLY test project in the suite that sees all three SP2 assemblies
+         at once, which is why the service-key parity assertion lives here. -->
+    <ProjectReference Include="..\..\src\Qavren.Edge.Embeddings.Onnx\Qavren.Edge.Embeddings.Onnx.csproj" />
+  </ItemGroup>
+
+  <!-- LINKED, never copied: one file under tests/fixtures is compiled into each project that
+       needs it. Nothing binary is committed; TinyModels.g.cs holds base64 const strings. -->
+  <ItemGroup>
+    <Compile Include="..\fixtures\TinyModels.g.cs" Link="Fixtures\TinyModels.g.cs" />
   </ItemGroup>
 </Project>
