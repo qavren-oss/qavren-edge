@@ -66,7 +66,7 @@ public static class SqliteConnectionExtensions
 
     /// <summary>
     /// Binds each public instance property of <paramref name="parameters"/> as <c>$Name</c>.
-    /// <c>ReadOnlyMemory&lt;float&gt;</c> and <c>float[]</c> bind as a sqlite-vec float32 blob.
+    /// <c>ReadOnlyMemory&lt;float&gt;</c>, <c>Memory&lt;float&gt;</c> and <c>float[]</c> bind as a sqlite-vec float32 blob.
     /// </summary>
     [RequiresUnreferencedCode("Reflects over the properties of the supplied object. Use the SqliteParameter overload in trimmed or AOT apps.")]
     public static IReadOnlyList<SqliteParameter> ToParameters(object parameters)
@@ -80,6 +80,7 @@ public static class SqliteConnectionExtensions
             var value = raw switch
             {
                 ReadOnlyMemory<float> memory => VecBlob.From(memory.Span),
+                Memory<float> memory => VecBlob.From(memory.Span),
                 float[] array => VecBlob.From(array),
                 null => (object)DBNull.Value,
                 _ => raw,
