@@ -1,0 +1,74 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFrameworks>net10.0-android;net10.0-ios;net10.0-maccatalyst;net10.0-windows10.0.19041.0</TargetFrameworks>
+    <UseMaui>true</UseMaui>
+    <SingleProject>true</SingleProject>
+    <OutputType>Exe</OutputType>
+    <IsPackable>false</IsPackable>
+    <ApplicationId>app.qavren.edge.devicetests</ApplicationId>
+    <ApplicationTitle>Qavren.Edge device tests</ApplicationTitle>
+    <ApplicationDisplayVersion>1.0</ApplicationDisplayVersion>
+    <ApplicationVersion>1</ApplicationVersion>
+    <RootNamespace>Qavren.Edge.DeviceTests</RootNamespace>
+    <SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'android'">21.0</SupportedOSPlatformVersion>
+    <SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'ios'">15.0</SupportedOSPlatformVersion>
+    <SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'maccatalyst'">15.0</SupportedOSPlatformVersion>
+    <SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows'">10.0.17763.0</SupportedOSPlatformVersion>
+    <TargetPlatformMinVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows'">10.0.17763.0</TargetPlatformMinVersion>
+    <!-- Unpackaged: the CI windows lane launches the built .exe directly, and MSIX packaging would
+         demand a signing identity this repo does not have. -->
+    <WindowsPackageType>None</WindowsPackageType>
+    <!-- The hosted suites exercise the reflection-based SqliteConnectionExtensions.ToParameters
+         overload on purpose. Trimming the runner would delete the anonymous-type properties it
+         reflects over and turn a green device lane red for a reason that is not a product bug.
+         Android Release defaults RunAOTCompilation on, and AOT without trimming is XA1030, so
+         AOT goes too - this app is a test harness, not something anyone ships.
+         On iOS and Mac Catalyst the Apple SDK rejects PublishTrimmed=false outright and tells you to
+         set MtouchLink=None instead; PublishTrimmed=false there also trips
+         "The linker has been disabled because there's no connection to a Mac", which -warnaserror
+         turns into a build break on this Windows host. So the Apple lanes use MtouchLink. -->
+    <PublishTrimmed Condition="!$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)').Equals('ios')) And !$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)').Equals('maccatalyst'))">false</PublishTrimmed>
+    <MtouchLink Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'ios' Or $([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'maccatalyst'">None</MtouchLink>
+    <RunAOTCompilation>false</RunAOTCompilation>
+    <!-- CA2007: same conflict the two hosted test libraries hit - .editorconfig makes it an error,
+         and its fix, ConfigureAwait(false) inside a test body, is what xunit's xUnit1030 forbids.
+         CA1711: AppDelegate is the fixed name the iOS and Mac Catalyst app heads must use. -->
+    <NoWarn>$(NoWarn);CA2007;CA1711</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Maui.Controls" />
+    <PackageReference Include="DeviceRunners.VisualRunners.Maui" />
+    <PackageReference Include="DeviceRunners.VisualRunners.Xunit3" />
+    <!-- Provides the MSBuild targets that make `dotnet test -f net10.0-android` deploy, launch,
+         stream results back over TCP and write a TRX. -->
+    <PackageReference Include="DeviceRunners.Testing.Targets" />
+    <!-- This project's OWN test class (NativeSmokeTests) needs the attributes and asserts.
+         Same rule as the libraries: never xunit.v3 or xunit.v3.core here. -->
+    <PackageReference Include="xunit.v3.extensibility.core" />
+    <PackageReference Include="xunit.v3.assert" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Qavren.Edge.Maui\Qavren.Edge.Maui.csproj" />
+    <ProjectReference Include="..\..\src\Qavren.Edge.Sqlite\Qavren.Edge.Sqlite.csproj" />
+    <ProjectReference Include="..\..\src\Qavren.Edge.Sqlite.Native\Qavren.Edge.Sqlite.Native.csproj" />
+  </ItemGroup>
+
+  <!-- Spec 5.2: "references the two test projects". These are the assemblies the runner hosts,
+       so the device lane runs the SAME pragma, migration, KNN-vs-brute-force,
+       connection-extension and lifecycle-observer tests the host lane runs.
+       SetTargetFramework is not needed: both projects multi-target the four device TFMs, so
+       MSBuild resolves the matching one. -->
+  <ItemGroup>
+    <ProjectReference Include="..\Qavren.Edge.Core.Tests\Qavren.Edge.Core.Tests.csproj" />
+    <ProjectReference Include="..\Qavren.Edge.Sqlite.Tests\Qavren.Edge.Sqlite.Tests.csproj" />
+  </ItemGroup>
+
+  <!-- MAUI app-head assets. The plan's file list omits these; a UseMaui app head does not build
+       without an icon and a splash (the generated Android/Windows manifests reference them). -->
+  <ItemGroup>
+    <MauiIcon Include="Resources\AppIcon\appicon.svg" ForegroundFile="Resources\AppIcon\appiconfg.svg" Color="#512BD4" />
+    <MauiSplashScreen Include="Resources\Splash\splash.svg" Color="#512BD4" BaseSize="128,128" />
+  </ItemGroup>
+</Project>

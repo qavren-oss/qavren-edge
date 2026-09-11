@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             x:Class="Qavren.Edge.Sample.Pages.NotesPage"
+             Title="Notes">
+    <Grid Padding="16" RowDefinitions="Auto,Auto,Auto,*" RowSpacing="8">
+        <Entry x:Name="TitleEntry"
+               Grid.Row="0"
+               Placeholder="Note title" />
+        <Button Grid.Row="1"
+                Text="Add note with a random 384-d vector"
+                Clicked="OnAdd" />
+        <Button Grid.Row="2"
+                Text="Nearest 10"
+                Clicked="OnSearch" />
+        <CollectionView x:Name="Results" Grid.Row="3" />
+    </Grid>
+</ContentPage>

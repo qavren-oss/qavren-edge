@@ -32,6 +32,7 @@
 
   <ItemGroup Label="MAUI">
     <PackageVersion Include="Microsoft.Maui.Controls" Version="$(MauiVersion)" />
+    <PackageVersion Include="Microsoft.Extensions.Logging.Debug" Version="10.0.12" />
   </ItemGroup>
 
   <ItemGroup Label="Device test runner">
