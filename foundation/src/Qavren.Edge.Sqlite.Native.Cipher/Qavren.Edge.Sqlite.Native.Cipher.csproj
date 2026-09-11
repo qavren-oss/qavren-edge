@@ -1,0 +1,46 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFrameworks>net10.0;net10.0-ios</TargetFrameworks>
+    <IsPackable>true</IsPackable>
+    <PackageId>Qavren.Edge.Sqlite.Native.Cipher</PackageId>
+    <Description>SQLCipher + LibTomCrypt build of native SQLite with sqlite-vec compiled in, for Qavren.Edge.</Description>
+    <RootNamespace>Qavren.Edge.Sqlite.Native.Cipher</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Qavren.Edge.Sqlite.Native\Qavren.Edge.Sqlite.Native.csproj" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <!-- The SDK sets NETCoreSdkPortableRuntimeIdentifier to the host RID (win-x64, win-arm64,
+         linux-x64, osx-arm64, ...). Using it means an arm64 dev box copies the arm64 native
+         instead of silently picking up an x64 one it cannot load. -->
+    <QedgeHostRidFolder>$(NETCoreSdkPortableRuntimeIdentifier)\</QedgeHostRidFolder>
+    <QedgeHostRidFolder Condition="'$(NETCoreSdkPortableRuntimeIdentifier)' == ''">win-x64\</QedgeHostRidFolder>
+    <!-- NU1012: a buildTransitive/ TFM folder for a platform TFM must carry a platform version, so
+         'net10.0-ios' is rejected at pack time. The outer (TFM-less) pack build cannot read the
+         inner build's $(TargetPlatformVersion), so the lower bound is pinned here. NuGet picks the
+         highest compatible folder, so this keeps working if the SDK's default iOS version rises. -->
+    <QedgeIosBuildTransitiveTfm>net10.0-ios26.0</QedgeIosBuildTransitiveTfm>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <_QedgeNative Include="$(NativeArtifactsDir)**\qedge_sqlcipher.dll;$(NativeArtifactsDir)**\libqedge_sqlcipher.so;$(NativeArtifactsDir)**\libqedge_sqlcipher.dylib" />
+    <!-- PackagePath must name the file. A directory-only PackagePath makes NuGet append
+         %(RecursiveDir) a second time: runtimes/win-x64/native/win-x64/qedge_sqlcipher.dll. -->
+    <None Include="@(_QedgeNative)" Pack="true" PackagePath="runtimes/%(RecursiveDir)native/%(Filename)%(Extension)" Visible="false">
+      <CopyToOutputDirectory Condition="'%(RecursiveDir)' == '$(QedgeHostRidFolder)'">PreserveNewest</CopyToOutputDirectory>
+      <Link Condition="'%(RecursiveDir)' == '$(QedgeHostRidFolder)'">%(Filename)%(Extension)</Link>
+    </None>
+  </ItemGroup>
+
+  <ItemGroup Condition="Exists('$(NativeArtifactsDir)apple\qedge_sqlcipher.xcframework')">
+    <None Include="$(NativeArtifactsDir)apple\qedge_sqlcipher.xcframework\**\*" Pack="true"
+          PackagePath="xcframeworks/qedge_sqlcipher.xcframework/%(RecursiveDir)%(Filename)%(Extension)" Visible="false" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="buildTransitive\net10.0-ios\Qavren.Edge.Sqlite.Native.Cipher.targets" Pack="true"
+          PackagePath="buildTransitive/$(QedgeIosBuildTransitiveTfm)/Qavren.Edge.Sqlite.Native.Cipher.targets" Visible="false" />
+  </ItemGroup>
+</Project>
