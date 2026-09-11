@@ -4,7 +4,13 @@
          never reaches a device lane (spec 16.4). It references Qavren.Edge.Rag and the MEVD
          ABSTRACTIONS and nothing else - no Qavren.Edge.VectorData, no ONNX package - which is how
          spec 7's layering claim is tested rather than asserted (plan adjustment 19). -->
-    <TargetFramework>net10.0</TargetFramework>
+    <!-- Spelled TargetFrameworks (plural) with one entry, not <TargetFramework>, for exactly
+         Qavren.Edge.VectorData.Conformance.Tests's reason: the verify command passes
+         -p:TargetFrameworks=net10.0 as a global property (plan adjustment 12), and against a
+         project declaring the singular property MSBuild then sees both, runs the cross-targeting
+         outer build, and the xunit.v3 buildTransitive props that switch Microsoft.Testing.Platform's
+         generated entry point off never load - two Main methods and CS8892. -->
+    <TargetFrameworks>net10.0</TargetFrameworks>
     <OutputType>Exe</OutputType>
     <IsPackable>false</IsPackable>
   </PropertyGroup>

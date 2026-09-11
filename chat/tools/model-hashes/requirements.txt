@@ -1,0 +1,4 @@
+# Sub-project 4 preset-hash toolchain. Run BY HAND; never a build step and never CI.
+# Deliberately EMPTY of third-party packages: the script uses urllib, hashlib and json from the
+# standard library, so a pinned requests/huggingface_hub here would be three more supply-chain
+# edges for two POSTs and six GETs. Python 3.14, matching the fixture venv.
