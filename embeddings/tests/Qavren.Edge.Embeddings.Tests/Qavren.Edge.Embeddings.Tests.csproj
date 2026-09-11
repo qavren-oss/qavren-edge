@@ -45,6 +45,14 @@
     <ProjectReference Include="..\..\src\Qavren.Edge.Embeddings.Onnx\Qavren.Edge.Embeddings.Onnx.csproj" />
   </ItemGroup>
 
+  <!-- Tier 3's pinned baseline. A file beside the assembly, NOT an EmbeddedResource: the device
+       lanes carry this assembly and skip tier 3 outright, and 90 KB of baked-in floats would
+       travel to four devices to be read by nothing. CopyToOutputDirectory keeps it a file a lane
+       can simply not open. -->
+  <ItemGroup>
+    <None Update="Tier3\reference-vectors.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
   <!-- LINKED, never copied: one file under tests/fixtures is compiled into each project that
        needs it. Nothing binary is committed; TinyModels.g.cs holds base64 const strings. -->
   <ItemGroup>

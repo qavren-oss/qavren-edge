@@ -50,4 +50,18 @@
     <PackageReference Include="Microsoft.Extensions.Logging" />
     <ProjectReference Include="..\..\src\Qavren.Edge.Onnx\Qavren.Edge.Onnx.csproj" />
   </ItemGroup>
+
+  <!-- Spec 16.4's device-only assertions. The same Platforms\** + GetTargetPlatformIdentifier
+       pattern Qavren.Edge.Onnx itself uses: an NSUrl read-back or a NoBackupFilesDir comparison can
+       only be COMPILED under a platform TFM, and [DeviceFact] is what keeps the rest of the
+       assembly green on the host leg without an #if inside a test body. -->
+  <ItemGroup>
+    <Compile Remove="Platforms\**\*.cs" />
+  </ItemGroup>
+  <ItemGroup Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'android'">
+    <Compile Include="Platforms\Android\**\*.cs" />
+  </ItemGroup>
+  <ItemGroup Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'ios' or $([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'maccatalyst'">
+    <Compile Include="Platforms\iOS\**\*.cs" />
+  </ItemGroup>
 </Project>

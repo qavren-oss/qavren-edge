@@ -3812,7 +3812,7 @@ Tokenize a fixed string, embed it with the base64 fixture, then round-trip one v
 
 ```powershell
 dotnet publish "C:\Users\steve\projects\qavren-edge-sp2\embeddings\tools\Qavren.Edge.TrimSmoke\Qavren.Edge.TrimSmoke.csproj" `
-  -c Release -r win-x64 --self-contained true -p:PublishTrimmed=true -p:TargetFrameworks=net10.0 `
+  -c Release -r win-x64 --self-contained true -p:PublishTrimmed=true -p:TargetFrameworks=net10.0 -p:TargetFramework=net10.0 `
   -p:ArtifactsPath="D:\Local\Temp\qedge-sp2\w6\t61" `
   -o "C:\Users\steve\AppData\Local\Temp\qedge-trimsmoke"
 & "C:\Users\steve\AppData\Local\Temp\qedge-trimsmoke\Qavren.Edge.TrimSmoke.exe"
@@ -4136,7 +4136,7 @@ Expected: `Passed!` with **Failed: 0** and a skip count equal to the number of `
 
 ```powershell
 dotnet build "C:\Users\steve\projects\qavren-edge-sp2\embeddings\tests\Qavren.Edge.Onnx.Tests\Qavren.Edge.Onnx.Tests.csproj" `
-  -c Release -f net10.0-android -p:TargetFrameworks=net10.0-android `
+  -c Release -f net10.0-android `
   -p:ArtifactsPath="D:\Local\Temp\qedge-sp2\w6\t63"
 ```
 
@@ -4169,10 +4169,10 @@ foreach ($p in @(
   dotnet run --project "$root\$p" -c Release -f net10.0 -p:TargetFrameworks=net10.0
   if ($LASTEXITCODE -ne 0) { throw "FAILED: $p" }
 }
-dotnet build "$root\embeddings\tests\Qavren.Edge.Onnx.Tests\Qavren.Edge.Onnx.Tests.csproj" -c Release -f net10.0-android -p:TargetFrameworks=net10.0-android
+dotnet build "$root\embeddings\tests\Qavren.Edge.Onnx.Tests\Qavren.Edge.Onnx.Tests.csproj" -c Release -f net10.0-android
 if ($LASTEXITCODE -ne 0) { throw "FAILED: Onnx.Tests android compile" }
 dotnet publish "$root\embeddings\tools\Qavren.Edge.TrimSmoke\Qavren.Edge.TrimSmoke.csproj" `
-  -c Release -r win-x64 --self-contained true -p:PublishTrimmed=true -p:TargetFrameworks=net10.0 `
+  -c Release -r win-x64 --self-contained true -p:PublishTrimmed=true -p:TargetFrameworks=net10.0 -p:TargetFramework=net10.0 `
   -o "C:\Users\steve\AppData\Local\Temp\qedge-trimsmoke"
 if ($LASTEXITCODE -ne 0) { throw "FAILED: trim-smoke publish" }
 & "C:\Users\steve\AppData\Local\Temp\qedge-trimsmoke\Qavren.Edge.TrimSmoke.exe"

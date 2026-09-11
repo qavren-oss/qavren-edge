@@ -453,7 +453,7 @@ jobs:
         run: >
           dotnet publish embeddings/tools/Qavren.Edge.TrimSmoke/Qavren.Edge.TrimSmoke.csproj
           -c Release -r linux-x64 --self-contained true
-          -p:PublishTrimmed=true -p:TargetFrameworks=net10.0
+          -p:PublishTrimmed=true -p:TargetFrameworks=net10.0 -p:TargetFramework=net10.0
           -o artifacts/trim-smoke
 
       - name: Run trimmed
@@ -464,7 +464,7 @@ jobs:
         run: >
           dotnet publish embeddings/tools/Qavren.Edge.TrimSmoke/Qavren.Edge.TrimSmoke.csproj
           -c Release -r linux-x64 --self-contained true
-          -p:PublishAot=true -p:TargetFrameworks=net10.0
+          -p:PublishAot=true -p:TargetFrameworks=net10.0 -p:TargetFramework=net10.0
           -o artifacts/aot-smoke
 
       - name: Run AOT
