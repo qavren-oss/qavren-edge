@@ -188,7 +188,7 @@ jobs:
           }
           Write-Host 'OK: every expected RID and the xcframework are packed'
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: matrix.os == 'windows-2025'
         with:
           name: packages
@@ -267,7 +267,7 @@ jobs:
       # test-results/logcat.txt: when the app fails to launch or dies at startup the CLI writes no
       # TRX at all and the logcat it dumps is the only evidence of why. Without it this artifact
       # contains nothing but the checked-in trx2junit fixture.
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: device-tests-android
@@ -329,7 +329,7 @@ jobs:
           reporter: java-junit
           fail-on-error: false
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: device-tests-ios
@@ -383,7 +383,7 @@ jobs:
           reporter: java-junit
           fail-on-error: false
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: device-tests-maccatalyst
@@ -430,7 +430,7 @@ jobs:
           reporter: java-junit
           fail-on-error: false
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: device-tests-windows
