@@ -12,5 +12,10 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\Qavren.Edge.Sqlite\Qavren.Edge.Sqlite.csproj" />
     <ProjectReference Include="..\..\src\Qavren.Edge.Sqlite.Native.Cipher\Qavren.Edge.Sqlite.Native.Cipher.csproj" />
+    <!-- Wave 5: the vector provider runs on whatever connection IEdgeDatabase hands it, SQLCipher
+         included (spec 2 decision 10). This project is the only one in the suite that can prove
+         that, because it is the one SP1 keeps out of the device lanes and the only one that may
+         reference Qavren.Edge.Sqlite.Native.Cipher. -->
+    <ProjectReference Include="..\..\..\embeddings\src\Qavren.Edge.VectorData\Qavren.Edge.VectorData.csproj" />
   </ItemGroup>
 </Project>

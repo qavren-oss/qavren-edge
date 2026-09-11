@@ -1,0 +1,4 @@
+# Deliberately EMPTY of third-party packages. The script uses urllib, hashlib and json from the
+# standard library only, so the venv exists to pin the interpreter and nothing else. A pinned
+# requests/huggingface_hub here would be three more supply-chain edges for one POST and one GET.
+# Python 3.14, matching the fixture venv.

@@ -1,0 +1,54 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <!-- Four TFMs, not five. Windows has neither a distinct model-path implementation (spec 6.2
+         puts it on the desktop <Data>/models path) nor a distinct memory read (spec 6.4 gives it
+         the same GC.GetGCMemoryInfo() path as net10.0), so a net10.0-windows leg would buy a
+         build and nothing else. A net10.0-windows10.0.19041.0 consumer references the net10.0
+         assembly, exactly as it already does for Qavren.Edge.Sqlite. -->
+    <TargetFrameworks>net10.0;net10.0-android;net10.0-ios;net10.0-maccatalyst</TargetFrameworks>
+    <!-- Restore evaluates EVERY entry of TargetFrameworks for every project in the graph, so the
+         ios and maccatalyst SDK packs (which do not exist for linux-x64, NETSDK1178) have to be
+         dropped on Linux hosts or the android device lane fails before a test can run. -->
+    <TargetFrameworks Condition="$([MSBuild]::IsOSPlatform('Linux'))">net10.0;net10.0-android</TargetFrameworks>
+    <IsPackable>true</IsPackable>
+    <PackageId>Qavren.Edge.Onnx</PackageId>
+    <Description>ONNX Runtime hosting for Qavren.Edge: OrtEnv bootstrap, a ref-counted session host, execution-provider policy, a no-backup model root, verified model provisioning, and a device resource monitor.</Description>
+    <RootNamespace>Qavren.Edge.Onnx</RootNamespace>
+
+    <!-- HIGHER than SP1's 21.0 / 15.0 / 15.0, and these are ORT's floors rather than ours.
+         Android: ORT 1.30.0's AAR is built from default_full_aar_build_settings.json with
+         android_min_sdk_version 24, so its manifest declares minSdkVersion 24 and .NET for
+         Android merges library manifests into the app's - declaring 21 either fails the merge or
+         raises the effective floor without saying so.
+         Apple: ORT's iphoneos/iphonesimulator slices are built at apple_deploy_target=15.1, so
+         linking them into a 15.0 deployment target is a linker warning at best and a load failure
+         on a 15.0 device at worst. Mac Catalyst's true floor is read from the xcframework's own
+         LC_BUILD_VERSION in spec 19 item 2(c); 15.1 is the conservative value until then.
+         SupportedOSPlatformVersion is a per-project property and plays NO part in restore - the
+         plan's Environment ground truth proves the ORT assets resolve identically at 21.0/15.0
+         and at 24.0/15.1 - so raising it here changes no SP1 csproj and adds no versioned TFM. -->
+    <SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'android'">24.0</SupportedOSPlatformVersion>
+    <SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'ios'">15.1</SupportedOSPlatformVersion>
+    <SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'maccatalyst'">15.1</SupportedOSPlatformVersion>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.ML.OnnxRuntime" />
+    <PackageReference Include="Microsoft.Extensions.Options" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" />
+    <ProjectReference Include="..\..\..\foundation\src\Qavren.Edge.Core\Qavren.Edge.Core.csproj" />
+  </ItemGroup>
+
+  <!-- Same Platforms\** + GetTargetPlatformIdentifier pattern Qavren.Edge.Maui already uses.
+       iOS and Mac Catalyst share one implementation (NSUrl / NSFileManager / ProcessInfo). -->
+  <ItemGroup>
+    <Compile Remove="Platforms\**\*.cs" />
+  </ItemGroup>
+  <ItemGroup Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'android'">
+    <Compile Include="Platforms\Android\**\*.cs" />
+  </ItemGroup>
+  <ItemGroup Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'ios' or $([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'maccatalyst'">
+    <Compile Include="Platforms\iOS\**\*.cs" />
+  </ItemGroup>
+</Project>
