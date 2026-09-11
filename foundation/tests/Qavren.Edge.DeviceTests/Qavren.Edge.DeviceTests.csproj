@@ -1,6 +1,15 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <TargetFrameworks>net10.0-android;net10.0-ios;net10.0-maccatalyst;net10.0-windows10.0.19041.0</TargetFrameworks>
+    <!-- Linux CI hosts can only ever get the android workload: the iOS and Mac Catalyst SDK
+         packs do not exist for linux-x64 (NETSDK1178) and the Windows TFM needs a Windows host.
+         Restore evaluates EVERY entry of TargetFrameworks for every project in the graph, so
+         leaving them listed fails `dotnet test -f net10.0-android` before a test can run. The
+         linux lane only ever builds the android device lane, so that is all it needs. -->
+    <TargetFrameworks Condition="$([MSBuild]::IsOSPlatform('Linux'))">net10.0-android</TargetFrameworks>
+    <!-- Same restore-evaluates-every-TFM rule on macOS hosts: the Windows TFM needs a Windows
+         host (NETSDK1100), so the apple and maccatalyst lanes drop it. -->
+    <TargetFrameworks Condition="$([MSBuild]::IsOSPlatform('OSX'))">net10.0-android;net10.0-ios;net10.0-maccatalyst</TargetFrameworks>
     <UseMaui>true</UseMaui>
     <SingleProject>true</SingleProject>
     <OutputType>Exe</OutputType>
@@ -63,6 +72,23 @@
   <ItemGroup>
     <ProjectReference Include="..\Qavren.Edge.Core.Tests\Qavren.Edge.Core.Tests.csproj" />
     <ProjectReference Include="..\Qavren.Edge.Sqlite.Tests\Qavren.Edge.Sqlite.Tests.csproj" />
+  </ItemGroup>
+
+  <!-- Qavren.Edge.Sqlite.Native is taken by ProjectReference here, and a project reference
+       carries none of the package's runtimes/<rid>/native assets - so on android nothing would
+       put libqedge_sqlite3.so in the APK and every test would die with DllNotFoundException.
+       Package consumers are unaffected: runtimes/android-*/native/ in the nupkg is honoured.
+       Exists() guards keep a checkout with no downloaded natives building (CI downloads the
+       native-* artifacts into $(NativeArtifactsDir) before this project is built).
+       .NET 9+ only builds android-arm64 and android-x64 by default; android-arm is listed for
+       the case a consumer re-adds armeabi-v7a to $(RuntimeIdentifiers). -->
+  <ItemGroup Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'android'">
+    <AndroidNativeLibrary Include="$(NativeArtifactsDir)android-arm64\libqedge_sqlite3.so" Abi="arm64-v8a" Visible="false"
+                          Condition="Exists('$(NativeArtifactsDir)android-arm64\libqedge_sqlite3.so')" />
+    <AndroidNativeLibrary Include="$(NativeArtifactsDir)android-x64\libqedge_sqlite3.so" Abi="x86_64" Visible="false"
+                          Condition="Exists('$(NativeArtifactsDir)android-x64\libqedge_sqlite3.so')" />
+    <AndroidNativeLibrary Include="$(NativeArtifactsDir)android-arm\libqedge_sqlite3.so" Abi="armeabi-v7a" Visible="false"
+                          Condition="Exists('$(NativeArtifactsDir)android-arm\libqedge_sqlite3.so')" />
   </ItemGroup>
 
   <!-- MAUI app-head assets. The plan's file list omits these; a UseMaui app head does not build

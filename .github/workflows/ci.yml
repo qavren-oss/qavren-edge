@@ -44,7 +44,14 @@ jobs:
           merge-multiple: true
           path: foundation/native/artifacts
 
+      # windows-2025 only. The `.slnx` carries three MAUI-only projects (Qavren.Edge.Maui, the
+      # sample, DeviceTests) whose every TFM is platform-specific, so a solution restore needs the
+      # android/ios/maccatalyst/maui-windows workloads. The windows-2025 image ships them; the
+      # ubuntu and macOS images do not, and `ios`/`maccatalyst` cannot be installed on Linux at
+      # all - restoring the solution there fails with NETSDK1147. The Windows leg restores every
+      # TFM, so it is the strictly larger graph: nothing is lost by asserting only there.
       - name: Assert no SQLitePCLRaw bundle package is in the graph
+        if: matrix.os == 'windows-2025'
         shell: pwsh
         run: |
           dotnet restore QavrenEdge.slnx
@@ -67,7 +74,11 @@ jobs:
           dotnet run --project foundation/tools/ProviderGen/ProviderGen.csproj -c Release --
           manifest --out foundation/tools/ProviderGen/provider.manifest.json --check
 
+      # Same constraint as the bundle assert above - `dotnet format` loads the whole solution,
+      # MAUI projects included - and it consumes that step's restore via --no-restore. Formatting
+      # is OS-invariant, so one leg is enough.
       - name: Format check
+        if: matrix.os == 'windows-2025'
         run: dotnet format QavrenEdge.slnx --verify-no-changes --no-restore
 
       - name: Workflow contract check
@@ -76,17 +87,25 @@ jobs:
           python3 -m pip install --quiet pyyaml
           python3 foundation/tools/ci-checks/assert-workflows.py .
 
+      # -p:TargetFrameworks=net10.0 on every test step, on every OS. `-f net10.0` alone does NOT
+      # stop the mobile TFMs from being evaluated: restore still walks the full TargetFrameworks
+      # list of the project and of everything it references (Qavren.Edge.Sqlite.Provider and both
+      # Native projects are net10.0;net10.0-ios), so the workload check fires for net10.0-ios /
+      # net10.0-android on hosts without those workloads. As an MSBuild global property
+      # TargetFrameworks overrides the project-declared value and flows across ProjectReference,
+      # trimming the graph to the one framework these lanes actually run. Verified locally on SDK
+      # 10.0.401 against a project multi-targeting an uninstalled workload.
       - name: Core tests
-        run: dotnet run --project foundation/tests/Qavren.Edge.Core.Tests/Qavren.Edge.Core.Tests.csproj -c Release -f net10.0
+        run: dotnet run --project foundation/tests/Qavren.Edge.Core.Tests/Qavren.Edge.Core.Tests.csproj -c Release -f net10.0 -p:TargetFrameworks=net10.0
 
       - name: Provider tests
-        run: dotnet run --project foundation/tests/Qavren.Edge.Provider.Tests/Qavren.Edge.Provider.Tests.csproj -c Release
+        run: dotnet run --project foundation/tests/Qavren.Edge.Provider.Tests/Qavren.Edge.Provider.Tests.csproj -c Release -p:TargetFrameworks=net10.0
 
       - name: Sqlite tests
-        run: dotnet run --project foundation/tests/Qavren.Edge.Sqlite.Tests/Qavren.Edge.Sqlite.Tests.csproj -c Release -f net10.0
+        run: dotnet run --project foundation/tests/Qavren.Edge.Sqlite.Tests/Qavren.Edge.Sqlite.Tests.csproj -c Release -f net10.0 -p:TargetFrameworks=net10.0
 
       - name: Cipher tests
-        run: dotnet run --project foundation/tests/Qavren.Edge.Sqlite.Cipher.Tests/Qavren.Edge.Sqlite.Cipher.Tests.csproj -c Release
+        run: dotnet run --project foundation/tests/Qavren.Edge.Sqlite.Cipher.Tests/Qavren.Edge.Sqlite.Cipher.Tests.csproj -c Release -p:TargetFrameworks=net10.0
 
       - name: Pack
         if: matrix.os == 'windows-2025'
@@ -160,12 +179,18 @@ jobs:
           dotnet android avd start -p 5554 --name QedgeEmulator --no-window --gpu swiftshader_indirect \
             --no-snapshot --no-audio --no-boot-anim --wait --no-animations --cpu-threshold 3 --response-threshold 5
 
+      # NOT `dotnet test`: global.json pins the Microsoft.Testing.Platform runner, and the
+      # DeviceRunners MAUI host is deliberately NOT an MTP application - DeviceRunners.Testing.Targets
+      # sets IsTestingPlatformApplication=false so its own VSTest target can drive the device. MTP's
+      # `dotnet test` therefore filters the project out and exits 1 with "No test projects were found."
+      # Invoking that VSTest target directly is what `dotnet test` used to do here: Build -> deploy ->
+      # launch -> TCP results -> TRX. %3B is an escaped ';' (MSBuild splits -p: values on a raw ';').
       - name: Run device tests
         run: >
-          dotnet test foundation/tests/Qavren.Edge.DeviceTests/Qavren.Edge.DeviceTests.csproj
-          -f net10.0-android -c Release
+          dotnet build foundation/tests/Qavren.Edge.DeviceTests/Qavren.Edge.DeviceTests.csproj
+          -f net10.0-android -c Release -t:VSTest
           -p:AndroidSdkDirectory=$ANDROID_SDK_ROOT
-          --logger "trx;LogFileName=android-device-tests.trx"
+          -p:VSTestLogger=trx%3BLogFileName=android-device-tests.trx
 
       # Spec §13 requires JUnit. DeviceRunners writes TRX and has no JUnit writer, so the repo
       # converts (adjustment 30). The converter is unit-tested locally in Step 3.
@@ -222,12 +247,13 @@ jobs:
           echo "SIMULATOR_NAME=$NAME" >> "$GITHUB_ENV"
           dotnet apple simulator boot "$UDID" --wait
 
+      # VSTest target, not `dotnet test` - see device-tests-android for why.
       - name: Run device tests
         run: >
-          dotnet test foundation/tests/Qavren.Edge.DeviceTests/Qavren.Edge.DeviceTests.csproj
-          -f net10.0-ios -r iossimulator-x64 -c Release
+          dotnet build foundation/tests/Qavren.Edge.DeviceTests/Qavren.Edge.DeviceTests.csproj
+          -f net10.0-ios -r iossimulator-x64 -c Release -t:VSTest
           -p:DeviceRunnersDevice=$SIMULATOR_UDID
-          --logger "trx;LogFileName=ios-device-tests.trx"
+          -p:VSTestLogger=trx%3BLogFileName=ios-device-tests.trx
 
       - name: Convert TRX to JUnit
         if: always()
@@ -276,11 +302,12 @@ jobs:
       - run: dotnet workload install maui --version 10.0.201
       - run: dotnet tool restore
 
+      # VSTest target, not `dotnet test` - see device-tests-android for why.
       - name: Run device tests
         run: >
-          dotnet test foundation/tests/Qavren.Edge.DeviceTests/Qavren.Edge.DeviceTests.csproj
-          -f net10.0-maccatalyst -r maccatalyst-x64 -c Release
-          --logger "trx;LogFileName=maccatalyst-device-tests.trx"
+          dotnet build foundation/tests/Qavren.Edge.DeviceTests/Qavren.Edge.DeviceTests.csproj
+          -f net10.0-maccatalyst -r maccatalyst-x64 -c Release -t:VSTest
+          -p:VSTestLogger=trx%3BLogFileName=maccatalyst-device-tests.trx
 
       - name: Convert TRX to JUnit
         if: always()
@@ -321,11 +348,12 @@ jobs:
       - run: dotnet workload install maui --version 10.0.201
       - run: dotnet tool restore
 
+      # VSTest target, not `dotnet test` - see device-tests-android for why.
       - name: Run device tests
         run: >
-          dotnet test foundation/tests/Qavren.Edge.DeviceTests/Qavren.Edge.DeviceTests.csproj
-          -f net10.0-windows10.0.19041.0 -c Release
-          --logger "trx;LogFileName=windows-device-tests.trx"
+          dotnet build foundation/tests/Qavren.Edge.DeviceTests/Qavren.Edge.DeviceTests.csproj
+          -f net10.0-windows10.0.19041.0 -c Release -t:VSTest
+          -p:VSTestLogger=trx%3BLogFileName=windows-device-tests.trx
 
       - name: Convert TRX to JUnit
         if: always()
