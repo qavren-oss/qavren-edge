@@ -1,0 +1,133 @@
+name: tier0-genai-smoke
+
+# Spec 16.0 / spec 19 item 1. THROWAWAY and workflow_dispatch ONLY: it answers three go/no-go
+# questions once, before sub-project 4 has any API, and it is deleted in the closing PR. It is not
+# in ci.yml and it is not in ci-gate's needs, by construction - it cannot gate anything.
+on: workflow_dispatch
+
+permissions:
+  contents: read
+
+env:
+  SMOKE: chat/tools/tier0-genai-smoke/Qavren.Edge.Tier0Smoke/Qavren.Edge.Tier0Smoke.csproj
+  DEVICE: chat/tools/tier0-genai-smoke/Qavren.Edge.Tier0Smoke.Device/Qavren.Edge.Tier0Smoke.Device.csproj
+
+jobs:
+  tier0-windows:
+    runs-on: windows-2025
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0, filter: 'tree:0' }
+      - uses: actions/setup-dotnet@v4
+        with: { global-json-file: global.json }
+      - run: dotnet run --project ${{ env.SMOKE }} -c Release
+
+  tier0-linux:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0, filter: 'tree:0' }
+      - uses: actions/setup-dotnet@v4
+        with: { global-json-file: global.json }
+      - run: dotnet run --project ${{ env.SMOKE }} -c Release
+
+  # Unpackaged WinUI. WindowsPackageType=None, because this repo has no signing identity - the
+  # PACKAGED MSIX resolution path spec 16.0 item 1(b) also names is NOT covered here, and the
+  # README says so rather than implying it was tested.
+  tier0-winui:
+    runs-on: windows-2025
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0, filter: 'tree:0' }
+      - uses: actions/setup-dotnet@v4
+        with: { global-json-file: global.json }
+      - run: dotnet workload install maui-windows --version 10.0.201
+      - run: dotnet tool restore
+      - name: Run the smoke on the WinUI head
+        run: >
+          dotnet build ${{ env.DEVICE }}
+          -f net10.0-windows10.0.19041.0 -c Release -t:VSTest
+          -p:VSTestLogger=trx%3BLogFileName=tier0-winui.trx
+
+  tier0-android:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0, filter: 'tree:0' }
+      - uses: actions/setup-dotnet@v4
+        with: { global-json-file: global.json }
+      - uses: actions/setup-java@v4
+        with: { distribution: microsoft, java-version: '21' }
+      - run: dotnet workload install maui-android --version 10.0.201
+      - run: dotnet tool restore
+      - name: Install Android SDK packages
+        run: dotnet android sdk install --package 'platform-tools' --package 'emulator' --package 'system-images;android-36;google_apis;x86_64'
+      - name: Set AVD environment variables
+        run: |
+          mkdir -p "$HOME/.android/avd"
+          echo "ANDROID_AVD_HOME=$HOME/.android/avd" >> "$GITHUB_ENV"
+          echo "ANDROID_EMULATOR_HOME=$HOME/.android" >> "$GITHUB_ENV"
+          echo "ANDROID_EMULATOR_WAIT_TIME_BEFORE_KILL=1" >> "$GITHUB_ENV"
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Create and start emulator
+        run: |
+          dotnet android avd create --name Tier0Emulator --sdk 'system-images;android-36;google_apis;x86_64' --force
+          dotnet android avd start -p 5554 --name Tier0Emulator --no-window --gpu swiftshader_indirect \
+            --no-snapshot --no-audio --no-boot-anim --wait --no-animations --cpu-threshold 3 --response-threshold 5
+      # VSTest target, not `dotnet test` - DeviceRunners sets IsTestingPlatformApplication=false, so
+      # MTP's `dotnet test` filters the project out and exits 1. ci.yml's device lanes say the same.
+      - name: Run the smoke on the emulator
+        run: >
+          dotnet build ${{ env.DEVICE }}
+          -f net10.0-android -c Release -t:VSTest
+          -p:AndroidSdkDirectory=$ANDROID_SDK_ROOT
+          -p:VSTestLogger=trx%3BLogFileName=tier0-android.trx
+
+  tier0-ios:
+    runs-on: macos-15-intel
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0, filter: 'tree:0' }
+      - uses: maxim-lobanov/setup-xcode@v1
+        with: { xcode-version: '26.2' }
+      - uses: actions/setup-dotnet@v4
+        with: { global-json-file: global.json }
+      - run: dotnet workload install maui --version 10.0.201
+      - run: dotnet tool restore
+      - name: Create and boot a simulator
+        run: |
+          NAME="Tier0-$GITHUB_RUN_ID-ios"
+          UDID=$(dotnet apple simulator create "$NAME" --device-type "iPhone 16" --format json | jq -r '.udid')
+          echo "SIMULATOR_UDID=$UDID" >> "$GITHUB_ENV"
+          dotnet apple simulator boot "$UDID" --wait
+      - name: Run the smoke on the simulator
+        run: >
+          dotnet build ${{ env.DEVICE }}
+          -f net10.0-ios -r iossimulator-x64 -c Release -t:VSTest
+          -p:DeviceRunnersDevice=$SIMULATOR_UDID
+          -p:VSTestLogger=trx%3BLogFileName=tier0-ios.trx
+
+  # THE go/no-go. Spec 16.0 item 1(a): the native package's maccatalyst build folder is a
+  # zero-byte `_._` placeholder (measured), so the natives can only arrive through the SDK's
+  # RID-graph fallback to runtimes/ios/native/. The failure mode is a runtime DllNotFoundException,
+  # which is why no restore assertion substitutes for this job.
+  tier0-maccatalyst:
+    runs-on: macos-15-intel
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0, filter: 'tree:0' }
+      - uses: maxim-lobanov/setup-xcode@v1
+        with: { xcode-version: '26.2' }
+      - uses: actions/setup-dotnet@v4
+        with: { global-json-file: global.json }
+      - run: dotnet workload install maui --version 10.0.201
+      - run: dotnet tool restore
+      - name: Run the smoke on Mac Catalyst
+        run: >
+          dotnet build ${{ env.DEVICE }}
+          -f net10.0-maccatalyst -r maccatalyst-x64 -c Release -t:VSTest
+          -p:VSTestLogger=trx%3BLogFileName=tier0-maccatalyst.trx

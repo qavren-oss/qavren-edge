@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <!-- THROWAWAY. Deliberately NOT in QavrenEdge.slnx: it must not reach dotnet format, dotnet
+         pack or the wave-8 gate. net10.0 alone - this leg is the Windows and Linux targets of
+         spec 16.0, and the four platform targets are the sibling device head. -->
+    <TargetFramework>net10.0</TargetFramework>
+    <OutputType>Exe</OutputType>
+    <IsPackable>false</IsPackable>
+    <Nullable>enable</Nullable>
+    <RootNamespace>Qavren.Edge.Tier0Smoke</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.ML.OnnxRuntimeGenAI" />
+    <PackageReference Include="Microsoft.ML.OnnxRuntime" />
+    <PackageReference Include="Microsoft.Extensions.AI" />
+  </ItemGroup>
+  <!-- The ONE smoke body, and the SAME fixture the tier-2 suite will use. Linked, never copied. -->
+  <ItemGroup>
+    <Compile Include="..\Tier0Smoke.cs" Link="Tier0Smoke.cs" />
+    <Compile Include="..\..\..\tests\fixtures\TinyChatModel.g.cs" Link="TinyChatModel.g.cs" />
+  </ItemGroup>
+</Project>
