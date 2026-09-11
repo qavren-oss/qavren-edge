@@ -12,6 +12,10 @@ updates:
         update-types:
           - minor
           - patch
+    ignore:
+      # xunit.v3 4.x is blocked by DeviceRunners 0.1.0-preview.12 (pins 3.2.2). Tracked in #8.
+      - dependency-name: "xunit.v3*"
+        update-types: ["version-update:semver-major"]
   - package-ecosystem: github-actions
     directory: "/"
     schedule:
