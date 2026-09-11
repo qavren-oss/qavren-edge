@@ -107,31 +107,68 @@
                      Condition="Exists('$(NativeArtifactsDir)$(RuntimeIdentifier)\libqedge_sqlite3.dylib')" />
   </ItemGroup>
 
-  <!-- ...and keep the WRONG dylib out of the .app. Qavren.Edge.Sqlite.Native copies the HOST-RID
-       native flat into every referencing project's output so host test runs work on a dev box
-       (its $(QedgeHostRid) `None` item). On the macos-15-intel device lane that host RID is
-       osx-x64, so a plain macOS dylib landed in the app head's publish set. ComputeBundleLocation
-       classifies every publish-set .dylib as PublishFolderType=DynamicLibrary, which makes the
-       Apple SDK (a) try to link a macOS-platform dylib into a Mac Catalyst executable and
-       (b) run InstallNameTool on it. That file arrives from more than one project-reference path
-       and every copy re-ids to the SAME obj/.../nativelibraries/Contents/MonoBundle/
-       libqedge_sqlite3.dylib.tmp; the InstallNameTool task copies, install_name_tools and
-       File.Moves those concurrently, so the losers died with
+  <!-- Adjustment 2, the other half: iOS IS the __Internal case. The generated provider compiles
+       DllImport("__Internal") on net10.0-ios, so the SQLite entry points have to be linked into
+       the app executable itself. The package does that for NuGet consumers, from
+       buildTransitive/net10.0-ios26.0/Qavren.Edge.Sqlite.Native.targets - but buildTransitive
+       targets never travel across a ProjectReference, and this project takes
+       Qavren.Edge.Sqlite.Native as a ProjectReference (spec 5.2). This item is that .targets file
+       mirrored for the ProjectReference case: same Kind=Static, ForceLoad and SmartLink=false.
+       ForceLoad is the load-bearing one - nothing in C# references these symbols at link time
+       (they are reached through DllImport at run time), so without -force_load the native linker
+       drops every unreferenced archive member and the app dies at the first sqlite3 call.
+       The xcframework carries an ios-arm64_x86_64-simulator slice, so one item covers
+       iossimulator-arm64 (a dev Mac), iossimulator-x64 (the macos-15-intel CI lane) and the
+       ios-arm64 device slice.
+       Exists() guard: same reason as android - a checkout with no downloaded natives still builds. -->
+  <ItemGroup Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'ios' And Exists('$(NativeArtifactsDir)apple\qedge_sqlite3.xcframework')">
+    <NativeReference Include="$(NativeArtifactsDir)apple\qedge_sqlite3.xcframework" Visible="false">
+      <Kind>Static</Kind>
+      <ForceLoad>true</ForceLoad>
+      <SmartLink>false</SmartLink>
+      <Frameworks>Security</Frameworks>
+    </NativeReference>
+  </ItemGroup>
+
+  <!-- ...and keep the WRONG dylib out of the .app, on BOTH Apple heads. Qavren.Edge.Sqlite.Native
+       copies the HOST-RID native flat into every referencing project's output so host test runs
+       work on a dev box (its $(QedgeHostRid) `None` item), and CopyToOutputDirectory items travel
+       across every ProjectReference. On the macos-15-intel device lanes that host RID is osx-x64
+       and on an arm64 Mac it is osx-arm64 - either way a plain macOS dylib lands in the app head's
+       publish set. ComputeBundleLocation classifies every publish-set .dylib as
+       PublishFolderType=DynamicLibrary, which makes the Apple SDK (a) try to link a macOS-platform
+       dylib into a Mac Catalyst or iOS executable and (b) run InstallNameTool on it. That file
+       arrives from more than one project-reference path and every copy re-ids to the SAME
+       obj/.../nativelibraries/... libqedge_sqlite3.dylib.tmp; the InstallNameTool task copies,
+       install_name_tools and File.Moves those concurrently, so the losers died with
        "install_name_tool: cannot rename ...dylib.tmp ... (No such file or directory)" and
-       MSB4018 FileNotFoundException on the same .tmp (run 34556748270).
+       MSB4018 FileNotFoundException on the same .tmp - run 34556748270 for maccatalyst, and
+       reproduced verbatim for net10.0-ios / iossimulator-arm64 on an M4 Mac.
        PublishFolderType=None is the SDK's documented opt-out: ComputeBundleLocation only computes
        a folder type when the metadata is unset, and Xamarin.Shared.Sdk.targets drops every
-       'None' item from ResolvedFileToPublish right after. The NativeReference above is not a
-       ResolvedFileToPublish item, so it is untouched by this and stays the single copy in the
-       bundle. Scoped to maccatalyst: no other TFM has the problem (android uses
-       AndroidNativeLibrary, windows loads the flat copy from the output directory). -->
-  <Target Name="_QedgeDropHostNativeFromMacCatalystBundle"
-          Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'maccatalyst'"
+       'None' item from ResolvedFileToPublish right after.
+       The second condition clause is what keeps this narrow. The one dylib an app head here is
+       meant to bundle is the Mac Catalyst NativeReference above, sourced from
+       $(NativeArtifactsDir)$(RuntimeIdentifier)\; every other libqedge_sqlite3.dylib in the set is
+       a host-RID copy. (That NativeReference is not itself a ResolvedFileToPublish item today, so
+       this clause is belt-and-braces rather than load-bearing - but it means the target no longer
+       depends on that staying true.) The comparison goes through a property and %(FullPath), not
+       $([MSBuild]::NormalizePath('%(Identity)')): MSBuild rejects item metadata inside a property
+       function in a condition (MSB4092). Both sides end up OS-normalized anyway - %(FullPath) by
+       the engine, the property by NormalizePath, which is what turns $(NativeArtifactsDir)'s
+       backslashes into '/' on macOS.
+       Not extended to android or windows: android ships the .so through AndroidNativeLibrary and
+       windows deliberately loads the flat copy out of its output directory. -->
+  <Target Name="_QedgeDropHostNativeFromAppleBundle"
+          Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'maccatalyst' Or $([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'ios'"
           DependsOnTargets="ComputeResolvedFilesToPublishList"
           BeforeTargets="_ComputePublishLocation">
+    <PropertyGroup>
+      <_QedgeBundledNativePath>$([MSBuild]::NormalizePath('$(NativeArtifactsDir)$(RuntimeIdentifier)\libqedge_sqlite3.dylib'))</_QedgeBundledNativePath>
+    </PropertyGroup>
     <ItemGroup>
       <ResolvedFileToPublish PublishFolderType="None"
-                             Condition="'%(Filename)%(Extension)' == 'libqedge_sqlite3.dylib'" />
+                             Condition="'%(Filename)%(Extension)' == 'libqedge_sqlite3.dylib' And '%(FullPath)' != '$(_QedgeBundledNativePath)'" />
     </ItemGroup>
   </Target>
 
