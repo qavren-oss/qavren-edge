@@ -8,9 +8,13 @@ on: workflow_dispatch
 permissions:
   contents: read
 
+# The device-head path is DEVICE_HEAD, never DEVICE: MSBuild imports environment variables as
+# properties (case-insensitively), and Xamarin.Android.Common.targets turns a $(Device) property into
+# AdbTarget="-s $(Device)", so bundletool went looking for a device whose serial was this csproj path
+# (run 34635404329, tier0-android: "Unable to find the requested device").
 env:
   SMOKE: chat/tools/tier0-genai-smoke/Qavren.Edge.Tier0Smoke/Qavren.Edge.Tier0Smoke.csproj
-  DEVICE: chat/tools/tier0-genai-smoke/Qavren.Edge.Tier0Smoke.Device/Qavren.Edge.Tier0Smoke.Device.csproj
+  DEVICE_HEAD: chat/tools/tier0-genai-smoke/Qavren.Edge.Tier0Smoke.Device/Qavren.Edge.Tier0Smoke.Device.csproj
 
 jobs:
   tier0-windows:
@@ -45,7 +49,7 @@ jobs:
       - run: dotnet tool restore
       - name: Run the smoke on the WinUI head
         run: >
-          dotnet build ${{ env.DEVICE }}
+          dotnet build ${{ env.DEVICE_HEAD }}
           -f net10.0-windows10.0.19041.0 -c Release -t:VSTest
           -p:VSTestLogger=trx%3BLogFileName=tier0-winui.trx
 
@@ -82,7 +86,7 @@ jobs:
       # MTP's `dotnet test` filters the project out and exits 1. ci.yml's device lanes say the same.
       - name: Run the smoke on the emulator
         run: >
-          dotnet build ${{ env.DEVICE }}
+          dotnet build ${{ env.DEVICE_HEAD }}
           -f net10.0-android -c Release -t:VSTest
           -p:AndroidSdkDirectory=$ANDROID_SDK_ROOT
           -p:VSTestLogger=trx%3BLogFileName=tier0-android.trx
@@ -106,7 +110,7 @@ jobs:
           dotnet apple simulator boot "$UDID" --wait
       - name: Run the smoke on the simulator
         run: >
-          dotnet build ${{ env.DEVICE }}
+          dotnet build ${{ env.DEVICE_HEAD }}
           -f net10.0-ios -r iossimulator-x64 -c Release -t:VSTest
           -p:DeviceRunnersDevice=$SIMULATOR_UDID
           -p:VSTestLogger=trx%3BLogFileName=tier0-ios.trx
@@ -128,6 +132,6 @@ jobs:
       - run: dotnet tool restore
       - name: Run the smoke on Mac Catalyst
         run: >
-          dotnet build ${{ env.DEVICE }}
+          dotnet build ${{ env.DEVICE_HEAD }}
           -f net10.0-maccatalyst -r maccatalyst-x64 -c Release -t:VSTest
           -p:VSTestLogger=trx%3BLogFileName=tier0-maccatalyst.trx
