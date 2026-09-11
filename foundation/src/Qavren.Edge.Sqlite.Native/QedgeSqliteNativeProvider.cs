@@ -1,4 +1,4 @@
-﻿using System.Reflection;
+using System.Reflection;
 using System.Runtime.InteropServices;
 using Microsoft.Data.Sqlite;
 using Qavren.Edge.Sqlite.Provider;

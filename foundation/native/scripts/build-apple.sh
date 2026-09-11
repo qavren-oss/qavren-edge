@@ -9,20 +9,32 @@ NAME=$([ "$CIPHER" = "ON" ] && echo qedge_sqlcipher || echo qedge_sqlite3)
 build_slice() {  # $1 slice, $2 sdk, $3 arch, $4 target-triple
   local slice="$1" sdk="$2" arch="$3" triple="$4"
   local dir="$NATIVE_ROOT/build/apple/$slice-$arch-$CIPHER"
-  cmake -S "$NATIVE_ROOT" -B "$dir" -G Ninja \
-    -DCMAKE_BUILD_TYPE=Release \
-    -DCMAKE_OSX_SYSROOT="$(xcrun --sdk "$sdk" --show-sdk-path)" \
-    -DCMAKE_OSX_ARCHITECTURES="$arch" \
-    -DCMAKE_C_FLAGS="-target $triple" \
-    -DBUILD_SHARED_LIBS=OFF \
-    -DQEDGE_CIPHER="$CIPHER" \
-    -DQEDGE_BUILD_SHA="$BUILD_SHA"
-  cmake --build "$dir"
+  # Every caller runs this function inside $(...), so its stdout IS lipo's argv. cmake
+  # reports configure and build progress on stdout, which spliced "-- The C compiler
+  # identification is AppleClang ..." into that command line and lipo stopped at
+  # "unknown flag: --". Send the whole build to stderr - it still shows up in the job
+  # log, just not in the captured value - so the final echo is the only thing on stdout.
+  {
+    cmake -S "$NATIVE_ROOT" -B "$dir" -G Ninja \
+      -DCMAKE_BUILD_TYPE=Release \
+      -DCMAKE_OSX_SYSROOT="$(xcrun --sdk "$sdk" --show-sdk-path)" \
+      -DCMAKE_OSX_ARCHITECTURES="$arch" \
+      -DCMAKE_C_FLAGS="-target $triple" \
+      -DBUILD_SHARED_LIBS=OFF \
+      -DQEDGE_CIPHER="$CIPHER" \
+      -DQEDGE_BUILD_SHA="$BUILD_SHA"
+    cmake --build "$dir"
+  } >&2
   echo "$dir/out/lib$NAME.a"
 }
 
 OUT="$NATIVE_ROOT/artifacts/apple"
-rm -rf "$OUT"; mkdir -p "$OUT"/{ios,iossim,maccatalyst,macos}
+# Scoped to THIS variant. native.yml invokes the script twice (OFF then ON) against the
+# same artifacts/apple directory, so a blanket `rm -rf "$OUT"` deleted the xcframework the
+# previous invocation had just produced and the job would upload only the cipher one.
+mkdir -p "$OUT"/{ios,iossim,maccatalyst,macos}
+rm -rf "$OUT/$NAME.xcframework"
+rm -f "$OUT"/{ios,iossim,maccatalyst,macos}/"lib$NAME.a"
 
 lipo -create "$(build_slice ios iphoneos arm64 arm64-apple-ios15.0)" -output "$OUT/ios/lib$NAME.a"
 lipo -create \
@@ -56,6 +68,7 @@ for rid_arch in "maccatalyst-arm64:maccatalyst:arm64" "maccatalyst-x64:maccataly
     -DCMAKE_OSX_SYSROOT="$(xcrun --sdk macosx --show-sdk-path)" \
     -DCMAKE_OSX_ARCHITECTURES="$arch" \
     -DCMAKE_C_FLAGS="-target $triple" \
+    -DBUILD_SHARED_LIBS=ON \
     -DQEDGE_CIPHER="$CIPHER" -DQEDGE_BUILD_SHA="$BUILD_SHA"
   cmake --build "$dir"
   mkdir -p "$NATIVE_ROOT/artifacts/$rid"

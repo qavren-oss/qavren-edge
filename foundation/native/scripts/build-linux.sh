@@ -7,14 +7,19 @@ RID="${1:-linux-x64}"
 CIPHER="${2:-OFF}"
 BUILD_SHA="${3:-local}"
 
+# CROSS_ARGS declares cross-compiling mode for the arm64 slice (mirroring what
+# build-windows.ps1 does for win-arm64) so CMake never tries to run a target binary on the
+# x86_64 host and CMAKE_SYSTEM_PROCESSOR stops reporting the host's architecture.
 case "$RID" in
-  linux-x64)   CC_BIN=gcc ;;
-  linux-arm64) CC_BIN=aarch64-linux-gnu-gcc ;;
+  linux-x64)   CC_BIN=gcc; CROSS_ARGS=() ;;
+  linux-arm64) CC_BIN=aarch64-linux-gnu-gcc
+               CROSS_ARGS=(-DCMAKE_SYSTEM_NAME=Linux -DCMAKE_SYSTEM_PROCESSOR=aarch64) ;;
   *) echo "unsupported rid: $RID" >&2; exit 2 ;;
 esac
 
 BUILD_DIR="$NATIVE_ROOT/build/$RID-$CIPHER"
 cmake -S "$NATIVE_ROOT" -B "$BUILD_DIR" -G Ninja \
+  "${CROSS_ARGS[@]}" \
   -DCMAKE_BUILD_TYPE=Release \
   -DCMAKE_C_COMPILER="$CC_BIN" \
   -DBUILD_SHARED_LIBS=ON \
