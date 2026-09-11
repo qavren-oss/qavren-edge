@@ -148,6 +148,36 @@
     </ItemGroup>
   </Target>
 
+  <!-- ORT's two Apple assemblies (lib/net9.0-ios18.0 and lib/net9.0-maccatalyst18.0) declare
+       EVERY P/Invoke against "__Internal" - the static-xcframework model SP2 spec 10.1 describes -
+       and that set includes OrtExtensionsNativeMethods.RegisterCustomOps, the entry point of
+       onnxruntime-extensions. That is a SEPARATE package (Microsoft.ML.OnnxRuntime.Extensions)
+       which SP2 deliberately does not reference, so nothing anywhere defines the symbol.
+       The Apple SDK emits `-u<symbol>` on the native link line for every __Internal P/Invoke that
+       SURVIVES trimming (Xamarin.Shared.Sdk.targets, @(_ProcessedReferenceNativeSymbol)), which is
+       normally harmless because the unreachable SessionOptions.RegisterOrtExtensions() is trimmed
+       away first. MtouchLink=None above turns trimming off on purpose, so the method survives,
+       `-u_RegisterCustomOps` reaches ld, and the link dies with
+         Undefined symbols for architecture x86_64:
+           "_RegisterCustomOps", referenced from: <initial-undefines>
+       (run 34607846150, device-tests-maccatalyst; the iOS head links exactly the same way, which
+       is why this target covers both and neither android - the AAR - nor windows -
+       runtimes/win-x64/native - forces undefined symbols at all).
+       Dropping the forced-undefined entry IS the fix: there is no call site, so the symbol is not
+       needed, and anyone who did call RegisterOrtExtensions() would get EntryPointNotFoundException,
+       which is the honest answer when extensions are not linked. The alternatives are both worse -
+       take a dependency on Microsoft.ML.OnnxRuntime.Extensions to satisfy one linker flag, or
+       re-enable the trimming that MtouchLink=None exists to prevent. Both spellings are removed
+       because the item identity carries the leading underscore ld sees; a Remove that matches
+       nothing is a no-op, so this stays safe if the SDK ever changes the spelling. -->
+  <Target Name="_QedgeDropOrtExtensionsNativeSymbol"
+          Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'ios' Or $([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'maccatalyst'"
+          AfterTargets="_LoadLinkerOutput">
+    <ItemGroup>
+      <_ProcessedReferenceNativeSymbol Remove="_RegisterCustomOps;RegisterCustomOps" />
+    </ItemGroup>
+  </Target>
+
   <!-- MAUI app-head assets. The plan's file list omits these; a UseMaui app head does not build
        without an icon and a splash (the generated Android/Windows manifests reference them). -->
   <ItemGroup>
