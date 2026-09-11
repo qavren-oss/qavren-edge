@@ -16,6 +16,7 @@
     <ProjectReference Include="..\..\src\Qavren.Edge.VectorData\Qavren.Edge.VectorData.csproj" />
     <ProjectReference Include="..\..\src\Qavren.Edge.Embeddings.Onnx\Qavren.Edge.Embeddings.Onnx.csproj" />
     <ProjectReference Include="..\..\..\foundation\src\Qavren.Edge.Sqlite.Native\Qavren.Edge.Sqlite.Native.csproj" />
+    <ProjectReference Include="..\..\..\chat\src\Qavren.Edge.Rag\Qavren.Edge.Rag.csproj" />
   </ItemGroup>
 
   <!-- The concrete container and the concrete logger factory. Every src project references only

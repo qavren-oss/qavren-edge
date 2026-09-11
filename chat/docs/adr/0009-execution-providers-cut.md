@@ -49,10 +49,18 @@ is refused with `ChatExecutionProviderUnsupported` (7009), naming the
 provider, rather than being silently ignored by the native config parser
 or crashing at model-load time.
 
-If a future AOT/trimming analyzer pass (adjustment 11) forces a suppression
-around GenAI's own lack of trim annotations, that suppression is recorded
-here, at the call site, rather than silenced repo-wide — no such
-suppression exists as of this task.
+Adjustment 11's suppression rule lands here rather than repo-wide, and
+**exactly one suppression exists**:
+`[UnconditionalSuppressMessage("Trimming", "IL2026:RequiresUnreferencedCode")]`
+on `ChatDiagnosticsContributor.ReadGenAiManagedAsset`
+(`chat/src/Qavren.Edge.Chat.Onnx/Internal/ChatDiagnosticsContributor.cs`).
+`Assembly.GetReferencedAssemblies()` is the only way to read the
+`System.Runtime` reference that separates the five GenAI managed assets —
+none of them carries a `TargetFrameworkAttribute` (adjustment 2). Under
+trimming the failure mode is a less-informative `genAiManagedAsset`
+diagnostics string: the read sits inside `Safe(...)`, and no behaviour
+depends on it. The build is otherwise clean of `IL2026`/`IL3050` under
+`TreatWarningsAsErrors` on all four target frameworks.
 
 ## Consequences
 

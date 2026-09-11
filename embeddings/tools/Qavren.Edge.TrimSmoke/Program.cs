@@ -5,6 +5,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Qavren.Edge.Embeddings.Onnx;
 using Qavren.Edge.Hosting;
 using Qavren.Edge.Onnx;
+using Qavren.Edge.Rag;
 using Qavren.Edge.Sqlite;
 using Qavren.Edge.Sqlite.Native;
 using Qavren.Edge.Tests.Fixtures;
@@ -51,6 +52,9 @@ internal static class Program
 
     private const string CollectionName = "smoke";
 
+    /// <summary>The one question the RAG segment asks its three in-memory sources.</summary>
+    private const string RagQuestion = "How long is the warranty?";
+
     private static async Task<int> Main()
     {
         var root = Path.Combine(Path.GetTempPath(), "qedge-trim-smoke", Guid.NewGuid().ToString("N"));
@@ -79,7 +83,7 @@ internal static class Program
         var vocabularyPath = Path.Combine(staging, "vocab.txt");
         await File.WriteAllBytesAsync(vocabularyPath, vocabulary).ConfigureAwait(false);
 
-        Log($"[1/6] staged  graph {graph.Length} B, vocab {vocabulary.Length} B under {staging}");
+        Log($"[1/7] staged  graph {graph.Length} B, vocab {vocabulary.Length} B under {staging}");
 
         var preset = Preset(graph, vocabulary);
         var paths = new ScratchPaths(root);
@@ -112,7 +116,7 @@ internal static class Program
         await using (provider.ConfigureAwait(false))
         {
             await provider.GetRequiredService<IEdgeHost>().EnsureStartedAsync().ConfigureAwait(false);
-            Log("[2/6] host    started");
+            Log("[2/7] host    started");
 
             // 2. Tokenize a fixed string, over the real vocabulary file, so Microsoft.ML.Tokenizers
             //    is genuinely in the trimmed graph rather than referenced and dead.
@@ -126,7 +130,7 @@ internal static class Program
 
             var ids = new int[preset.MaxSequenceLength];
             var count = tokenizer.Encode(DocumentOne, preset.MaxSequenceLength, ids, out _);
-            Log($"[3/6] tokens  {count} ids, vocabulary {tokenizer.VocabularySize} entries: {Join(ids, count)}");
+            Log($"[3/7] tokens  {count} ids, vocabulary {tokenizer.VocabularySize} entries: {Join(ids, count)}");
 
             if (count < 3)
             {
@@ -160,7 +164,7 @@ internal static class Program
                 return Fail($"'{DocumentOne}' and '{DocumentTwo}' embedded to the same vector.");
             }
 
-            Log($"[4/6] embed   [{Format(first.Span)}] and [{Format(second.Span)}]");
+            Log($"[4/7] embed   [{Format(first.Span)}] and [{Format(second.Span)}]");
 
             // 4. Upsert and search THROUGH the dynamic collection. GetDynamicCollection with a
             //    definition, never GetCollection<TKey, TRecord>: this is why the job exists.
@@ -176,7 +180,7 @@ internal static class Program
                         Row("doc-2", DocumentTwo, second),
                     ]).ConfigureAwait(false);
 
-                Log("[5/6] upsert  2 rows into vec0");
+                Log("[5/7] upsert  2 rows into vec0");
 
                 var hits = new List<MEVD.VectorSearchResult<Dictionary<string, object?>>>();
                 await foreach (var hit in collection.SearchAsync(first, top: 2).ConfigureAwait(false))
@@ -190,7 +194,7 @@ internal static class Program
                 }
 
                 var nearest = hits[0].Record["Key"] as string;
-                Log($"[6/6] search  {hits.Count} hits, nearest '{nearest}' at distance {hits[0].Score}");
+                Log($"[6/7] search  {hits.Count} hits, nearest '{nearest}' at distance {hits[0].Score}");
 
                 if (!string.Equals(nearest, "doc-1", StringComparison.Ordinal))
                 {
@@ -204,8 +208,158 @@ internal static class Program
             }
         }
 
+        // 5. The RAG recipe, with no model, no natives and no weights. DelegateRetriever over an
+        //    in-memory list and ExtractiveChatClient as the leaf, deliberately: VectorStoreRetriever
+        //    carries [RequiresDynamicCode] and [RequiresUnreferencedCode] because MEVD reflects over
+        //    TRecord, so publishing THAT would prove only that the analyzer works. What this segment
+        //    publishes is RagChatClient, RagPrompts.Format, RagCitations.Build and
+        //    ExtractiveChatClient - pure managed code, and therefore the whole recipe apart from the
+        //    retriever a consumer chooses.
+        var rag = await RunRagAsync().ConfigureAwait(false);
+        if (rag != 0)
+        {
+            return rag;
+        }
+
         Log("trim-smoke: OK");
         return 0;
+    }
+
+    /// <summary>
+    /// Spec 17's RAG leg: a cited answer out of a trimmed publish. Every citation is checked to
+    /// slice back to a <c>[n]</c> marker in the answer it annotates, because an annotation whose
+    /// offsets the trimmer quietly broke would otherwise pass unnoticed.
+    /// </summary>
+    private static async Task<int> RunRagAsync()
+    {
+        using var floor = new ExtractiveChatClient();
+        using var client = new ChatClientBuilder(floor)
+            .UseRag(new DelegateRetriever(
+                "trim-smoke-memory",
+                (_, _, _) => Task.FromResult<IEnumerable<RagSource>>(RagCorpus())))
+            .Build();
+
+        var response = await client
+            .GetResponseAsync([new ChatMessage(ChatRole.User, RagQuestion)])
+            .ConfigureAwait(false);
+
+        var answer = response.Text;
+        if (string.IsNullOrWhiteSpace(answer))
+        {
+            return Fail($"the RAG pipeline answered '{answer}' for '{RagQuestion}'.");
+        }
+
+        var citations = Citations(response);
+        if (citations.Count == 0)
+        {
+            return Fail($"the answer '{answer}' carries no CitationAnnotation.");
+        }
+
+        var markers = 0;
+        foreach (var citation in citations)
+        {
+            foreach (var region in citation.AnnotatedRegions ?? [])
+            {
+                if (region is not TextSpanAnnotatedRegion span ||
+                    span.StartIndex is not { } start ||
+                    span.EndIndex is not { } end)
+                {
+                    return Fail($"citation '{citation.FileId}' carries a region with no text span.");
+                }
+
+                if (start < 0 || end > answer.Length || end <= start)
+                {
+                    return Fail(
+                        $"citation '{citation.FileId}' spans [{start}, {end}) of a {answer.Length}-character answer.");
+                }
+
+                var slice = answer[start..end];
+                if (!IsMarker(slice))
+                {
+                    return Fail($"citation '{citation.FileId}' slices back to '{slice}', not a [n] marker.");
+                }
+
+                markers++;
+            }
+        }
+
+        if (markers == 0)
+        {
+            return Fail($"the answer's {citations.Count} citations carry no annotated region at all.");
+        }
+
+        Log($"[7/7] rag     {citations.Count} citations over {markers} markers, {answer.Length}-character answer");
+        Log("OK: rag");
+        return 0;
+    }
+
+    /// <summary>The three hard-coded sources the in-memory retriever returns, best-first.</summary>
+    private static RagSource[] RagCorpus() =>
+    [
+        new RagSource("chunk-1", "The warranty covers parts and labour for 24 months from delivery.")
+        {
+            Title = "Warranty term",
+            Score = 0.91,
+            ScoreKind = RetrievalScoreKind.Relevance,
+        },
+        new RagSource("chunk-2", "Batteries are covered for 12 months or 500 charge cycles, whichever comes first.")
+        {
+            Title = "Batteries",
+            Score = 0.74,
+            ScoreKind = RetrievalScoreKind.Relevance,
+        },
+        new RagSource("chunk-3", "Accidental damage is not covered by the standard warranty.")
+        {
+            Title = "Exclusions",
+            Score = 0.52,
+            ScoreKind = RetrievalScoreKind.Relevance,
+        },
+    ];
+
+    /// <summary>Every <c>CitationAnnotation</c> on the aggregated response, in order.</summary>
+    private static List<CitationAnnotation> Citations(ChatResponse response)
+    {
+        var citations = new List<CitationAnnotation>();
+
+        foreach (var message in response.Messages)
+        {
+            foreach (var content in message.Contents)
+            {
+                if (content is not TextContent text || text.Annotations is not { Count: > 0 } annotations)
+                {
+                    continue;
+                }
+
+                foreach (var annotation in annotations)
+                {
+                    if (annotation is CitationAnnotation citation)
+                    {
+                        citations.Add(citation);
+                    }
+                }
+            }
+        }
+
+        return citations;
+    }
+
+    /// <summary><c>true</c> for <c>[</c>, one or more ASCII digits, <c>]</c> and nothing else.</summary>
+    private static bool IsMarker(ReadOnlySpan<char> slice)
+    {
+        if (slice.Length < 3 || slice[0] != '[' || slice[^1] != ']')
+        {
+            return false;
+        }
+
+        foreach (var character in slice[1..^1])
+        {
+            if (!char.IsAsciiDigit(character))
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     /// <summary>
