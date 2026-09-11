@@ -1,0 +1,24 @@
+<Solution>
+  <Folder Name="/foundation/src/">
+    <Project Path="foundation/src/Qavren.Edge.Core/Qavren.Edge.Core.csproj" />
+    <Project Path="foundation/src/Qavren.Edge.Maui/Qavren.Edge.Maui.csproj" />
+    <Project Path="foundation/src/Qavren.Edge.Sqlite/Qavren.Edge.Sqlite.csproj" />
+    <Project Path="foundation/src/Qavren.Edge.Sqlite.Provider/Qavren.Edge.Sqlite.Provider.csproj" />
+    <Project Path="foundation/src/Qavren.Edge.Sqlite.Native/Qavren.Edge.Sqlite.Native.csproj" />
+    <Project Path="foundation/src/Qavren.Edge.Sqlite.Native.Cipher/Qavren.Edge.Sqlite.Native.Cipher.csproj" />
+    <Project Path="foundation/src/Qavren.Edge/Qavren.Edge.csproj" />
+  </Folder>
+  <Folder Name="/foundation/tests/">
+    <Project Path="foundation/tests/Qavren.Edge.Core.Tests/Qavren.Edge.Core.Tests.csproj" />
+    <Project Path="foundation/tests/Qavren.Edge.Sqlite.Tests/Qavren.Edge.Sqlite.Tests.csproj" />
+    <Project Path="foundation/tests/Qavren.Edge.Sqlite.Cipher.Tests/Qavren.Edge.Sqlite.Cipher.Tests.csproj" />
+    <Project Path="foundation/tests/Qavren.Edge.Provider.Tests/Qavren.Edge.Provider.Tests.csproj" />
+    <Project Path="foundation/tests/Qavren.Edge.DeviceTests/Qavren.Edge.DeviceTests.csproj" />
+  </Folder>
+  <Folder Name="/foundation/tools/">
+    <Project Path="foundation/tools/ProviderGen/ProviderGen.csproj" />
+  </Folder>
+  <Folder Name="/foundation/samples/">
+    <Project Path="foundation/samples/Qavren.Edge.Sample/Qavren.Edge.Sample.csproj" />
+  </Folder>
+</Solution>

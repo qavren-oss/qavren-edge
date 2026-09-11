@@ -1,0 +1,56 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFrameworks>net10.0;net10.0-ios</TargetFrameworks>
+    <!-- Linux CI hosts can only ever get the android workload: the iOS and Mac Catalyst SDK
+         packs do not exist for linux-x64 (NETSDK1178) and the Windows TFM needs a Windows host.
+         Restore evaluates EVERY entry of TargetFrameworks for every project in the graph, so
+         leaving them listed fails `dotnet test -f net10.0-android` before a test can run. The
+         linux lane only ever builds the android device lane, so that is all it needs. -->
+    <TargetFrameworks Condition="$([MSBuild]::IsOSPlatform('Linux'))">net10.0</TargetFrameworks>
+    <IsPackable>true</IsPackable>
+    <PackageId>Qavren.Edge.Sqlite.Native</PackageId>
+    <Description>Native SQLite with sqlite-vec compiled in, for Qavren.Edge. Includes runtime libraries for Windows, Linux, macOS, Mac Catalyst, Android and iOS.</Description>
+    <RootNamespace>Qavren.Edge.Sqlite.Native</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Qavren.Edge.Sqlite\Qavren.Edge.Sqlite.csproj" />
+    <ProjectReference Include="..\Qavren.Edge.Sqlite.Provider\Qavren.Edge.Sqlite.Provider.csproj" />
+  </ItemGroup>
+
+  <!-- RecursiveDir ends with '' on Windows and '/' elsewhere, so the compare trims both.
+       Which runtimes/ folder to also copy flat into a referencing project's output, so tests and
+       samples can run on the dev box without installing the package. -->
+  <PropertyGroup>
+    <!-- The SDK sets NETCoreSdkPortableRuntimeIdentifier to the host RID (win-x64, win-arm64,
+         linux-x64, osx-arm64, ...). Using it means an arm64 dev box copies the arm64 native
+         instead of silently picking up an x64 one it cannot load. -->
+    <QedgeHostRid>$(NETCoreSdkPortableRuntimeIdentifier)</QedgeHostRid>
+    <QedgeHostRid Condition="'$(NETCoreSdkPortableRuntimeIdentifier)' == ''">win-x64</QedgeHostRid>
+    <!-- NU1012: a buildTransitive/ TFM folder for a platform TFM must carry a platform version, so
+         'net10.0-ios' is rejected at pack time. The outer (TFM-less) pack build cannot read the
+         inner build's $(TargetPlatformVersion), so the lower bound is pinned here. NuGet picks the
+         highest compatible folder, so this keeps working if the SDK's default iOS version rises. -->
+    <QedgeIosBuildTransitiveTfm>net10.0-ios26.0</QedgeIosBuildTransitiveTfm>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <_QedgeNative Include="$(NativeArtifactsDir)**\qedge_sqlite3.dll;$(NativeArtifactsDir)**\libqedge_sqlite3.so;$(NativeArtifactsDir)**\libqedge_sqlite3.dylib" />
+    <!-- PackagePath must name the file. A directory-only PackagePath makes NuGet append
+         %(RecursiveDir) a second time: runtimes/win-x64/native/win-x64/qedge_sqlite3.dll. -->
+    <None Include="@(_QedgeNative)" Pack="true" PackagePath="runtimes/%(RecursiveDir)native/%(Filename)%(Extension)" Visible="false">
+      <CopyToOutputDirectory Condition="'%(RecursiveDir)' == '$(QedgeHostRid)\' Or '%(RecursiveDir)' == '$(QedgeHostRid)/'">PreserveNewest</CopyToOutputDirectory>
+      <Link Condition="'%(RecursiveDir)' == '$(QedgeHostRid)\' Or '%(RecursiveDir)' == '$(QedgeHostRid)/'">%(Filename)%(Extension)</Link>
+    </None>
+  </ItemGroup>
+
+  <ItemGroup Condition="Exists('$(NativeArtifactsDir)apple\qedge_sqlite3.xcframework')">
+    <None Include="$(NativeArtifactsDir)apple\qedge_sqlite3.xcframework\**\*" Pack="true"
+          PackagePath="xcframeworks/qedge_sqlite3.xcframework/%(RecursiveDir)%(Filename)%(Extension)" Visible="false" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="buildTransitive\net10.0-ios\Qavren.Edge.Sqlite.Native.targets" Pack="true"
+          PackagePath="buildTransitive/$(QedgeIosBuildTransitiveTfm)/Qavren.Edge.Sqlite.Native.targets" Visible="false" />
+  </ItemGroup>
+</Project>

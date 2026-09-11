@@ -1,0 +1,10 @@
+<Project>
+  <ItemGroup Condition="'$(TargetPlatformIdentifier)' == 'ios'">
+    <NativeReference Include="$(MSBuildThisFileDirectory)..\..\xcframeworks\qedge_sqlcipher.xcframework">
+      <Kind>Static</Kind>
+      <ForceLoad>true</ForceLoad>
+      <SmartLink>false</SmartLink>
+      <Frameworks>Security</Frameworks>
+    </NativeReference>
+  </ItemGroup>
+</Project>

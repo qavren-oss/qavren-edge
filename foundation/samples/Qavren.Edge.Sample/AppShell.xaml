@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<Shell
+    x:Class="Qavren.Edge.Sample.AppShell"
+    xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+    xmlns:local="clr-namespace:Qavren.Edge.Sample"
+    xmlns:pages="clr-namespace:Qavren.Edge.Sample.Pages"
+    Title="Qavren.Edge.Sample">
+
+    <ShellContent
+        Title="Diagnostics"
+        ContentTemplate="{DataTemplate pages:DiagnosticsPage}"
+        Route="DiagnosticsPage" />
+
+    <ShellContent
+        Title="Notes"
+        ContentTemplate="{DataTemplate pages:NotesPage}"
+        Route="NotesPage" />
+
+    <ShellContent
+        Title="Health"
+        ContentTemplate="{DataTemplate pages:HealthPage}"
+        Route="HealthPage" />
+
+    <ShellContent
+        Title="Encryption"
+        ContentTemplate="{DataTemplate pages:EncryptionPage}"
+        Route="EncryptionPage" />
+
+</Shell>

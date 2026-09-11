@@ -1,0 +1,25 @@
+<Project>
+
+  <!-- Imported AFTER each project's own PropertyGroup, so $(IsPackable) is settled here.
+       The same block in Directory.Build.props would evaluate against the default 'false'
+       and never apply. -->
+  <PropertyGroup Condition="'$(IsPackable)' == 'true'">
+    <IsAotCompatible Condition="$([MSBuild]::IsTargetFrameworkCompatible('$(TargetFramework)', 'net8.0'))">true</IsAotCompatible>
+    <EnablePackageValidation>true</EnablePackageValidation>
+    <PublishRepositoryUrl>true</PublishRepositoryUrl>
+    <EmbedUntrackedSources>true</EmbedUntrackedSources>
+    <IncludeSymbols>true</IncludeSymbols>
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+    <Authors>Qavren Solutions LLC</Authors>
+    <Company>Qavren Solutions LLC</Company>
+    <Product>Qavren.Edge</Product>
+    <Copyright>Copyright (c) Qavren Solutions LLC</Copyright>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageProjectUrl>https://github.com/qavren-oss/qavren-edge</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/qavren-oss/qavren-edge</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageTags>sqlite;sqlite-vec;vector;maui;embedded</PackageTags>
+    <MinVerTagPrefix>v</MinVerTagPrefix>
+  </PropertyGroup>
+
+</Project>

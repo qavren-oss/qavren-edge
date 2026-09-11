@@ -1,0 +1,42 @@
+<Project>
+
+  <PropertyGroup>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
+    <AnalysisLevel>latest-recommended</AnalysisLevel>
+    <Deterministic>true</Deterministic>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <!-- NU5127: native-only packages carry no lib/ assembly.
+         CS1591: XML doc coverage is a 1.0 gate, not a Wave-2 gate. -->
+    <NoWarn>$(NoWarn);NU5127;CS1591</NoWarn>
+    <!-- Unconditional on purpose. .editorconfig escalates IDE0005 to error, and Roslyn refuses
+         to honour that without a documentation file (error EnableGenerateDocumentationFile,
+         roslyn#41640) - which would break every non-packable project in the repo. CS1591 is
+         already suppressed above, so this costs nothing but the .xml file. -->
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <IsPackable>false</IsPackable>
+    <NativeArtifactsDir>$(MSBuildThisFileDirectory)foundation\native\artifacts\</NativeArtifactsDir>
+  </PropertyGroup>
+
+  <!-- global.json selects the Microsoft.Testing.Platform runner, but `dotnet test` only hands a
+       project to that runner when this property is set. Without it `dotnet test` restores, runs
+       nothing, and still exits 0 - a false green. Verified on SDK 10.0.401: off => "0 tests",
+       exit 0; on => "Passed! - Failed: 0, Passed: 10". Set repo-wide so the Wave 9 CI test lane
+       cannot inherit the silent variant. -->
+  <PropertyGroup>
+    <TestingPlatformDotnetTestSupport>true</TestingPlatformDotnetTestSupport>
+  </PropertyGroup>
+
+  <!-- CI only: normalizes stored source paths. Must stay off locally or the debugger loses sources. -->
+  <PropertyGroup Condition="'$(GITHUB_ACTIONS)' == 'true'">
+    <ContinuousIntegrationBuild>true</ContinuousIntegrationBuild>
+  </PropertyGroup>
+
+  <!-- The packable block lives in Directory.Build.targets: it is conditioned on $(IsPackable),
+       which each project sets in its own PropertyGroup - i.e. after props are imported and
+       before targets are. Keeping it here made the whole block dead. -->
+
+</Project>

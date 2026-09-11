@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <IsPackable>true</IsPackable>
+    <PackageId>Qavren.Edge.Sqlite</PackageId>
+    <Description>SQLite for Qavren.Edge: pragma-tuned connections, explicit migrations, and sqlite-vec / FTS5 helpers that emit plain SQL.</Description>
+    <RootNamespace>Qavren.Edge.Sqlite</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Data.Sqlite.Core" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Qavren.Edge.Core\Qavren.Edge.Core.csproj" />
+  </ItemGroup>
+</Project>

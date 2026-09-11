@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             x:Class="Qavren.Edge.Sample.Pages.EncryptionPage"
+             Title="Encryption">
+    <ScrollView Padding="16">
+        <VerticalStackLayout Spacing="16">
+            <Label x:Name="BuildLabel" FontFamily="Consolas" LineBreakMode="WordWrap" />
+            <Label x:Name="ProviderLabel" FontFamily="Consolas" LineBreakMode="WordWrap" />
+            <Label x:Name="DatabaseLabel" FontFamily="Consolas" LineBreakMode="WordWrap" />
+            <Button x:Name="RekeyButton" Text="Rotate the database key" Clicked="OnRekey" />
+            <Label x:Name="RekeyLabel" FontFamily="Consolas" LineBreakMode="WordWrap" />
+        </VerticalStackLayout>
+    </ScrollView>
+</ContentPage>

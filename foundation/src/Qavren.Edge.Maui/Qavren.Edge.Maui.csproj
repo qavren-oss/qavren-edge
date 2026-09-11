@@ -1,0 +1,39 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFrameworks>net10.0-android;net10.0-ios;net10.0-maccatalyst;net10.0-windows10.0.19041.0</TargetFrameworks>
+    <!-- Linux CI hosts can only ever get the android workload: the iOS and Mac Catalyst SDK
+         packs do not exist for linux-x64 (NETSDK1178) and the Windows TFM needs a Windows host.
+         Restore evaluates EVERY entry of TargetFrameworks for every project in the graph, so
+         leaving them listed fails `dotnet test -f net10.0-android` before a test can run. The
+         linux lane only ever builds the android device lane, so that is all it needs. -->
+    <TargetFrameworks Condition="$([MSBuild]::IsOSPlatform('Linux'))">net10.0-android</TargetFrameworks>
+    <!-- Same restore-evaluates-every-TFM rule on macOS hosts: the Windows TFM needs a Windows
+         host (NETSDK1100), so the apple and maccatalyst lanes drop it. -->
+    <TargetFrameworks Condition="$([MSBuild]::IsOSPlatform('OSX'))">net10.0-android;net10.0-ios;net10.0-maccatalyst</TargetFrameworks>
+    <UseMaui>true</UseMaui>
+    <SingleProject>false</SingleProject>
+    <IsPackable>true</IsPackable>
+    <PackageId>Qavren.Edge.Maui</PackageId>
+    <Description>MAUI lifecycle bridge for Qavren.Edge: UseQavrenEdge(), FileSystem-backed paths, and platform lifecycle and memory-pressure mapping.</Description>
+    <RootNamespace>Qavren.Edge.Maui</RootNamespace>
+    <EnableDefaultCompileItems>true</EnableDefaultCompileItems>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Maui.Controls" />
+    <ProjectReference Include="..\Qavren.Edge.Core\Qavren.Edge.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Remove="Platforms\**\*.cs" />
+  </ItemGroup>
+  <ItemGroup Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'android'">
+    <Compile Include="Platforms\Android\**\*.cs" />
+  </ItemGroup>
+  <ItemGroup Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'ios' or $([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'maccatalyst'">
+    <Compile Include="Platforms\iOS\**\*.cs" />
+  </ItemGroup>
+  <ItemGroup Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows'">
+    <Compile Include="Platforms\Windows\**\*.cs" />
+  </ItemGroup>
+</Project>

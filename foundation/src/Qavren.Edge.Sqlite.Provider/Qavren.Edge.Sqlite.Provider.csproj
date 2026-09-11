@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFrameworks>net10.0;net10.0-ios</TargetFrameworks>
+    <!-- Linux CI hosts can only ever get the android workload: the iOS and Mac Catalyst SDK
+         packs do not exist for linux-x64 (NETSDK1178) and the Windows TFM needs a Windows host.
+         Restore evaluates EVERY entry of TargetFrameworks for every project in the graph, so
+         leaving them listed fails `dotnet test -f net10.0-android` before a test can run. The
+         linux lane only ever builds the android device lane, so that is all it needs. -->
+    <TargetFrameworks Condition="$([MSBuild]::IsOSPlatform('Linux'))">net10.0</TargetFrameworks>
+    <IsPackable>true</IsPackable>
+    <PackageId>Qavren.Edge.Sqlite.Provider</PackageId>
+    <Description>Generated SQLitePCLRaw ISQLite3Provider for the Qavren.Edge native SQLite build.</Description>
+    <RootNamespace>Qavren.Edge.Sqlite.Provider</RootNamespace>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <!-- The generated file is upstream's shape; do not hold it to this repo's style rules. -->
+    <NoWarn>$(NoWarn);CA1401;CA2101;SYSLIB1054;IDE0005;IDE1006;CS8500</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="SQLitePCLRaw.core" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- Vendored template is packaging input only, never compiled. -->
+    <None Include="Template\**\*" Pack="false" />
+    <Compile Remove="Template\**\*" />
+  </ItemGroup>
+</Project>

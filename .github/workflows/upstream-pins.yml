@@ -1,0 +1,48 @@
+name: upstream-pins
+
+on:
+  schedule:
+    - cron: '0 9 1 * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Compare pinned versions with the latest upstream tags
+        id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          body=""
+          for repo_and_key in "asg017/sqlite-vec:sqliteVec" "sqlcipher/sqlcipher:sqlcipher" "libtom/libtomcrypt:libtomcrypt"; do
+            repo="${repo_and_key%%:*}"; key="${repo_and_key##*:}"
+            pinned=$(jq -r ".${key}.version" foundation/native/versions.json)
+            latest=$(gh api "repos/${repo}/releases/latest" --jq '.tag_name' 2>/dev/null || echo "unknown")
+            body="${body}- ${repo}: pinned ${pinned}, latest ${latest}"$'\n'
+          done
+          sqlite_pinned=$(jq -r '.sqlite.version' foundation/native/versions.json)
+          body="${body}- sqlite.org: pinned ${sqlite_pinned} (check https://sqlite.org/chronology.html)"$'\n'
+          {
+            echo 'body<<EOF'
+            echo "$body"
+            echo EOF
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Open the tracking issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh issue create \
+            --title "Native pin review $(date +%Y-%m)" \
+            --body "${{ steps.check.outputs.body }}
+
+          Bumping a pin means editing \`foundation/native/versions.json\`, running
+          \`fetch-sources.ps1 -UpdateHashes\`, reviewing the hash diff, and letting \`native.yml\` rebuild."

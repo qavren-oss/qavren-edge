@@ -1,0 +1,144 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFrameworks>net10.0-android;net10.0-ios;net10.0-maccatalyst;net10.0-windows10.0.19041.0</TargetFrameworks>
+    <!-- Linux CI hosts can only ever get the android workload: the iOS and Mac Catalyst SDK
+         packs do not exist for linux-x64 (NETSDK1178) and the Windows TFM needs a Windows host.
+         Restore evaluates EVERY entry of TargetFrameworks for every project in the graph, so
+         leaving them listed fails `dotnet test -f net10.0-android` before a test can run. The
+         linux lane only ever builds the android device lane, so that is all it needs. -->
+    <TargetFrameworks Condition="$([MSBuild]::IsOSPlatform('Linux'))">net10.0-android</TargetFrameworks>
+    <!-- Same restore-evaluates-every-TFM rule on macOS hosts: the Windows TFM needs a Windows
+         host (NETSDK1100), so the apple and maccatalyst lanes drop it. -->
+    <TargetFrameworks Condition="$([MSBuild]::IsOSPlatform('OSX'))">net10.0-android;net10.0-ios;net10.0-maccatalyst</TargetFrameworks>
+    <UseMaui>true</UseMaui>
+    <SingleProject>true</SingleProject>
+    <OutputType>Exe</OutputType>
+    <IsPackable>false</IsPackable>
+    <ApplicationId>app.qavren.edge.devicetests</ApplicationId>
+    <ApplicationTitle>Qavren.Edge device tests</ApplicationTitle>
+    <ApplicationDisplayVersion>1.0</ApplicationDisplayVersion>
+    <ApplicationVersion>1</ApplicationVersion>
+    <RootNamespace>Qavren.Edge.DeviceTests</RootNamespace>
+    <SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'android'">21.0</SupportedOSPlatformVersion>
+    <SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'ios'">15.0</SupportedOSPlatformVersion>
+    <SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'maccatalyst'">15.0</SupportedOSPlatformVersion>
+    <SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows'">10.0.17763.0</SupportedOSPlatformVersion>
+    <TargetPlatformMinVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows'">10.0.17763.0</TargetPlatformMinVersion>
+    <!-- Unpackaged: the CI windows lane launches the built .exe directly, and MSIX packaging would
+         demand a signing identity this repo does not have. -->
+    <WindowsPackageType>None</WindowsPackageType>
+    <!-- The hosted suites exercise the reflection-based SqliteConnectionExtensions.ToParameters
+         overload on purpose. Trimming the runner would delete the anonymous-type properties it
+         reflects over and turn a green device lane red for a reason that is not a product bug.
+         Android Release defaults RunAOTCompilation on, and AOT without trimming is XA1030, so
+         AOT goes too - this app is a test harness, not something anyone ships.
+         On iOS and Mac Catalyst the Apple SDK rejects PublishTrimmed=false outright and tells you to
+         set MtouchLink=None instead; PublishTrimmed=false there also trips
+         "The linker has been disabled because there's no connection to a Mac", which -warnaserror
+         turns into a build break on this Windows host. So the Apple lanes use MtouchLink. -->
+    <PublishTrimmed Condition="!$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)').Equals('ios')) And !$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)').Equals('maccatalyst'))">false</PublishTrimmed>
+    <MtouchLink Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'ios' Or $([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'maccatalyst'">None</MtouchLink>
+    <RunAOTCompilation>false</RunAOTCompilation>
+    <!-- CA2007: same conflict the two hosted test libraries hit - .editorconfig makes it an error,
+         and its fix, ConfigureAwait(false) inside a test body, is what xunit's xUnit1030 forbids.
+         CA1711: AppDelegate is the fixed name the iOS and Mac Catalyst app heads must use. -->
+    <NoWarn>$(NoWarn);CA2007;CA1711</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Maui.Controls" />
+    <PackageReference Include="DeviceRunners.VisualRunners.Maui" />
+    <PackageReference Include="DeviceRunners.VisualRunners.Xunit3" />
+    <!-- Provides the MSBuild targets that make `dotnet test -f net10.0-android` deploy, launch,
+         stream results back over TCP and write a TRX. -->
+    <PackageReference Include="DeviceRunners.Testing.Targets" />
+    <!-- This project's OWN test class (NativeSmokeTests) needs the attributes and asserts.
+         Same rule as the libraries: never xunit.v3 or xunit.v3.core here. -->
+    <PackageReference Include="xunit.v3.extensibility.core" />
+    <PackageReference Include="xunit.v3.assert" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Qavren.Edge.Maui\Qavren.Edge.Maui.csproj" />
+    <ProjectReference Include="..\..\src\Qavren.Edge.Sqlite\Qavren.Edge.Sqlite.csproj" />
+    <ProjectReference Include="..\..\src\Qavren.Edge.Sqlite.Native\Qavren.Edge.Sqlite.Native.csproj" />
+  </ItemGroup>
+
+  <!-- Spec 5.2: "references the two test projects". These are the assemblies the runner hosts,
+       so the device lane runs the SAME pragma, migration, KNN-vs-brute-force,
+       connection-extension and lifecycle-observer tests the host lane runs.
+       SetTargetFramework is not needed: both projects multi-target the four device TFMs, so
+       MSBuild resolves the matching one. -->
+  <ItemGroup>
+    <ProjectReference Include="..\Qavren.Edge.Core.Tests\Qavren.Edge.Core.Tests.csproj" />
+    <ProjectReference Include="..\Qavren.Edge.Sqlite.Tests\Qavren.Edge.Sqlite.Tests.csproj" />
+  </ItemGroup>
+
+  <!-- Qavren.Edge.Sqlite.Native is taken by ProjectReference here, and a project reference
+       carries none of the package's runtimes/<rid>/native assets - so on android nothing would
+       put libqedge_sqlite3.so in the APK and every test would die with DllNotFoundException.
+       Package consumers are unaffected: runtimes/android-*/native/ in the nupkg is honoured.
+       Exists() guards keep a checkout with no downloaded natives building (CI downloads the
+       native-* artifacts into $(NativeArtifactsDir) before this project is built).
+       .NET 9+ only builds android-arm64 and android-x64 by default; android-arm is listed for
+       the case a consumer re-adds armeabi-v7a to $(RuntimeIdentifiers). -->
+  <ItemGroup Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'android'">
+    <AndroidNativeLibrary Include="$(NativeArtifactsDir)android-arm64\libqedge_sqlite3.so" Abi="arm64-v8a" Visible="false"
+                          Condition="Exists('$(NativeArtifactsDir)android-arm64\libqedge_sqlite3.so')" />
+    <AndroidNativeLibrary Include="$(NativeArtifactsDir)android-x64\libqedge_sqlite3.so" Abi="x86_64" Visible="false"
+                          Condition="Exists('$(NativeArtifactsDir)android-x64\libqedge_sqlite3.so')" />
+    <AndroidNativeLibrary Include="$(NativeArtifactsDir)android-arm\libqedge_sqlite3.so" Abi="armeabi-v7a" Visible="false"
+                          Condition="Exists('$(NativeArtifactsDir)android-arm\libqedge_sqlite3.so')" />
+  </ItemGroup>
+
+  <!-- Adjustment 2 (plan line 51): Mac Catalyst is NOT the iOS __Internal case. It uses
+       DllImport("qedge_sqlite3") and consumes runtimes/maccatalyst-<rid>/native/libqedge_sqlite3.dylib
+       from the package. Qavren.Edge.Sqlite.Native is a ProjectReference here, and a project
+       reference carries none of the package's runtimes/ assets - the same gap the
+       AndroidNativeLibrary items above close for the APK. NativeReference with Kind=Dynamic is
+       the ProjectReference-equivalent: the Apple SDK re-ids it to
+       @executable_path/../../Contents/MonoBundle/, copies it into the .app and links it into the
+       native executable, so the DllImport resolves. RuntimeIdentifier is the `-r maccatalyst-x64`
+       the CI lane passes, so an arm64 host lane would pick maccatalyst-arm64 instead.
+       Exists() guard: same reason as android - a checkout with no downloaded natives still builds. -->
+  <ItemGroup Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'maccatalyst'">
+    <NativeReference Include="$(NativeArtifactsDir)$(RuntimeIdentifier)\libqedge_sqlite3.dylib"
+                     Kind="Dynamic" Visible="false"
+                     Condition="Exists('$(NativeArtifactsDir)$(RuntimeIdentifier)\libqedge_sqlite3.dylib')" />
+  </ItemGroup>
+
+  <!-- ...and keep the WRONG dylib out of the .app. Qavren.Edge.Sqlite.Native copies the HOST-RID
+       native flat into every referencing project's output so host test runs work on a dev box
+       (its $(QedgeHostRid) `None` item). On the macos-15-intel device lane that host RID is
+       osx-x64, so a plain macOS dylib landed in the app head's publish set. ComputeBundleLocation
+       classifies every publish-set .dylib as PublishFolderType=DynamicLibrary, which makes the
+       Apple SDK (a) try to link a macOS-platform dylib into a Mac Catalyst executable and
+       (b) run InstallNameTool on it. That file arrives from more than one project-reference path
+       and every copy re-ids to the SAME obj/.../nativelibraries/Contents/MonoBundle/
+       libqedge_sqlite3.dylib.tmp; the InstallNameTool task copies, install_name_tools and
+       File.Moves those concurrently, so the losers died with
+       "install_name_tool: cannot rename ...dylib.tmp ... (No such file or directory)" and
+       MSB4018 FileNotFoundException on the same .tmp (run 34556748270).
+       PublishFolderType=None is the SDK's documented opt-out: ComputeBundleLocation only computes
+       a folder type when the metadata is unset, and Xamarin.Shared.Sdk.targets drops every
+       'None' item from ResolvedFileToPublish right after. The NativeReference above is not a
+       ResolvedFileToPublish item, so it is untouched by this and stays the single copy in the
+       bundle. Scoped to maccatalyst: no other TFM has the problem (android uses
+       AndroidNativeLibrary, windows loads the flat copy from the output directory). -->
+  <Target Name="_QedgeDropHostNativeFromMacCatalystBundle"
+          Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'maccatalyst'"
+          DependsOnTargets="ComputeResolvedFilesToPublishList"
+          BeforeTargets="_ComputePublishLocation">
+    <ItemGroup>
+      <ResolvedFileToPublish PublishFolderType="None"
+                             Condition="'%(Filename)%(Extension)' == 'libqedge_sqlite3.dylib'" />
+    </ItemGroup>
+  </Target>
+
+  <!-- MAUI app-head assets. The plan's file list omits these; a UseMaui app head does not build
+       without an icon and a splash (the generated Android/Windows manifests reference them). -->
+  <ItemGroup>
+    <MauiIcon Include="Resources\AppIcon\appicon.svg" ForegroundFile="Resources\AppIcon\appiconfg.svg" Color="#512BD4" />
+    <MauiSplashScreen Include="Resources\Splash\splash.svg" Color="#512BD4" BaseSize="128,128" />
+  </ItemGroup>
+</Project>

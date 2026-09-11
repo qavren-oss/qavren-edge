@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <OutputType>Exe</OutputType>
+    <IsPackable>false</IsPackable>
+    <RootNamespace>Qavren.Edge.ProviderGen</RootNamespace>
+    <AssemblyName>providergen</AssemblyName>
+    <!-- Reflection over ISQLite3Provider is the whole point of this tool. -->
+    <IsAotCompatible>false</IsAotCompatible>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="SQLitePCLRaw.core" />
+  </ItemGroup>
+</Project>

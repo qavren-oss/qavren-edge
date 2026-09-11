@@ -1,0 +1,15 @@
+[*.cs]
+# CA1707: migration classes follow the M<version>_<name> naming convention (spec/plan), which
+# collides with the identifier-underscore rule. Same exemption tests/** already carries.
+dotnet_diagnostic.CA1707.severity = none
+
+# CA2007: this is an application, not a library. Page event handlers and lifecycle overrides
+# intentionally continue on the captured (UI) SynchronizationContext after an await so they can
+# touch controls afterwards; ConfigureAwait(false) here would resume on a background thread and
+# crash on the next UI mutation.
+dotnet_diagnostic.CA2007.severity = none
+
+[Platforms/**/*.cs]
+# CA1711: AppDelegate is Apple's own platform naming convention (UIApplicationDelegate
+# subclasses are named "<X>Delegate"), reproduced verbatim from the MAUI project template.
+dotnet_diagnostic.CA1711.severity = none

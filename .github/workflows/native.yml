@@ -1,0 +1,229 @@
+name: native
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_call:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  DOTNET_NOLOGO: 'true'
+
+jobs:
+  changes:
+    runs-on: ubuntu-24.04
+    outputs:
+      native: ${{ steps.filter.outputs.native }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            native:
+              - 'foundation/native/**'
+              - '.github/workflows/native.yml'
+
+  build:
+    needs: changes
+    # Builds on every non-pull_request entry point (push to main, workflow_dispatch, and the
+    # workflow_call from release.yml on a tag push), and on a pull request ONLY when a native
+    # path moved. A pull request that changed no native file gets the `reuse` job instead.
+    # `github.event_name` inside a called workflow is the CALLER's event, which is exactly the
+    # discrimination wanted: ci.yml on a PR reuses, release.yml on a tag builds.
+    if: ${{ github.event_name != 'pull_request' || needs.changes.outputs.native == 'true' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: windows-2025,  name: windows }
+          - { os: ubuntu-24.04,  name: linux-android }
+          - { os: macos-15,      name: apple }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # Spec 10.4: cache key = versions.json + native/** + this workflow file. A hit means the
+      # exact same native inputs have already been built on this OS, so skip straight to upload.
+      - name: Cache built natives
+        id: native-cache
+        uses: actions/cache@v4
+        with:
+          path: foundation/native/artifacts
+          key: qedge-native-${{ matrix.name }}-${{ hashFiles('foundation/native/versions.json', 'foundation/native/CMakeLists.txt', 'foundation/native/src/**', 'foundation/native/cmake/**', 'foundation/native/scripts/**', '.github/workflows/native.yml') }}
+
+      - name: Cache fetched sources
+        if: steps.native-cache.outputs.cache-hit != 'true'
+        uses: actions/cache@v4
+        with:
+          path: foundation/native/_deps/download
+          key: qedge-deps-${{ hashFiles('foundation/native/versions.json') }}
+
+      # The cipher target's CMake configure step shells out to cmake/ltc-sources.py to
+      # enumerate the libtomcrypt translation units, so `python` must resolve on PATH. The
+      # hosted image ships one, but pin it so an image change cannot break configure. No
+      # tclsh is required: cmake/make-sqlcipher-amalgamation.cmake drives SQLCipher's own
+      # Makefile.msc, which runs every generator through the bundled jimsh0.
+      - uses: actions/setup-python@v5
+        if: steps.native-cache.outputs.cache-hit != 'true' && matrix.name == 'windows'
+        with:
+          python-version: '3.12'
+
+      - name: Fetch and verify pinned sources (Windows)
+        if: steps.native-cache.outputs.cache-hit != 'true' && matrix.name == 'windows'
+        shell: pwsh
+        run: |
+          $env:PATH = "C:\Program Files\Git\mingw64\bin;$env:PATH"
+          ./foundation/native/scripts/fetch-sources.ps1 -IncludeCipher
+
+      - name: Fetch and verify pinned sources (Unix)
+        if: steps.native-cache.outputs.cache-hit != 'true' && matrix.name != 'windows'
+        shell: pwsh
+        run: ./foundation/native/scripts/fetch-sources.ps1 -IncludeCipher
+
+      - name: Build (Windows, x64 + arm64, plain + cipher)
+        if: steps.native-cache.outputs.cache-hit != 'true' && matrix.name == 'windows'
+        shell: pwsh
+        run: |
+          $env:PATH = "C:\Program Files\Git\mingw64\bin;$env:PATH"
+          foreach ($arch in 'x64', 'arm64') {
+            ./foundation/native/scripts/build-windows.ps1 -Arch $arch -BuildSha "${{ github.sha }}"
+            ./foundation/native/scripts/build-windows.ps1 -Arch $arch -Cipher -BuildSha "${{ github.sha }}"
+          }
+          # windows-2025 always carries VC.Tools.ARM64, so -SkipIfToolsetMissing is deliberately
+          # NOT passed here: a missing ARM64 toolset must fail the build, not silently skip.
+          foreach ($rid in 'win-x64', 'win-arm64') {
+            foreach ($dll in 'qedge_sqlite3.dll', 'qedge_sqlcipher.dll') {
+              $p = "foundation/native/artifacts/$rid/$dll"
+              if (-not (Test-Path $p)) { throw "missing native artifact: $p" }
+            }
+          }
+          Write-Host 'OK: 4 Windows artifacts produced'
+
+      - name: Install Linux cross toolchain
+        if: steps.native-cache.outputs.cache-hit != 'true' && matrix.name == 'linux-android'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build crossbuild-essential-arm64 tcl
+
+      - name: Build Linux and Android
+        if: steps.native-cache.outputs.cache-hit != 'true' && matrix.name == 'linux-android'
+        run: |
+          chmod +x foundation/native/scripts/*.sh
+          ./foundation/native/scripts/build-linux.sh linux-x64 OFF "${{ github.sha }}"
+          ./foundation/native/scripts/build-linux.sh linux-arm64 OFF "${{ github.sha }}"
+          ./foundation/native/scripts/build-linux.sh linux-x64 ON "${{ github.sha }}"
+          ./foundation/native/scripts/build-linux.sh linux-arm64 ON "${{ github.sha }}"
+          # The default NDK on ubuntu-24.04 is r27, which is NOT 16 KB aligned by default.
+          export ANDROID_NDK_ROOT="$ANDROID_NDK_LATEST_HOME"
+          ./foundation/native/scripts/build-android.sh OFF "${{ github.sha }}"
+          ./foundation/native/scripts/build-android.sh ON "${{ github.sha }}"
+
+      - name: Select Xcode
+        if: steps.native-cache.outputs.cache-hit != 'true' && matrix.name == 'apple'
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: '26.2'
+
+      - name: Build Apple slices
+        if: steps.native-cache.outputs.cache-hit != 'true' && matrix.name == 'apple'
+        run: |
+          brew install ninja
+          chmod +x foundation/native/scripts/*.sh
+          ./foundation/native/scripts/build-apple.sh OFF "${{ github.sha }}"
+          ./foundation/native/scripts/build-apple.sh ON "${{ github.sha }}"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: native-${{ matrix.name }}
+          path: foundation/native/artifacts/**
+          retention-days: 30
+          if-no-files-found: error
+
+  # Spec 10.4: "managed-only PRs download the cached natives instead of rebuilding."
+  # One ubuntu job restores all three OS caches (they were saved by the last build on `main`
+  # for this exact native tree) and re-publishes them under the SAME three artifact names, so
+  # every downstream ci.yml job is oblivious to which path produced them. No macOS runner, no
+  # Windows runner, no compiler.
+  reuse:
+    needs: changes
+    if: ${{ github.event_name == 'pull_request' && needs.changes.outputs.native != 'true' }}
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Restore cached Windows natives
+        id: c-windows
+        uses: actions/cache/restore@v4
+        with:
+          path: foundation/native/artifacts
+          key: qedge-native-windows-${{ hashFiles('foundation/native/versions.json', 'foundation/native/CMakeLists.txt', 'foundation/native/src/**', 'foundation/native/cmake/**', 'foundation/native/scripts/**', '.github/workflows/native.yml') }}
+      - uses: actions/upload-artifact@v4
+        if: steps.c-windows.outputs.cache-hit == 'true'
+        with: { name: native-windows, path: foundation/native/artifacts/**, retention-days: 30, if-no-files-found: error }
+      - name: Clear staging
+        run: rm -rf foundation/native/artifacts
+
+      - name: Restore cached Linux/Android natives
+        id: c-linux
+        uses: actions/cache/restore@v4
+        with:
+          path: foundation/native/artifacts
+          key: qedge-native-linux-android-${{ hashFiles('foundation/native/versions.json', 'foundation/native/CMakeLists.txt', 'foundation/native/src/**', 'foundation/native/cmake/**', 'foundation/native/scripts/**', '.github/workflows/native.yml') }}
+      - uses: actions/upload-artifact@v4
+        if: steps.c-linux.outputs.cache-hit == 'true'
+        with: { name: native-linux-android, path: foundation/native/artifacts/**, retention-days: 30, if-no-files-found: error }
+      - name: Clear staging
+        run: rm -rf foundation/native/artifacts
+
+      - name: Restore cached Apple natives
+        id: c-apple
+        uses: actions/cache/restore@v4
+        with:
+          path: foundation/native/artifacts
+          key: qedge-native-apple-${{ hashFiles('foundation/native/versions.json', 'foundation/native/CMakeLists.txt', 'foundation/native/src/**', 'foundation/native/cmake/**', 'foundation/native/scripts/**', '.github/workflows/native.yml') }}
+      - uses: actions/upload-artifact@v4
+        if: steps.c-apple.outputs.cache-hit == 'true'
+        with: { name: native-apple, path: foundation/native/artifacts/**, retention-days: 30, if-no-files-found: error }
+
+      # A cold cache means `main` has never built THIS native tree. Fail loudly with the fix
+      # rather than letting ci.yml die later on a missing artifact download.
+      - name: Require all three caches
+        run: |
+          echo "windows=${{ steps.c-windows.outputs.cache-hit }} linux=${{ steps.c-linux.outputs.cache-hit }} apple=${{ steps.c-apple.outputs.cache-hit }}"
+          if [ "${{ steps.c-windows.outputs.cache-hit }}" != "true" ]              || [ "${{ steps.c-linux.outputs.cache-hit }}" != "true" ]              || [ "${{ steps.c-apple.outputs.cache-hit }}" != "true" ]; then
+            echo "::error::No cached natives for this native tree. Run the 'native' workflow on main via workflow_dispatch once, then re-run this PR."
+            exit 1
+          fi
+          echo "reuse: all three native artifact sets restored from cache"
+
+  # The required status check. It ALWAYS runs and always reports, so a managed-only PR is not
+  # blocked waiting on a build that was correctly skipped, and a real native failure still
+  # turns the check red. `always()` is required or a skipped `build` would skip this too.
+  # Exactly one of `build` and `reuse` runs; the other is `skipped`, which is a pass.
+  native-gate:
+    needs: [changes, build, reuse]
+    if: always()
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Report
+        run: |
+          echo "changes=${{ needs.changes.outputs.native }} build=${{ needs.build.result }} reuse=${{ needs.reuse.result }}"
+          fail=0
+          case "${{ needs.build.result }}" in
+            success|skipped) ;;
+            *) echo "native-gate: FAIL (build ${{ needs.build.result }})"; fail=1 ;;
+          esac
+          case "${{ needs.reuse.result }}" in
+            success|skipped) ;;
+            *) echo "native-gate: FAIL (reuse ${{ needs.reuse.result }})"; fail=1 ;;
+          esac
+          if [ "${{ needs.build.result }}" = "skipped" ] && [ "${{ needs.reuse.result }}" = "skipped" ]; then
+            echo "native-gate: FAIL (neither build nor reuse ran)"; fail=1
+          fi
+          [ "$fail" = "0" ] && echo "native-gate: pass"
+          exit $fail
