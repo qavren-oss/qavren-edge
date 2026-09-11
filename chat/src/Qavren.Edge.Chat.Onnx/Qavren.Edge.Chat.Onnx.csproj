@@ -1,0 +1,63 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <!-- Four TFMs, not five. GenAI ships no Windows *platform* managed asset at all: a Windows
+         consumer binds lib/net8.0 and takes runtimes/win-x64 or win-arm64 by RID, exactly as
+         Qavren.Edge.Sqlite is already consumed. A fifth TFM would buy a build leg and nothing else.
+         The multi-targeting that IS here exists for one reason: IEdgeChatDeviceProfile needs
+         ActivityManager.MemoryInfo.TotalMem on Android and NSProcessInfo.PhysicalMemory on Apple,
+         and the ABI check needs Android.OS.Build.SupportedAbis. -->
+    <TargetFrameworks>net10.0;net10.0-android;net10.0-ios;net10.0-maccatalyst</TargetFrameworks>
+    <!-- Restore evaluates EVERY entry of TargetFrameworks for every project in the graph, so the
+         ios and maccatalyst SDK packs (which do not exist for linux-x64, NETSDK1178) have to be
+         dropped on Linux hosts or the android device lane fails before a test can run. -->
+    <TargetFrameworks Condition="$([MSBuild]::IsOSPlatform('Linux'))">net10.0;net10.0-android</TargetFrameworks>
+    <IsPackable>true</IsPackable>
+    <PackageId>Qavren.Edge.Chat.Onnx</PackageId>
+    <Description>On-device chat for Qavren.Edge: a Microsoft.Extensions.AI IChatClient over ONNX Runtime GenAI, with a KV-cache-aware memory budget, consent-gated model provisioning, thermal-paced streaming and honest per-turn diagnostics.</Description>
+    <RootNamespace>Qavren.Edge.Chat</RootNamespace>
+
+    <!-- HIGHER than sub-project 2's 24.0 / 15.1 / 15.1, and these are GenAI's floors rather than
+         ours. Android: the AAR's own manifest declares minSdkVersion 24 (measured), which .NET for
+         Android merges into the app's - so 24.0 is unchanged from SP2.
+         Apple: GenAI's managed asset group is net9.0-ios15.4 and its xcframework slices are built
+         at that floor, so 15.1 would link a 15.4 slice into a lower deployment target. Mac Catalyst
+         takes 15.4 too, not GenAI's nominal net9.0-maccatalyst14.0, because Catalyst resolves the
+         iOS xcframework through the SDK RID graph and inherits whatever that slice was built at.
+         SupportedOSPlatformVersion plays NO part in restore, so raising it adds no versioned TFM. -->
+    <SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'android'">24.0</SupportedOSPlatformVersion>
+    <SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'ios'">15.4</SupportedOSPlatformVersion>
+    <SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'maccatalyst'">15.4</SupportedOSPlatformVersion>
+  </PropertyGroup>
+
+  <!-- Plan adjustment 1. Microsoft.ML.OnnxRuntimeGenAI.dll reports AssemblyVersion 0.0.0.0,
+       FileVersion 0.0.0.0 and carries no AssemblyInformationalVersionAttribute, and the managed
+       surface has no version API - so spec 14.3's genAiVersion key cannot be read off the
+       assembly. It is taken from the CPM item that is already the single source of truth. -->
+  <ItemGroup>
+    <AssemblyAttribute Include="System.Reflection.AssemblyMetadataAttribute">
+      <_Parameter1>OnnxRuntimeGenAIVersion</_Parameter1>
+      <_Parameter2>@(PackageVersion->WithMetadataValue('Identity','Microsoft.ML.OnnxRuntimeGenAI')->'%(Version)')</_Parameter2>
+    </AssemblyAttribute>
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.ML.OnnxRuntimeGenAI" />
+    <PackageReference Include="Microsoft.Extensions.AI" />
+    <PackageReference Include="Microsoft.Extensions.Options" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" />
+    <ProjectReference Include="..\..\..\embeddings\src\Qavren.Edge.Onnx\Qavren.Edge.Onnx.csproj" />
+  </ItemGroup>
+
+  <!-- Same Platforms\** + GetTargetPlatformIdentifier pattern Qavren.Edge.Onnx already uses.
+       iOS and Mac Catalyst share one implementation (NSProcessInfo.PhysicalMemory). -->
+  <ItemGroup>
+    <Compile Remove="Platforms\**\*.cs" />
+  </ItemGroup>
+  <ItemGroup Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'android'">
+    <Compile Include="Platforms\Android\**\*.cs" />
+  </ItemGroup>
+  <ItemGroup Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'ios' or $([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'maccatalyst'">
+    <Compile Include="Platforms\iOS\**\*.cs" />
+  </ItemGroup>
+</Project>

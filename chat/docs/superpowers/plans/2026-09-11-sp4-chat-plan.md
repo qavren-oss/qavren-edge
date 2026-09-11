@@ -731,7 +731,7 @@ foreach ($tfm in $expected.Keys) {
   $got = ($m.compile.PSObject.Properties.Name) -join ','
   if ($got -ne $expected[$tfm]) { throw "$tfm resolved '$got'; expected '$($expected[$tfm])'" }
   $n = $a.targets.$tfm.'Microsoft.ML.OnnxRuntimeGenAI/0.15.2'
-  if ($n.compile) { throw "$tfm: the NATIVE package resolved compile assets; the assertion above is scanning the wrong id" }
+  if ($n.compile) { throw "${tfm}: the NATIVE package resolved compile assets; the assertion above is scanning the wrong id" }
   $ort = $a.targets.$tfm.PSObject.Properties.Name | Where-Object { $_ -like 'Microsoft.ML.OnnxRuntime/*' }
   if ($ort -ne 'Microsoft.ML.OnnxRuntime/1.30.0') { throw "$tfm resolved $ort; GenAI's 1.28.0 is a FLOOR and the repo pin must win" }
   Write-Host "OK $tfm -> $got (ORT 1.30.0)"

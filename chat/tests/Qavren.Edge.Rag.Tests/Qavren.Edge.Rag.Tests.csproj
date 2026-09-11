@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <!-- net10.0 alone and host-only, exactly as Qavren.Edge.VectorData.Conformance.Tests is: it
+         never reaches a device lane (spec 16.4). It references Qavren.Edge.Rag and the MEVD
+         ABSTRACTIONS and nothing else - no Qavren.Edge.VectorData, no ONNX package - which is how
+         spec 7's layering claim is tested rather than asserted (plan adjustment 19). -->
+    <TargetFramework>net10.0</TargetFramework>
+    <OutputType>Exe</OutputType>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="xunit.v3" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" />
+    <PackageReference Include="Microsoft.Extensions.Logging" />
+    <ProjectReference Include="..\..\src\Qavren.Edge.Rag\Qavren.Edge.Rag.csproj" />
+  </ItemGroup>
+</Project>
