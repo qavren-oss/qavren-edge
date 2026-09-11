@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+  <w:body>
+    <w:p>
+      <w:pPr><w:pStyle w:val="StyleThatDoesNotExist" /></w:pPr>
+      <w:r><w:t xml:space="preserve">A paragraph whose pStyle names a style that is not in styles.xml.</w:t></w:r>
+    </w:p>
+    <w:p>
+      <w:r><w:t xml:space="preserve">A second, ordinary paragraph.</w:t></w:r>
+    </w:p>
+  </w:body>
+</w:document>

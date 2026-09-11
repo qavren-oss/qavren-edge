@@ -1916,11 +1916,11 @@ Each tree is minimal, indented and reviewable, and Step 7 asserts the directory 
 
 ```powershell
 $root = "C:\Users\steve\projects\qavren-edge-sp3\ingestion\tests\fixtures"
-$entries = Get-ChildItem "$root\corpus" -Recurse -File | Sort-Object FullName | ForEach-Object {
+$entries = Get-ChildItem -LiteralPath "$root\corpus" -Recurse -File | Sort-Object FullName | ForEach-Object {
   [pscustomobject]@{
     path   = $_.FullName.Substring("$root\".Length).Replace('\','/')
     bytes  = $_.Length
-    sha256 = (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+    sha256 = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
   }
 }
 $entries | ConvertTo-Json -Depth 3 | Set-Content "$root\manifest.json" -Encoding utf8NoBOM
@@ -2007,10 +2007,10 @@ foreach ($tree in $docxParts.Keys) {
     throw "$tree has $($files.Count) parts, expected $($docxParts[$tree])"
   }
   foreach ($req in '[Content_Types].xml', '_rels\.rels', 'word\document.xml') {
-    if (-not (Test-Path (Join-Path $d $req))) { throw "$tree is missing $req" }
+    if (-not (Test-Path -LiteralPath (Join-Path $d $req))) { throw "$tree is missing $req" }
   }
   foreach ($f in $files) {
-    try { [xml](Get-Content $f.FullName -Raw) | Out-Null }
+    try { [xml](Get-Content -LiteralPath $f.FullName -Raw) | Out-Null }
     catch { throw "$tree\$($f.Name) is not well-formed XML: $($_.Exception.Message)" }
   }
   $totalParts += $files.Count

@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+  <w:body>
+    <w:p w:rsidR="00A1B2C3" w:rsidRDefault="00A1B2C3">
+      <w:r w:rsidR="00A1B2C3"><w:t xml:space="preserve">One sentence </w:t></w:r>
+      <w:r w:rsidR="00D4E5F6"><w:t xml:space="preserve">split across </w:t></w:r>
+      <w:r w:rsidR="00112233"><w:t xml:space="preserve">five separate </w:t></w:r>
+      <w:r w:rsidR="00445566"><w:t xml:space="preserve">runs with rsid </w:t></w:r>
+      <w:r w:rsidR="00778899"><w:t>noise.</w:t></w:r>
+    </w:p>
+  </w:body>
+</w:document>

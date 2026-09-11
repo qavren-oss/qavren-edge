@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:v="urn:schemas-microsoft-com:vml">
+  <w:body>
+    <w:p>
+      <w:r><w:t xml:space="preserve">Body paragraph outside the text box.</w:t></w:r>
+    </w:p>
+    <w:p>
+      <w:r>
+        <w:pict>
+          <v:shape id="_x0000_s1026" style="width:200pt;height:50pt">
+            <v:textbox>
+              <w:txbxContent>
+                <w:p><w:r><w:t>Text inside a w:txbxContent box.</w:t></w:r></w:p>
+              </w:txbxContent>
+            </v:textbox>
+          </v:shape>
+        </w:pict>
+      </w:r>
+    </w:p>
+  </w:body>
+</w:document>
