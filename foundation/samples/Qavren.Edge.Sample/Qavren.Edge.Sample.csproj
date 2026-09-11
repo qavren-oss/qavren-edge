@@ -50,7 +50,12 @@
 
 		<SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'ios'">15.0</SupportedOSPlatformVersion>
 		<SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'maccatalyst'">15.0</SupportedOSPlatformVersion>
-		<SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'android'">21.0</SupportedOSPlatformVersion>
+		<!-- Raised from 21.0 (ADR 0008 / Task 7.1): the sample now references Qavren.Edge.Onnx, whose
+		     ORT 1.30.0 AAR declares minSdkVersion 24, and .NET for Android merges library manifests
+		     into the app's. Task 7.1 measured the manifest-merge failure at 21.0 on
+		     Qavren.Edge.DeviceTests against the identical AAR; the same failure applies here for the
+		     same reason, so the sample's own floor moves with it. -->
+		<SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'android'">24.0</SupportedOSPlatformVersion>
 		<SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows'">10.0.17763.0</SupportedOSPlatformVersion>
 		<TargetPlatformMinVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows'">10.0.17763.0</TargetPlatformMinVersion>
 	</PropertyGroup>
@@ -96,6 +101,13 @@
 	<ItemGroup>
 		<ProjectReference Include="..\..\src\Qavren.Edge.Maui\Qavren.Edge.Maui.csproj" />
 		<ProjectReference Include="..\..\src\Qavren.Edge.Sqlite\Qavren.Edge.Sqlite.csproj" />
+	</ItemGroup>
+
+	<!-- Task 7.2 / spec 18: the three SP2 packages behind the Embeddings and Search pages. -->
+	<ItemGroup>
+		<ProjectReference Include="..\..\..\embeddings\src\Qavren.Edge.Onnx\Qavren.Edge.Onnx.csproj" />
+		<ProjectReference Include="..\..\..\embeddings\src\Qavren.Edge.Embeddings.Onnx\Qavren.Edge.Embeddings.Onnx.csproj" />
+		<ProjectReference Include="..\..\..\embeddings\src\Qavren.Edge.VectorData\Qavren.Edge.VectorData.csproj" />
 	</ItemGroup>
 
 	<ItemGroup Condition="'$(QedgeCipher)' == 'true'">

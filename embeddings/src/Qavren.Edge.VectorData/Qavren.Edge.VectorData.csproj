@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <!-- net10.0 alone, on purpose. This package touches no platform API - Microsoft.Data.Sqlite
+         and MEVD are platform-neutral - and every platform TFM consumes a net10.0 library
+         unchanged, exactly as Qavren.Edge.Sqlite already does. Multi-targeting would add four
+         build legs for nothing. It also does NOT reference Qavren.Edge.Embeddings.Onnx: the
+         generator arrives as the non-generic IEmbeddingGenerator through MEVD's own options, so
+         the store works with Azure OpenAI embeddings and no ONNX at all (spec 2 decision 2). -->
+    <TargetFramework>net10.0</TargetFramework>
+    <IsPackable>true</IsPackable>
+    <PackageId>Qavren.Edge.VectorData</PackageId>
+    <Description>A Microsoft.Extensions.VectorData provider over sqlite-vec and FTS5 for Qavren.Edge, with true rowid pre-filtering and reciprocal-rank-fusion hybrid search.</Description>
+    <RootNamespace>Qavren.Edge.VectorData</RootNamespace>
+    <!-- Every type in Microsoft.Extensions.VectorData.ProviderServices is
+         [Experimental("MEVD9001")], and a provider cannot be written without them. ADR 0007
+         records the churn exposure. -->
+    <NoWarn>$(NoWarn);MEVD9001</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.VectorData.Abstractions" />
+    <ProjectReference Include="..\..\..\foundation\src\Qavren.Edge.Sqlite\Qavren.Edge.Sqlite.csproj" />
+  </ItemGroup>
+</Project>

@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             x:Class="Qavren.Edge.Sample.Pages.EmbeddingsPage"
+             Title="Embeddings">
+    <ScrollView>
+        <VerticalStackLayout Padding="16" Spacing="10">
+
+            <Label Text="Preset" FontAttributes="Bold" />
+            <Picker x:Name="PresetPicker" Title="Choose a preset" />
+
+            <Label Text="Text to embed" FontAttributes="Bold" />
+            <Entry x:Name="InputEntry" Placeholder="a roof leak after the storm" />
+
+            <Button Text="Provision + embed" Clicked="OnEmbed" />
+
+            <ProgressBar x:Name="ProvisionProgress" IsVisible="False" />
+            <Label x:Name="StatusLabel" Text="Idle." />
+
+            <BoxView HeightRequest="1" Color="{AppThemeBinding Light=#ddd, Dark=#333}" />
+
+            <Label Text="Dimensions" FontAttributes="Bold" />
+            <Label x:Name="DimensionsLabel" Text="-" />
+
+            <Label Text="Elapsed" FontAttributes="Bold" />
+            <Label x:Name="ElapsedLabel" Text="-" />
+
+            <Label Text="Execution provider accepted" FontAttributes="Bold" />
+            <Label x:Name="AcceptedLabel" Text="-" />
+
+            <Label Text="Skipped (with reasons)" FontAttributes="Bold" />
+            <CollectionView x:Name="SkippedList" HeightRequest="150">
+                <CollectionView.ItemTemplate>
+                    <DataTemplate>
+                        <Label Text="{Binding}" LineBreakMode="WordWrap" Padding="0,2" />
+                    </DataTemplate>
+                </CollectionView.ItemTemplate>
+            </CollectionView>
+
+        </VerticalStackLayout>
+    </ScrollView>
+</ContentPage>

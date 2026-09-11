@@ -19,7 +19,10 @@
     <ApplicationDisplayVersion>1.0</ApplicationDisplayVersion>
     <ApplicationVersion>1</ApplicationVersion>
     <RootNamespace>Qavren.Edge.DeviceTests</RootNamespace>
-    <SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'android'">21.0</SupportedOSPlatformVersion>
+    <!-- Raised from 21.0: ORT 1.30.0's AAR declares minSdkVersion 24 and .NET for Android merges
+         library manifests into the app's. A test host, not a shipped SP1 package - spec 16.4
+         names this as the one contingency, and spec 19 item 2(a) is the build that decided it. -->
+    <SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'android'">24.0</SupportedOSPlatformVersion>
     <SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'ios'">15.0</SupportedOSPlatformVersion>
     <SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'maccatalyst'">15.0</SupportedOSPlatformVersion>
     <SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows'">10.0.17763.0</SupportedOSPlatformVersion>
@@ -73,6 +76,16 @@
     <ProjectReference Include="..\Qavren.Edge.Core.Tests\Qavren.Edge.Core.Tests.csproj" />
     <ProjectReference Include="..\Qavren.Edge.Sqlite.Tests\Qavren.Edge.Sqlite.Tests.csproj" />
   </ItemGroup>
+  <!-- Spec 16.4: the device lanes run the SAME tier-1 assertions and the vec0/FTS5 half of tier 2
+       against the real Android .so, the real iOS xcframework and the Mac Catalyst RID-graph
+       resolution. SetTargetFramework is not needed: all three multi-target the four device TFMs,
+       so MSBuild resolves the matching one. Qavren.Edge.VectorData.Conformance.Tests is
+       deliberately NOT here - it is host-only and net10.0 alone. -->
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\embeddings\tests\Qavren.Edge.Onnx.Tests\Qavren.Edge.Onnx.Tests.csproj" />
+    <ProjectReference Include="..\..\..\embeddings\tests\Qavren.Edge.Embeddings.Tests\Qavren.Edge.Embeddings.Tests.csproj" />
+    <ProjectReference Include="..\..\..\embeddings\tests\Qavren.Edge.VectorData.Tests\Qavren.Edge.VectorData.Tests.csproj" />
+  </ItemGroup>
 
   <!-- Qavren.Edge.Sqlite.Native is taken by ProjectReference here, and a project reference
        carries none of the package's runtimes/<rid>/native assets - so on android nothing would
@@ -107,31 +120,98 @@
                      Condition="Exists('$(NativeArtifactsDir)$(RuntimeIdentifier)\libqedge_sqlite3.dylib')" />
   </ItemGroup>
 
-  <!-- ...and keep the WRONG dylib out of the .app. Qavren.Edge.Sqlite.Native copies the HOST-RID
-       native flat into every referencing project's output so host test runs work on a dev box
-       (its $(QedgeHostRid) `None` item). On the macos-15-intel device lane that host RID is
-       osx-x64, so a plain macOS dylib landed in the app head's publish set. ComputeBundleLocation
-       classifies every publish-set .dylib as PublishFolderType=DynamicLibrary, which makes the
-       Apple SDK (a) try to link a macOS-platform dylib into a Mac Catalyst executable and
-       (b) run InstallNameTool on it. That file arrives from more than one project-reference path
-       and every copy re-ids to the SAME obj/.../nativelibraries/Contents/MonoBundle/
-       libqedge_sqlite3.dylib.tmp; the InstallNameTool task copies, install_name_tools and
-       File.Moves those concurrently, so the losers died with
+  <!-- Adjustment 2, the other half: iOS IS the __Internal case. The generated provider compiles
+       DllImport("__Internal") on net10.0-ios, so the SQLite entry points have to be linked into
+       the app executable itself. The package does that for NuGet consumers, from
+       buildTransitive/net10.0-ios26.0/Qavren.Edge.Sqlite.Native.targets - but buildTransitive
+       targets never travel across a ProjectReference, and this project takes
+       Qavren.Edge.Sqlite.Native as a ProjectReference (spec 5.2). This item is that .targets file
+       mirrored for the ProjectReference case: same Kind=Static, ForceLoad and SmartLink=false.
+       ForceLoad is the load-bearing one - nothing in C# references these symbols at link time
+       (they are reached through DllImport at run time), so without -force_load the native linker
+       drops every unreferenced archive member and the app dies at the first sqlite3 call.
+       The xcframework carries an ios-arm64_x86_64-simulator slice, so one item covers
+       iossimulator-arm64 (a dev Mac), iossimulator-x64 (the macos-15-intel CI lane) and the
+       ios-arm64 device slice.
+       Exists() guard: same reason as android - a checkout with no downloaded natives still builds. -->
+  <ItemGroup Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'ios' And Exists('$(NativeArtifactsDir)apple\qedge_sqlite3.xcframework')">
+    <NativeReference Include="$(NativeArtifactsDir)apple\qedge_sqlite3.xcframework" Visible="false">
+      <Kind>Static</Kind>
+      <ForceLoad>true</ForceLoad>
+      <SmartLink>false</SmartLink>
+      <Frameworks>Security</Frameworks>
+    </NativeReference>
+  </ItemGroup>
+
+  <!-- ...and keep the WRONG dylib out of the .app, on BOTH Apple heads. Qavren.Edge.Sqlite.Native
+       copies the HOST-RID native flat into every referencing project's output so host test runs
+       work on a dev box (its $(QedgeHostRid) `None` item), and CopyToOutputDirectory items travel
+       across every ProjectReference. On the macos-15-intel device lanes that host RID is osx-x64
+       and on an arm64 Mac it is osx-arm64 - either way a plain macOS dylib lands in the app head's
+       publish set. ComputeBundleLocation classifies every publish-set .dylib as
+       PublishFolderType=DynamicLibrary, which makes the Apple SDK (a) try to link a macOS-platform
+       dylib into a Mac Catalyst or iOS executable and (b) run InstallNameTool on it. That file
+       arrives from more than one project-reference path and every copy re-ids to the SAME
+       obj/.../nativelibraries/... libqedge_sqlite3.dylib.tmp; the InstallNameTool task copies,
+       install_name_tools and File.Moves those concurrently, so the losers died with
        "install_name_tool: cannot rename ...dylib.tmp ... (No such file or directory)" and
-       MSB4018 FileNotFoundException on the same .tmp (run 34556748270).
+       MSB4018 FileNotFoundException on the same .tmp - run 34556748270 for maccatalyst, and
+       reproduced verbatim for net10.0-ios / iossimulator-arm64 on an M4 Mac.
        PublishFolderType=None is the SDK's documented opt-out: ComputeBundleLocation only computes
        a folder type when the metadata is unset, and Xamarin.Shared.Sdk.targets drops every
-       'None' item from ResolvedFileToPublish right after. The NativeReference above is not a
-       ResolvedFileToPublish item, so it is untouched by this and stays the single copy in the
-       bundle. Scoped to maccatalyst: no other TFM has the problem (android uses
-       AndroidNativeLibrary, windows loads the flat copy from the output directory). -->
-  <Target Name="_QedgeDropHostNativeFromMacCatalystBundle"
-          Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'maccatalyst'"
+       'None' item from ResolvedFileToPublish right after.
+       The second condition clause is what keeps this narrow. The one dylib an app head here is
+       meant to bundle is the Mac Catalyst NativeReference above, sourced from
+       $(NativeArtifactsDir)$(RuntimeIdentifier)\; every other libqedge_sqlite3.dylib in the set is
+       a host-RID copy. (That NativeReference is not itself a ResolvedFileToPublish item today, so
+       this clause is belt-and-braces rather than load-bearing - but it means the target no longer
+       depends on that staying true.) The comparison goes through a property and %(FullPath), not
+       $([MSBuild]::NormalizePath('%(Identity)')): MSBuild rejects item metadata inside a property
+       function in a condition (MSB4092). Both sides end up OS-normalized anyway - %(FullPath) by
+       the engine, the property by NormalizePath, which is what turns $(NativeArtifactsDir)'s
+       backslashes into '/' on macOS.
+       Not extended to android or windows: android ships the .so through AndroidNativeLibrary and
+       windows deliberately loads the flat copy out of its output directory. -->
+  <Target Name="_QedgeDropHostNativeFromAppleBundle"
+          Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'maccatalyst' Or $([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'ios'"
           DependsOnTargets="ComputeResolvedFilesToPublishList"
           BeforeTargets="_ComputePublishLocation">
+    <PropertyGroup>
+      <_QedgeBundledNativePath>$([MSBuild]::NormalizePath('$(NativeArtifactsDir)$(RuntimeIdentifier)\libqedge_sqlite3.dylib'))</_QedgeBundledNativePath>
+    </PropertyGroup>
     <ItemGroup>
       <ResolvedFileToPublish PublishFolderType="None"
-                             Condition="'%(Filename)%(Extension)' == 'libqedge_sqlite3.dylib'" />
+                             Condition="'%(Filename)%(Extension)' == 'libqedge_sqlite3.dylib' And '%(FullPath)' != '$(_QedgeBundledNativePath)'" />
+    </ItemGroup>
+  </Target>
+
+  <!-- ORT's two Apple assemblies (lib/net9.0-ios18.0 and lib/net9.0-maccatalyst18.0) declare
+       EVERY P/Invoke against "__Internal" - the static-xcframework model SP2 spec 10.1 describes -
+       and that set includes OrtExtensionsNativeMethods.RegisterCustomOps, the entry point of
+       onnxruntime-extensions. That is a SEPARATE package (Microsoft.ML.OnnxRuntime.Extensions)
+       which SP2 deliberately does not reference, so nothing anywhere defines the symbol.
+       The Apple SDK emits `-u<symbol>` on the native link line for every __Internal P/Invoke that
+       SURVIVES trimming (Xamarin.Shared.Sdk.targets, @(_ProcessedReferenceNativeSymbol)), which is
+       normally harmless because the unreachable SessionOptions.RegisterOrtExtensions() is trimmed
+       away first. MtouchLink=None above turns trimming off on purpose, so the method survives,
+       `-u_RegisterCustomOps` reaches ld, and the link dies with
+         Undefined symbols for architecture x86_64:
+           "_RegisterCustomOps", referenced from: <initial-undefines>
+       (run 34607846150, device-tests-maccatalyst; the iOS head links exactly the same way, which
+       is why this target covers both and neither android - the AAR - nor windows -
+       runtimes/win-x64/native - forces undefined symbols at all).
+       Dropping the forced-undefined entry IS the fix: there is no call site, so the symbol is not
+       needed, and anyone who did call RegisterOrtExtensions() would get EntryPointNotFoundException,
+       which is the honest answer when extensions are not linked. The alternatives are both worse -
+       take a dependency on Microsoft.ML.OnnxRuntime.Extensions to satisfy one linker flag, or
+       re-enable the trimming that MtouchLink=None exists to prevent. Both spellings are removed
+       because the item identity carries the leading underscore ld sees; a Remove that matches
+       nothing is a no-op, so this stays safe if the SDK ever changes the spelling. -->
+  <Target Name="_QedgeDropOrtExtensionsNativeSymbol"
+          Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'ios' Or $([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'maccatalyst'"
+          AfterTargets="_LoadLinkerOutput">
+    <ItemGroup>
+      <_ProcessedReferenceNativeSymbol Remove="_RegisterCustomOps;RegisterCustomOps" />
     </ItemGroup>
   </Target>
 

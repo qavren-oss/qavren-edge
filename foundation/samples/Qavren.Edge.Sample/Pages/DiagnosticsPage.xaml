@@ -4,8 +4,35 @@
              x:Class="Qavren.Edge.Sample.Pages.DiagnosticsPage"
              Title="Diagnostics">
     <ScrollView Padding="16">
-        <Label x:Name="ReportLabel"
-               FontFamily="Consolas"
-               LineBreakMode="WordWrap" />
+        <VerticalStackLayout Spacing="10">
+
+            <!-- Spec 18: two toggles, off by default. Both options are read once at first
+                 resolution and never re-read, so a flip here applies on the NEXT launch - the
+                 restart note is honest rather than decorative. -->
+            <Grid ColumnDefinitions="*,Auto">
+                <Label Grid.Column="0"
+                       Text="Profile CoreML compute plan (per-node EP assignment; iOS/Mac Catalyst only)"
+                       VerticalOptions="Center" />
+                <Switch Grid.Column="1" x:Name="ProfileComputePlanSwitch" Toggled="OnProfileComputePlanToggled" />
+            </Grid>
+
+            <Grid ColumnDefinitions="*,Auto">
+                <Label Grid.Column="0"
+                       Text="Include row counts in diagnostics (one query per collection)"
+                       VerticalOptions="Center" />
+                <Switch Grid.Column="1" x:Name="IncludeRowCountsSwitch" Toggled="OnIncludeRowCountsToggled" />
+            </Grid>
+
+            <Label x:Name="RestartHintLabel"
+                   Text=" "
+                   TextColor="{AppThemeBinding Light=#a15c00, Dark=#ffcc80}"
+                   FontAttributes="Italic" />
+
+            <BoxView HeightRequest="1" Color="{AppThemeBinding Light=#ddd, Dark=#333}" />
+
+            <Label x:Name="ReportLabel"
+                   FontFamily="Consolas"
+                   LineBreakMode="WordWrap" />
+        </VerticalStackLayout>
     </ScrollView>
 </ContentPage>

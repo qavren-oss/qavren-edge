@@ -1,0 +1,10 @@
+# Pinned for reproducibility. onnxruntime matches the .NET pin exactly so a fixture that loads
+# here loads there. All three have cp314-compatible wheels for win-x64 (verified 2026-09-11).
+#
+# numpy is pinned for the same reason as the other two, and it is NOT incidental: numpy is what
+# serialises the Gather embedding-table initializer whose exact byte count Step 6 asserts. An
+# unpinned numpy is an unpinned fixture size, and the drift check would fail for a reason that
+# has nothing to do with the fixtures.
+onnx==1.22.0
+onnxruntime==1.30.0
+numpy==2.5.3
