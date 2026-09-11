@@ -1,9 +1,14 @@
 name: native
 
 on:
-  push:
-    branches: [main]
-  pull_request:
+  # Deliberately NO push / pull_request triggers. ci.yml already fires on both and calls this
+  # file as a reusable workflow, so standalone triggers ran every native leg a SECOND time, in
+  # parallel with the called one. The two Windows legs then raced for the identical
+  # actions/cache key and the loser logged "Unable to reserve cache with key ...", leaving the
+  # native tree with no saved Windows cache at all - which later hard-failed the `reuse` job on
+  # a managed-only PR. Entry points are now exactly: ci.yml (push to the default branch and
+  # pull_request), release.yml (tag push), and a manual dispatch for a cache warm-up or a debug
+  # run. Each leg is therefore built exactly once per event.
   workflow_call:
   workflow_dispatch:
 
@@ -30,11 +35,13 @@ jobs:
 
   build:
     needs: changes
-    # Builds on every non-pull_request entry point (push to main, workflow_dispatch, and the
-    # workflow_call from release.yml on a tag push), and on a pull request ONLY when a native
-    # path moved. A pull request that changed no native file gets the `reuse` job instead.
-    # `github.event_name` inside a called workflow is the CALLER's event, which is exactly the
-    # discrimination wanted: ci.yml on a PR reuses, release.yml on a tag builds.
+    # Builds on every non-pull_request entry point (ci.yml's push to the default branch,
+    # workflow_dispatch, and the workflow_call from release.yml on a tag push), and on a pull
+    # request ONLY when a native path moved. A pull request that changed no native file gets
+    # the `reuse` job instead. `github.event_name` inside a called workflow is the CALLER's
+    # event, which is exactly the discrimination wanted: ci.yml on a PR reuses, ci.yml on a
+    # push to the default branch builds (so that branch always has fresh caches AND fresh
+    # artifacts), release.yml on a tag builds.
     if: ${{ github.event_name != 'pull_request' || needs.changes.outputs.native == 'true' }}
     strategy:
       fail-fast: false
@@ -145,14 +152,27 @@ jobs:
           if-no-files-found: error
 
   # Spec 10.4: "managed-only PRs download the cached natives instead of rebuilding."
-  # One ubuntu job restores all three OS caches (they were saved by the last build on `main`
-  # for this exact native tree) and re-publishes them under the SAME three artifact names, so
-  # every downstream ci.yml job is oblivious to which path produced them. No macOS runner, no
-  # Windows runner, no compiler.
+  # One ubuntu job assembles all three OS artifact sets and re-publishes them under the SAME
+  # three artifact names and the same layout the `build` matrix uploads, so every downstream
+  # ci.yml job is oblivious to which path produced them. No macOS runner, no Windows runner, no
+  # compiler.
+  #
+  # Per leg the order is: restore the actions/cache entry for this exact native tree; on a MISS,
+  # download that leg's artifact from the newest successful `ci` run on the default branch and
+  # re-seed the cache from it so the next PR takes the fast path; only when BOTH are gone does
+  # the leg fail, with the dispatch instruction. The cache is the fast path; the artifact is the
+  # repair path for a cache entry that was never written - an interrupted save, a lost
+  # reservation, a 10 GB-limit eviction - which used to take a docs-only PR red.
   reuse:
     needs: changes
     if: ${{ github.event_name == 'pull_request' && needs.changes.outputs.native != 'true' }}
     runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      actions: read          # `gh run list` / `gh run download` against this repo's own runs
+    env:
+      GH_TOKEN: ${{ github.token }}
+      QEDGE_FALLBACK_BRANCH: ${{ github.event.repository.default_branch }}
     steps:
       - uses: actions/checkout@v4
 
@@ -162,8 +182,16 @@ jobs:
         with:
           path: foundation/native/artifacts
           key: qedge-native-windows-${{ hashFiles('foundation/native/versions.json', 'foundation/native/CMakeLists.txt', 'foundation/native/src/**', 'foundation/native/cmake/**', 'foundation/native/scripts/**', '.github/workflows/native.yml') }}
+      - name: Recover the Windows natives from the last good run
+        if: steps.c-windows.outputs.cache-hit != 'true'
+        run: bash .github/scripts/reuse-native-artifact.sh native-windows
+      - name: Re-seed the Windows cache
+        if: steps.c-windows.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: foundation/native/artifacts
+          key: qedge-native-windows-${{ hashFiles('foundation/native/versions.json', 'foundation/native/CMakeLists.txt', 'foundation/native/src/**', 'foundation/native/cmake/**', 'foundation/native/scripts/**', '.github/workflows/native.yml') }}
       - uses: actions/upload-artifact@v4
-        if: steps.c-windows.outputs.cache-hit == 'true'
         with: { name: native-windows, path: foundation/native/artifacts/**, retention-days: 30, if-no-files-found: error }
       - name: Clear staging
         run: rm -rf foundation/native/artifacts
@@ -174,8 +202,16 @@ jobs:
         with:
           path: foundation/native/artifacts
           key: qedge-native-linux-android-${{ hashFiles('foundation/native/versions.json', 'foundation/native/CMakeLists.txt', 'foundation/native/src/**', 'foundation/native/cmake/**', 'foundation/native/scripts/**', '.github/workflows/native.yml') }}
+      - name: Recover the Linux/Android natives from the last good run
+        if: steps.c-linux.outputs.cache-hit != 'true'
+        run: bash .github/scripts/reuse-native-artifact.sh native-linux-android
+      - name: Re-seed the Linux/Android cache
+        if: steps.c-linux.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: foundation/native/artifacts
+          key: qedge-native-linux-android-${{ hashFiles('foundation/native/versions.json', 'foundation/native/CMakeLists.txt', 'foundation/native/src/**', 'foundation/native/cmake/**', 'foundation/native/scripts/**', '.github/workflows/native.yml') }}
       - uses: actions/upload-artifact@v4
-        if: steps.c-linux.outputs.cache-hit == 'true'
         with: { name: native-linux-android, path: foundation/native/artifacts/**, retention-days: 30, if-no-files-found: error }
       - name: Clear staging
         run: rm -rf foundation/native/artifacts
@@ -186,20 +222,22 @@ jobs:
         with:
           path: foundation/native/artifacts
           key: qedge-native-apple-${{ hashFiles('foundation/native/versions.json', 'foundation/native/CMakeLists.txt', 'foundation/native/src/**', 'foundation/native/cmake/**', 'foundation/native/scripts/**', '.github/workflows/native.yml') }}
+      - name: Recover the Apple natives from the last good run
+        if: steps.c-apple.outputs.cache-hit != 'true'
+        run: bash .github/scripts/reuse-native-artifact.sh native-apple
+      - name: Re-seed the Apple cache
+        if: steps.c-apple.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: foundation/native/artifacts
+          key: qedge-native-apple-${{ hashFiles('foundation/native/versions.json', 'foundation/native/CMakeLists.txt', 'foundation/native/src/**', 'foundation/native/cmake/**', 'foundation/native/scripts/**', '.github/workflows/native.yml') }}
       - uses: actions/upload-artifact@v4
-        if: steps.c-apple.outputs.cache-hit == 'true'
         with: { name: native-apple, path: foundation/native/artifacts/**, retention-days: 30, if-no-files-found: error }
 
-      # A cold cache means `main` has never built THIS native tree. Fail loudly with the fix
-      # rather than letting ci.yml die later on a missing artifact download.
-      - name: Require all three caches
+      - name: Report how each leg was sourced
         run: |
-          echo "windows=${{ steps.c-windows.outputs.cache-hit }} linux=${{ steps.c-linux.outputs.cache-hit }} apple=${{ steps.c-apple.outputs.cache-hit }}"
-          if [ "${{ steps.c-windows.outputs.cache-hit }}" != "true" ]              || [ "${{ steps.c-linux.outputs.cache-hit }}" != "true" ]              || [ "${{ steps.c-apple.outputs.cache-hit }}" != "true" ]; then
-            echo "::error::No cached natives for this native tree. Run the 'native' workflow on main via workflow_dispatch once, then re-run this PR."
-            exit 1
-          fi
-          echo "reuse: all three native artifact sets restored from cache"
+          echo "cache-hit: windows=${{ steps.c-windows.outputs.cache-hit }} linux=${{ steps.c-linux.outputs.cache-hit }} apple=${{ steps.c-apple.outputs.cache-hit }}"
+          echo "reuse: all three native artifact sets republished (a blank cache-hit above was repaired from the last good run's artifact)"
 
   # The required status check. It ALWAYS runs and always reports, so a managed-only PR is not
   # blocked waiting on a build that was correctly skipped, and a real native failure still

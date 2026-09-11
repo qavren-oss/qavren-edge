@@ -20,6 +20,12 @@ jobs:
   # operating systems (spec 10.4, adjustment 34).
   natives:
     uses: ./.github/workflows/native.yml
+    # native.yml's `reuse` job repairs a missing cache entry by downloading that leg's artifact
+    # from the last good run on the default branch, and a called workflow can only NARROW the
+    # caller's token - so `actions: read` has to be granted here.
+    permissions:
+      contents: read
+      actions: read
 
   test:
     needs: natives
