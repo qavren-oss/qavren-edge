@@ -47,7 +47,7 @@ jobs:
         with:
           global-json-file: global.json
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           pattern: native-*
           merge-multiple: true
@@ -204,7 +204,7 @@ jobs:
         with: { global-json-file: global.json }
       - uses: actions/setup-java@v4
         with: { distribution: microsoft, java-version: '21' }
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with: { pattern: native-*, merge-multiple: true, path: foundation/native/artifacts }
 
       - run: dotnet workload install maui-android --version 10.0.201
@@ -290,7 +290,7 @@ jobs:
         with: { xcode-version: '26.2' }
       - uses: actions/setup-dotnet@v4
         with: { global-json-file: global.json }
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with: { pattern: native-*, merge-multiple: true, path: foundation/native/artifacts }
 
       - run: dotnet workload install maui --version 10.0.201
@@ -353,7 +353,7 @@ jobs:
         with: { xcode-version: '26.2' }
       - uses: actions/setup-dotnet@v4
         with: { global-json-file: global.json }
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with: { pattern: native-*, merge-multiple: true, path: foundation/native/artifacts }
 
       - run: dotnet workload install maui --version 10.0.201
@@ -399,7 +399,7 @@ jobs:
         with: { fetch-depth: 0, filter: 'tree:0' }
       - uses: actions/setup-dotnet@v4
         with: { global-json-file: global.json }
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with: { pattern: native-*, merge-multiple: true, path: foundation/native/artifacts }
 
       - run: dotnet workload install maui --version 10.0.201
@@ -452,7 +452,7 @@ jobs:
         with: { fetch-depth: 0, filter: 'tree:0' }
       - uses: actions/setup-dotnet@v4
         with: { global-json-file: global.json }
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with: { pattern: native-*, merge-multiple: true, path: foundation/native/artifacts }
 
       - name: Publish trimmed
@@ -496,7 +496,7 @@ jobs:
         with: { fetch-depth: 0, filter: 'tree:0' }
       - uses: actions/setup-dotnet@v4
         with: { global-json-file: global.json }
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with: { pattern: native-*, merge-multiple: true, path: foundation/native/artifacts }
 
       # Keyed on the CONTENT hash. A key containing the revision would still be stale if the
