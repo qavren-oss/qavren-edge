@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <!-- net10.0 ALONE, and that is the authoritative spelling (spec 16.4). This project is
+         host-only: it is never referenced from Qavren.Edge.DeviceTests and never runs on a device
+         lane. The MEVD conformance suite needs a file-system database and a full xunit host, it
+         asserts nothing platform-specific, and four extra TFMs would add four build legs to prove
+         nothing. -->
+    <TargetFramework>net10.0</TargetFramework>
+    <OutputType>Exe</OutputType>
+    <IsPackable>false</IsPackable>
+    <NoWarn>$(NoWarn);MEVD9001</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- ConformanceTests 10.10.0 brings xunit.v3.assert / .common / .extensibility.core and pins
+         them at 3.2.2 - this repo's existing pin - but NOT the xunit.v3 metapackage, which is
+         what generates the Microsoft.Testing.Platform entry point. Hence both references. -->
+    <PackageReference Include="Microsoft.Extensions.VectorData.ConformanceTests" />
+    <PackageReference Include="xunit.v3" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" />
+    <PackageReference Include="Microsoft.Extensions.Logging" />
+    <ProjectReference Include="..\..\src\Qavren.Edge.VectorData\Qavren.Edge.VectorData.csproj" />
+    <ProjectReference Include="..\..\..\foundation\src\Qavren.Edge.Sqlite.Native\Qavren.Edge.Sqlite.Native.csproj" />
+  </ItemGroup>
+</Project>

@@ -1,0 +1,47 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <!-- net10.0 is the HOST lane: an MTP test application, run with `dotnet run -f net10.0`.
+         The four platform TFMs exist ONLY so this same assembly can be loaded by
+         Qavren.Edge.DeviceTests and executed on a device. The windows TFM is present even though
+         Qavren.Edge.Onnx has none: Qavren.Edge.DeviceTests targets net10.0-windows10.0.19041.0
+         and must be able to reference this library, and a net10.0-windows test assembly
+         referencing a net10.0 product assembly is ordinary TFM compatibility. -->
+    <TargetFrameworks>net10.0;net10.0-android;net10.0-ios;net10.0-maccatalyst;net10.0-windows10.0.19041.0</TargetFrameworks>
+    <TargetFrameworks Condition="$([MSBuild]::IsOSPlatform('Linux'))">net10.0;net10.0-android</TargetFrameworks>
+    <TargetFrameworks Condition="$([MSBuild]::IsOSPlatform('OSX'))">net10.0;net10.0-android;net10.0-ios;net10.0-maccatalyst</TargetFrameworks>
+    <IsPackable>false</IsPackable>
+    <!-- Spec 16.4: these follow SP2's raised floors, NOT Qavren.Edge.Sqlite.Tests's 21.0/15.0. -->
+    <SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'android'">24.0</SupportedOSPlatformVersion>
+    <SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'ios'">15.1</SupportedOSPlatformVersion>
+    <SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'maccatalyst'">15.1</SupportedOSPlatformVersion>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(TargetFramework)' == 'net10.0'">
+    <OutputType>Exe</OutputType>
+  </PropertyGroup>
+  <ItemGroup Condition="'$(TargetFramework)' == 'net10.0'">
+    <PackageReference Include="xunit.v3" />
+  </ItemGroup>
+
+  <!-- DEVICE LANES. A plain class library. Referencing xunit.v3 or xunit.v3.core here would
+       inject a Main and collide with the MAUI application host (SP1 adjustment 11). -->
+  <PropertyGroup Condition="'$(TargetFramework)' != 'net10.0'">
+    <OutputType>Library</OutputType>
+    <IsTestingPlatformApplication>false</IsTestingPlatformApplication>
+    <GenerateTestingPlatformEntryPoint>false</GenerateTestingPlatformEntryPoint>
+    <!-- CA2007 self-suppresses for an application output kind, so the net10.0 lane never sees it;
+         the device lanes compile the SAME sources as a library and it fires on every await. Its
+         fix - ConfigureAwait(false) in a test body - is what xunit's xUnit1030 forbids. -->
+    <NoWarn>$(NoWarn);CA2007</NoWarn>
+  </PropertyGroup>
+  <ItemGroup Condition="'$(TargetFramework)' != 'net10.0'">
+    <PackageReference Include="xunit.v3.extensibility.core" />
+    <PackageReference Include="xunit.v3.assert" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" />
+    <PackageReference Include="Microsoft.Extensions.Logging" />
+    <ProjectReference Include="..\..\src\Qavren.Edge.Onnx\Qavren.Edge.Onnx.csproj" />
+  </ItemGroup>
+</Project>

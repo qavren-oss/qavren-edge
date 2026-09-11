@@ -41,4 +41,21 @@
     <PackageVersion Include="DeviceRunners.Testing.Targets" Version="0.1.0-preview.12" />
   </ItemGroup>
 
+  <!-- Sub-project 2. Versions verified by restore on 2026-09-11 (plan Environment ground truth):
+       ORT 1.30.0's managed asset resolves lib/net8.0 for net10.0 and lib/net9.0-{android35.0,
+       ios18.0,maccatalyst18.0} for the three unversioned platform TFMs; Extensions.AI 10.10.0
+       coexists with SP1's Microsoft.Extensions.* 10.0.12 pins without promoting any of them;
+       ConformanceTests 10.10.0 pins xunit.v3 3.2.2, which is already this repo's pin. -->
+  <ItemGroup Label="SP2 runtime">
+    <PackageVersion Include="Microsoft.ML.OnnxRuntime" Version="1.30.0" />
+    <PackageVersion Include="Microsoft.ML.Tokenizers" Version="2.0.0" />
+    <PackageVersion Include="Microsoft.Extensions.AI" Version="10.10.0" />
+    <PackageVersion Include="Microsoft.Extensions.AI.Abstractions" Version="10.10.0" />
+    <PackageVersion Include="Microsoft.Extensions.VectorData.Abstractions" Version="10.10.0" />
+  </ItemGroup>
+
+  <ItemGroup Label="SP2 test">
+    <PackageVersion Include="Microsoft.Extensions.VectorData.ConformanceTests" Version="10.10.0" />
+  </ItemGroup>
+
 </Project>

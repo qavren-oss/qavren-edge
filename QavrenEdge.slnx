@@ -21,4 +21,18 @@
   <Folder Name="/foundation/samples/">
     <Project Path="foundation/samples/Qavren.Edge.Sample/Qavren.Edge.Sample.csproj" />
   </Folder>
+  <Folder Name="/embeddings/src/">
+    <Project Path="embeddings/src/Qavren.Edge.Onnx/Qavren.Edge.Onnx.csproj" />
+    <Project Path="embeddings/src/Qavren.Edge.Embeddings.Onnx/Qavren.Edge.Embeddings.Onnx.csproj" />
+    <Project Path="embeddings/src/Qavren.Edge.VectorData/Qavren.Edge.VectorData.csproj" />
+  </Folder>
+  <Folder Name="/embeddings/tests/">
+    <Project Path="embeddings/tests/Qavren.Edge.Onnx.Tests/Qavren.Edge.Onnx.Tests.csproj" />
+    <Project Path="embeddings/tests/Qavren.Edge.Embeddings.Tests/Qavren.Edge.Embeddings.Tests.csproj" />
+    <Project Path="embeddings/tests/Qavren.Edge.VectorData.Tests/Qavren.Edge.VectorData.Tests.csproj" />
+    <Project Path="embeddings/tests/Qavren.Edge.VectorData.Conformance.Tests/Qavren.Edge.VectorData.Conformance.Tests.csproj" />
+  </Folder>
+  <Folder Name="/embeddings/tools/">
+    <Project Path="embeddings/tools/Qavren.Edge.TrimSmoke/Qavren.Edge.TrimSmoke.csproj" />
+  </Folder>
 </Solution>
