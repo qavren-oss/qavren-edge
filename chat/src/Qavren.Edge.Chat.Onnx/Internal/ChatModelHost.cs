@@ -60,7 +60,7 @@ internal delegate GenAiChatModelResources ChatModelFactory(
     CancellationToken cancellationToken);
 
 /// <summary>Spec section 9.1's load path and sub-project 2's drop discipline, line for line.</summary>
-internal sealed class ChatModelHost : IChatModelHost, IChatLifecycleTarget, IDisposable
+internal sealed class ChatModelHost : IChatTurnHost, IChatLifecycleTarget, IDisposable
 {
     private static readonly Action<ILogger, string, string, double, int, Exception?> s_loaded =
         LoggerMessage.Define<string, string, double, int>(

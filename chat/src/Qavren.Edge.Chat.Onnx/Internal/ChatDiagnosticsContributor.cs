@@ -82,7 +82,11 @@ internal sealed class ChatDiagnosticsContributor(
 
         var host = Resolve(() => ChatServiceLocator.TryHost(services, registration.Name)?.Describe());
         var plan = Resolve(() => ChatServiceLocator.TryProvisioner(services, registration.Name)?.Plan());
-        var statistics = Resolve(() => services.GetService(typeof(IChatRuntimeStatistics)) as IChatRuntimeStatistics);
+        // Registered per AddOnnxChat call and written by EdgeChatClient. Until the first turn runs
+        // or is refused the instance has no activity and is treated as absent, so every counter
+        // below reads null rather than a fabricated zero.
+        var statistics = Resolve<IChatRuntimeStatistics>(() =>
+            ChatServiceLocator.TryStatistics(services, registration.Name) is { HasActivity: true } active ? active : null);
 
         var info = host.Value;
         var shape = info?.Shape ?? preset.Shape;
@@ -319,10 +323,10 @@ internal sealed class ChatDiagnosticsContributor(
 /// The per-turn counters spec section 14.3's "runtime honesty" block publishes.
 /// </summary>
 /// <remarks>
-/// Declared here and implemented by Task 5.1's <c>ChatStatistics</c>: the contributor owns the key
-/// names and the sentinel rules, and the client owns the counting. Until a client is registered the
-/// service is absent and every counter reads null, which is the honest answer - a zero would claim
-/// a turn has run and returned nothing.
+/// Declared here and implemented by <see cref="ChatStatistics"/>: the contributor owns the key
+/// names and the sentinel rules, and the client owns the counting. Until a turn has run or been
+/// refused the instance reports no activity and is treated as absent, so every counter reads null,
+/// which is the honest answer - a zero would claim a turn has run and returned nothing.
 /// </remarks>
 internal interface IChatRuntimeStatistics
 {

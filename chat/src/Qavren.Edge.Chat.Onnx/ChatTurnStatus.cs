@@ -88,11 +88,30 @@ public static class EdgeChat
     /// <param name="response">The response.</param>
     /// <returns>The status, or null when the response did not come from this client.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="response"/> is null.</exception>
+    /// <remarks>
+    /// <c>EdgeChatClient.GetResponseAsync</c> puts the record on the response itself. A consumer
+    /// who aggregates the stream with MEAI's <c>ToChatResponse</c> gets it on the aggregated
+    /// assistant message instead - that is where MEAI lands an update's
+    /// <c>AdditionalProperties</c> - so both places are read, response first.
+    /// </remarks>
     public static ChatTurnStatus? GetTurnStatus(this ChatResponse response)
     {
         ArgumentNullException.ThrowIfNull(response);
 
-        return Read(response.AdditionalProperties);
+        if (Read(response.AdditionalProperties) is { } onResponse)
+        {
+            return onResponse;
+        }
+
+        for (var i = response.Messages.Count - 1; i >= 0; i--)
+        {
+            if (Read(response.Messages[i].AdditionalProperties) is { } onMessage)
+            {
+                return onMessage;
+            }
+        }
+
+        return null;
     }
 
     /// <summary>Reads the turn status off a streaming update.</summary>

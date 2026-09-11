@@ -162,6 +162,7 @@ public static class ChatOnnxEdgeBuilderExtensions
             services.AddSingleton(sp => CreateHost(sp, registration));
             services.AddSingleton<IChatModelHost>(sp => sp.GetRequiredService<ChatModelHost>());
             services.AddSingleton<IChatLifecycleTarget>(sp => sp.GetRequiredService<ChatModelHost>());
+            services.AddSingleton<ChatStatistics>();
         }
         else
         {
@@ -173,6 +174,7 @@ public static class ChatOnnxEdgeBuilderExtensions
                 name, (sp, key) => sp.GetRequiredKeyedService<ChatModelHost>(key));
             services.AddKeyedSingleton<IChatLifecycleTarget>(
                 name, (sp, key) => sp.GetRequiredKeyedService<ChatModelHost>(key));
+            services.AddKeyedSingleton<ChatStatistics>(name);
         }
 
         // One observer and one contributor per registration, each closing over its own options.
@@ -247,20 +249,19 @@ public static class ChatOnnxEdgeBuilderExtensions
     /// The leaf <c>IChatClient</c> for one registration.
     /// </summary>
     /// <remarks>
-    /// <b>Wave 4 registers a client that resolves its model lazily and refuses to decode.</b> The
-    /// decode loop, the conversation cache and the statistics are Task 5.1's, and this factory is
-    /// the one line that changes when <c>EdgeChatClient</c> lands. What it already provides is the
-    /// half spec section 8.1 cares about: resolving <c>IChatClient</c> constructs <b>nothing</b>
-    /// native, so <c>OrtEnv.IsCreated</c> is still false after composition, and the first call
-    /// raises <see cref="EdgeErrorCode.ChatEnvironmentNotStarted"/> when the order-400 task has not
-    /// run.
+    /// Resolving it constructs <b>nothing</b> native - the half spec section 8.1 cares about - so
+    /// <c>OrtEnv.IsCreated</c> is still false after composition, and the first turn goes through
+    /// <c>IChatModelHost.AcquireAsync</c>, which raises
+    /// <see cref="EdgeErrorCode.ChatEnvironmentNotStarted"/> when the order-400 task has not run.
     /// </remarks>
-    private static PendingEdgeChatClient CreateChatClient(IServiceProvider sp, ChatRegistration registration) =>
-        new PendingEdgeChatClient(
+    private static EdgeChatClient CreateChatClient(IServiceProvider sp, ChatRegistration registration) =>
+        new(
             registration,
-            registration.Name is null
-                ? sp.GetRequiredService<ChatModelHost>()
-                : sp.GetRequiredKeyedService<ChatModelHost>(registration.Name));
+            ChatServiceLocator.Host(sp, registration.Name),
+            sp.GetRequiredService<IEdgeResourceMonitor>(),
+            ChatServiceLocator.Statistics(sp, registration.Name),
+            sp.GetService<TimeProvider>() ?? TimeProvider.System,
+            Logger<EdgeChatClient>(sp));
 
     /// <summary>
     /// Resolves a logger without requiring logging to be registered at all. A bare
@@ -312,100 +313,6 @@ internal sealed record ChatRegistrationMarker(string Kind, string? Name)
     }
 }
 
-/// <summary>
-/// The leaf <c>IChatClient</c> wave 4 registers: it resolves its model lazily and refuses to
-/// decode.
-/// </summary>
-/// <remarks>
-/// <b>This type is transitional and Task 5.1 deletes it.</b> The decode loop, the conversation
-/// cache, the stop-sequence matcher and the statistics are that task's, and
-/// <c>ChatOnnxEdgeBuilderExtensions.CreateChatClient</c> is the one line that changes when
-/// <c>EdgeChatClient</c> lands.
-/// <para>
-/// What it already provides is the half spec section 8.1 cares about and the half section 15.3's
-/// 7001 row describes: resolving <c>IChatClient</c> constructs <b>nothing</b> native, so
-/// <c>OrtEnv.IsCreated</c> is still false after composition, and the first call goes through
-/// <c>IChatModelHost.AcquireAsync</c> - which is what raises
-/// <see cref="EdgeErrorCode.ChatEnvironmentNotStarted"/> when the order-400 task has not run.
-/// </para>
-/// </remarks>
-/// <param name="registration">The registration this client speaks for.</param>
-/// <param name="host">Its model host.</param>
-internal sealed class PendingEdgeChatClient(ChatRegistration registration, ChatModelHost host) : IChatClient
-{
-    /// <inheritdoc />
-    public async Task<ChatResponse> GetResponseAsync(
-        IEnumerable<ChatMessage> messages,
-        ChatOptions? options = null,
-        CancellationToken cancellationToken = default)
-    {
-        var lease = await host.AcquireAsync(cancellationToken).ConfigureAwait(false);
-        lease.Dispose();
-        throw NotImplementedYet();
-    }
-
-    /// <inheritdoc />
-    public IAsyncEnumerable<ChatResponseUpdate> GetStreamingResponseAsync(
-        IEnumerable<ChatMessage> messages,
-        ChatOptions? options = null,
-        CancellationToken cancellationToken = default)
-        => Core(cancellationToken);
-
-    /// <inheritdoc />
-    public object? GetService(Type serviceType, object? serviceKey = null)
-    {
-        ArgumentNullException.ThrowIfNull(serviceType);
-
-        if (serviceKey is not null)
-        {
-            return null;
-        }
-
-        if (serviceType.IsInstanceOfType(this))
-        {
-            return this;
-        }
-
-        if (serviceType == typeof(ChatClientMetadata))
-        {
-            return new ChatClientMetadata("onnxruntime-genai", defaultModelId: registration.Preset.Manifest.ModelId);
-        }
-
-        if (serviceType == typeof(IChatModelHost))
-        {
-            return host;
-        }
-
-        return serviceType == typeof(ChatModelInfo) ? host.Describe() : null;
-    }
-
-    /// <inheritdoc />
-    public void Dispose()
-    {
-        // The model belongs to the host, which DI owns and disposes.
-    }
-
-    private async IAsyncEnumerable<ChatResponseUpdate> Core(
-        [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken)
-    {
-        var lease = await host.AcquireAsync(cancellationToken).ConfigureAwait(false);
-        lease.Dispose();
-
-        // Refuse() throws rather than returning: a turn is a refusal, never a silent empty stream.
-        // Writing it as a call keeps this `yield return` reachable, which is what keeps Core an
-        // iterator without an unreachable-code error.
-        yield return Refuse();
-    }
-
-    private ChatResponseUpdate Refuse() => throw NotImplementedYet();
-
-    private NotSupportedException NotImplementedYet() =>
-        new($"The chat client for preset '{registration.Preset.Id}' can load its model but cannot " +
-            "yet generate: the decode loop lands with EdgeChatClient. Everything else on this " +
-            "registration - provisioning, the memory budget, the probes, diagnostics and the " +
-            "lifecycle - is live.");
-}
-
 /// <summary>Resolves a registration's host and provisioner, keyed or not.</summary>
 internal static class ChatServiceLocator
 {
@@ -444,4 +351,22 @@ internal static class ChatServiceLocator
         name is null
             ? services.GetRequiredService<ChatModelProvisioner>()
             : services.GetRequiredKeyedService<ChatModelProvisioner>(name);
+
+    /// <summary>The statistics for a registration, or null when nothing is registered under that key.</summary>
+    /// <param name="services">The container.</param>
+    /// <param name="name">The service key, or null.</param>
+    /// <returns>The statistics, or null.</returns>
+    public static ChatStatistics? TryStatistics(IServiceProvider services, string? name) =>
+        name is null
+            ? services.GetService<ChatStatistics>()
+            : services.GetKeyedService<ChatStatistics>(name);
+
+    /// <summary>The statistics for a registration.</summary>
+    /// <param name="services">The container.</param>
+    /// <param name="name">The service key, or null.</param>
+    /// <returns>The statistics.</returns>
+    public static ChatStatistics Statistics(IServiceProvider services, string? name) =>
+        name is null
+            ? services.GetRequiredService<ChatStatistics>()
+            : services.GetRequiredKeyedService<ChatStatistics>(name);
 }

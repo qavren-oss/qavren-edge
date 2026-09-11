@@ -48,6 +48,13 @@
     <Compile Include="..\fixtures\GenAiConfigFixtures.g.cs" Link="Fixtures\GenAiConfigFixtures.g.cs" />
   </ItemGroup>
 
+  <!-- EMBEDDED, never copied: the errors.md anchor test (plan adjustment 23) reads the catalogue
+       every 7000-range code links to, and an embedded copy is the one form that reaches every host
+       and device lane the same way whatever ArtifactsPath or bundle layout the lane uses. -->
+  <ItemGroup>
+    <EmbeddedResource Include="..\..\..\foundation\docs\errors.md" Link="Fixtures\errors.md" LogicalName="errors.md" />
+  </ItemGroup>
+
   <ItemGroup>
     <PackageReference Include="Microsoft.Extensions.DependencyInjection" />
     <PackageReference Include="Microsoft.Extensions.Logging" />
