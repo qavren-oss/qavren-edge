@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             x:Class="Qavren.Edge.Sample.Pages.AskPage"
+             Title="Ask">
+    <Grid Padding="16" RowDefinitions="Auto,Auto,Auto,Auto,*" RowSpacing="8">
+
+        <Label Grid.Row="0" FontSize="12"
+               Text="The RAG recipe over the Search page's notes: question in, a streamed grounded answer out, numbered sources beside it, each [n] resolving to its citation. Seed notes on the Search tab first." />
+
+        <Grid Grid.Row="1" ColumnDefinitions="*,Auto" ColumnSpacing="8">
+            <Entry Grid.Column="0" x:Name="QuestionEntry" Placeholder="what happened after the storm?" Completed="OnAsk" />
+            <Button Grid.Column="1" x:Name="AskButton" Text="Ask" Clicked="OnAsk" />
+        </Grid>
+
+        <Grid Grid.Row="2" ColumnDefinitions="*,Auto" ColumnSpacing="8">
+            <Label Grid.Column="0" VerticalOptions="Center" FontSize="12"
+                   Text="No-LLM floor: swap EdgeChatClient for ExtractiveChatClient in place - same UseRag(), same citations, no model on the device." />
+            <Switch Grid.Column="1" x:Name="ExtractiveSwitch" />
+        </Grid>
+
+        <Label Grid.Row="3" x:Name="StatusLabel" Text="Idle." FontSize="12" />
+
+        <ScrollView Grid.Row="4">
+            <VerticalStackLayout Spacing="8">
+
+                <Label Text="Answer" FontAttributes="Bold" />
+                <Label x:Name="AnswerLabel" Text="-" LineBreakMode="WordWrap" />
+
+                <Label Text="Tapped citation" FontAttributes="Bold" />
+                <Label x:Name="CitationDetailLabel" Text="Tap a [n] marker in the answer." FontSize="12" LineBreakMode="WordWrap" />
+
+                <Label Text="Citations (one per distinct marker, spans index the accumulated answer)" FontAttributes="Bold" />
+                <VerticalStackLayout x:Name="CitationList" Spacing="4" />
+
+                <Label Text="Sources (what the retriever handed the model, in ordinal order)" FontAttributes="Bold" />
+                <VerticalStackLayout x:Name="SourceList" Spacing="4" />
+
+            </VerticalStackLayout>
+        </ScrollView>
+
+    </Grid>
+</ContentPage>
