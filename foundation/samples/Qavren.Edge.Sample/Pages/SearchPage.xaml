@@ -3,15 +3,16 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
              x:Class="Qavren.Edge.Sample.Pages.SearchPage"
              Title="Search">
-    <Grid Padding="16" RowDefinitions="Auto,Auto,Auto,Auto,Auto,*" RowSpacing="8">
+    <Grid Padding="16" RowDefinitions="Auto,Auto,Auto,Auto,Auto,*,Auto,Auto,*" RowSpacing="8">
 
         <Button Grid.Row="0" Text="Seed sample notes" Clicked="OnSeed" />
 
         <Entry x:Name="QueryEntry"
+               AutomationId="SearchQueryEntry"
                Grid.Row="1"
                Placeholder="water damage" />
 
-        <Button Grid.Row="2" Text="Search (vector + keyword + hybrid)" Clicked="OnSearch" />
+        <Button Grid.Row="2" AutomationId="SearchRunButton" Text="Search (vector + keyword + hybrid)" Clicked="OnSearch" />
 
         <Label Grid.Row="3" x:Name="StatusLabel" Text="Seed some notes, then search." />
 
@@ -30,6 +31,26 @@
                         <Label Grid.Column="1" Text="{Binding VectorDistanceText}" WidthRequest="140" />
                         <Label Grid.Column="2" Text="{Binding KeywordScoreText}" WidthRequest="150" />
                         <Label Grid.Column="3" Text="{Binding HybridScoreText}" WidthRequest="150" />
+                    </Grid>
+                </DataTemplate>
+            </CollectionView.ItemTemplate>
+        </CollectionView>
+
+        <!-- SP3 (plan Task 8.2): the chunks the Ingest page wrote to sample_chunks, read back
+             through the dynamic collection. Vector lane only - the score is vec0's cosine
+             DISTANCE, lower is better. -->
+        <Label Grid.Row="6" Text="Ingested chunks (sample_chunks, vector distance)" FontAttributes="Bold" />
+        <Label Grid.Row="7" x:Name="ChunkStatusLabel" AutomationId="SearchChunkStatusLabel" Text="Ingest something on the Ingest page, then search." />
+
+        <CollectionView Grid.Row="8" x:Name="ChunkResults">
+            <CollectionView.ItemTemplate>
+                <DataTemplate>
+                    <Grid ColumnDefinitions="Auto,*" ColumnSpacing="8" Padding="0,4">
+                        <Label Grid.Column="0" Text="{Binding ScoreText}" WidthRequest="70" />
+                        <VerticalStackLayout Grid.Column="1">
+                            <Label Text="{Binding Where}" FontAttributes="Bold" LineBreakMode="TailTruncation" />
+                            <Label Text="{Binding Snippet}" FontSize="12" LineBreakMode="TailTruncation" MaxLines="2" />
+                        </VerticalStackLayout>
                     </Grid>
                 </DataTemplate>
             </CollectionView.ItemTemplate>

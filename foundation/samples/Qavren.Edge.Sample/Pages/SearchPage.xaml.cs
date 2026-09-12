@@ -1,3 +1,4 @@
+using Qavren.Edge.Ingestion;
 using Qavren.Edge.Sample.Models;
 using Qavren.Edge.VectorData;
 using MEVD = Microsoft.Extensions.VectorData;
@@ -47,6 +48,15 @@ public partial class SearchPage : ContentPage
     private EdgeVectorStoreCollection<string, Note> Collection =>
         _store.GetCollection<string, Note>(MauiProgram.NotesCollectionName);
 
+    /// <summary>
+    /// SP3's chunk collection (plan Task 8.2), read back the way SP3 itself reads it: the dynamic
+    /// collection over the same definition <c>AddIngestion</c> registered, with
+    /// <see cref="IngestedChunk.FromRecord"/> as the typed view. No trim annotations needed - the
+    /// dynamic path reflects over nothing.
+    /// </summary>
+    private EdgeDynamicVectorStoreCollection Chunks =>
+        _store.GetDynamicCollection(MauiProgram.ChunksCollectionName, MauiProgram.ChunkCollectionDefinition());
+
     private async void OnSeed(object? sender, EventArgs e)
     {
         StatusLabel.Text = "Seeding...";
@@ -91,13 +101,19 @@ public partial class SearchPage : ContentPage
             RowFor(rows, hit).VectorDistance = hit.Score;
         }
 
-        var keywordOnly = new EdgeHybridSearchOptions<Note> { VectorWeight = 0 };
+        // Note has TWO full-text columns (Title and Body). MEVD refuses a hybrid search that names
+        // neither - "multiple text data properties that have full text indexing enabled" - and this
+        // handler is async void, so the unnamed call crashed the whole process (measured on the
+        // Windows head 2026-09-11, plan Task 8.2's hand run). Body is the column the seed notes'
+        // prose lives in, so the keyword lane matches on it.
+        var keywordOnly = new EdgeHybridSearchOptions<Note> { VectorWeight = 0, AdditionalProperty = n => n.Body };
         await foreach (var hit in collection.HybridSearchAsync(query, keywords, Top, keywordOnly))
         {
             RowFor(rows, hit).KeywordScore = hit.Score;
         }
 
-        await foreach (var hit in collection.HybridSearchAsync(query, keywords, Top))
+        var hybrid = new EdgeHybridSearchOptions<Note> { AdditionalProperty = n => n.Body };
+        await foreach (var hit in collection.HybridSearchAsync(query, keywords, Top, hybrid))
         {
             RowFor(rows, hit).HybridScore = hit.Score;
         }
@@ -107,6 +123,44 @@ public partial class SearchPage : ContentPage
             .ToArray();
 
         StatusLabel.Text = $"{rows.Count} distinct note(s) across the three lanes.";
+
+        // The Ingest page's chunks. Same query string; the store's generator embeds it exactly as
+        // SP3's ChunkWriter embedded the chunks (MiniLM carries no prefixes).
+        ChunkStatusLabel.Text = "Searching chunks...";
+        var chunkRows = new List<ChunkRow>();
+        try
+        {
+            await foreach (var hit in Chunks.SearchAsync(query, Top))
+            {
+                var chunk = IngestedChunk.FromRecord(hit.Record);
+                chunkRows.Add(new ChunkRow
+                {
+                    Score = hit.Score,
+                    Where = $"{chunk.DocumentId} #{chunk.Ordinal}" + (chunk.Breadcrumb is { } crumb ? "  " + crumb : string.Empty),
+                    Snippet = chunk.Text,
+                });
+            }
+
+            ChunkResults.ItemsSource = chunkRows;
+            ChunkStatusLabel.Text = chunkRows.Count == 0
+                ? "No chunks. Ingest something on the Ingest page first."
+                : $"{chunkRows.Count} chunk(s) from {MauiProgram.ChunksCollectionName}.";
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            ChunkStatusLabel.Text = "Chunk search threw: " + ex.Message;
+        }
+    }
+
+    private sealed class ChunkRow
+    {
+        public double? Score { get; init; }
+
+        public string Where { get; init; } = "";
+
+        public string Snippet { get; init; } = "";
+
+        public string ScoreText => Score is { } d ? d.ToString("F4") : "-";
     }
 
     private sealed class ResultRow

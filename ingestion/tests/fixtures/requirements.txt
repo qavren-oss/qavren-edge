@@ -1,0 +1,5 @@
+# No third-party dependency. make_pdf_fixtures.py needs nothing but CPython 3.11 or newer
+# (it relies on bytes.__mod__ formatting and pathlib); this box has 3.14.5. There is no venv to
+# create and nothing to install - this file exists so the directory shape matches
+# embeddings/tools/model-hashes/, and so "pip install -r requirements.txt" is a no-op rather
+# than a missing-file error.

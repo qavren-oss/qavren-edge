@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <IsPackable>true</IsPackable>
+    <PackageId>Qavren.Edge.Ingestion.Pdf</PackageId>
+    <Description>PDF text extraction for Qavren.Edge.Ingestion, over PdfPig. Page-at-a-time and stream-only, with scanned-page detection. PdfPig is Apache-2.0, which is why this extractor is a separate package.</Description>
+    <RootNamespace>Qavren.Edge.Ingestion.Pdf</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="PdfPig" />
+    <ProjectReference Include="..\Qavren.Edge.Ingestion\Qavren.Edge.Ingestion.csproj" />
+  </ItemGroup>
+</Project>

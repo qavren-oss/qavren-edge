@@ -1,0 +1,12 @@
+[
+  {
+    "index": 0,
+    "startChar": 0,
+    "endChar": 190,
+    "tokenCount": 38,
+    "headingPath": [],
+    "breadcrumb": null,
+    "text": "The first paragraph is short.\n\nThe second paragraph has two sentences. It exists so a sentence-aware cut has somewhere to land.\n\nThe third paragraph ends the file without a trailing newline.",
+    "embedText": "The first paragraph is short.\n\nThe second paragraph has two sentences. It exists so a sentence-aware cut has somewhere to land.\n\nThe third paragraph ends the file without a trailing newline."
+  }
+]

@@ -1,0 +1,6 @@
+NFC: café résumé
+NFD: café résumé
+ZWJ: 👨‍👩‍👧
+CJK: 漢字テキスト
+RTL: مرحبا بالعالم
+TR: I İ i ı

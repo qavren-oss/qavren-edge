@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <IsPackable>true</IsPackable>
+    <PackageId>Qavren.Edge.Ingestion.DataIngestion</PackageId>
+    <Description>Microsoft.Extensions.DataIngestion interop for Qavren.Edge.Ingestion, in both directions. Prerelease only: it references a prerelease abstractions package and ships on that package's cadence, so the stable core is never blocked by it.</Description>
+    <RootNamespace>Qavren.Edge.Ingestion.DataIngestion</RootNamespace>
+    <!-- Plan adjustment 11. PackageValidationBaselineVersion is unset repo-wide, so with no
+         baseline the validator's remaining job is a compatibility-suppression file this package
+         does not have and does not need - and leaving it on is how a pack fails on a version-
+         range technicality against a 10.10.0-preview.1 dependency. Turn it back on when MEDI
+         ships stable and this package drops its prerelease suffix. VersionSuffix is NOT set
+         here: MinVer supplies the prerelease suffix from the tag, as for every other package. -->
+    <EnablePackageValidation>false</EnablePackageValidation>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- The ABSTRACTIONS package only, and it has ZERO dependencies on net8.0+ (measured).
+         The IMPLEMENTATION package, Microsoft.Extensions.DataIngestion, is referenced by the
+         conformance TEST project alone and must never appear here: it drags eleven more
+         packages, two of them below this repo's pins. -->
+    <PackageReference Include="Microsoft.Extensions.DataIngestion.Abstractions" />
+    <ProjectReference Include="..\Qavren.Edge.Ingestion\Qavren.Edge.Ingestion.csproj" />
+  </ItemGroup>
+</Project>

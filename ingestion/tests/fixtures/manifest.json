@@ -1,0 +1,337 @@
+[
+  {
+    "path": "corpus/docx/empty-body/_rels/.rels",
+    "bytes": 304,
+    "sha256": "98234822aef01d7ec0ef925a064556e744ac9393c5c81ec0c1e2a1b27c602237"
+  },
+  {
+    "path": "corpus/docx/empty-body/[Content_Types].xml",
+    "bytes": 444,
+    "sha256": "d5e1cf14e82e03028da69ac3cbad6ebba79a852d129f9e84c0a74f5c2f030ef1"
+  },
+  {
+    "path": "corpus/docx/empty-body/word/document.xml",
+    "bytes": 167,
+    "sha256": "b27e7d13648e339ff52542ecf41d05a7239a32cf8d0b840984480b9d6e7d1f08"
+  },
+  {
+    "path": "corpus/docx/footnotes/_rels/.rels",
+    "bytes": 304,
+    "sha256": "98234822aef01d7ec0ef925a064556e744ac9393c5c81ec0c1e2a1b27c602237"
+  },
+  {
+    "path": "corpus/docx/footnotes/[Content_Types].xml",
+    "bytes": 581,
+    "sha256": "9e212150bce8ed95d44059b9d683b514d8615fed986934835c2d3b5882e53ce7"
+  },
+  {
+    "path": "corpus/docx/footnotes/word/_rels/document.xml.rels",
+    "bytes": 295,
+    "sha256": "920849bc6e14f0d56eb1cef26b03b06a4d739fc62ccdbaee5d811a158e9f2123"
+  },
+  {
+    "path": "corpus/docx/footnotes/word/document.xml",
+    "bytes": 330,
+    "sha256": "1ed8f0219ff43dd879a116ee25e73fc6a8e7a7b88e3a50ecc121fa6dd0b8b3f6"
+  },
+  {
+    "path": "corpus/docx/footnotes/word/footnotes.xml",
+    "bytes": 249,
+    "sha256": "9c10b8c0dc5ca4803d765e65a8746ca81d8fc259a927803e89d5717c8dfb0605"
+  },
+  {
+    "path": "corpus/docx/header-footer/_rels/.rels",
+    "bytes": 304,
+    "sha256": "98234822aef01d7ec0ef925a064556e744ac9393c5c81ec0c1e2a1b27c602237"
+  },
+  {
+    "path": "corpus/docx/header-footer/[Content_Types].xml",
+    "bytes": 712,
+    "sha256": "2fb67b694741a814de5ad08ffedd032be77b5e5f09adc7c13bc82ffa97ecf272"
+  },
+  {
+    "path": "corpus/docx/header-footer/word/_rels/document.xml.rels",
+    "bytes": 422,
+    "sha256": "59c7cf2b0b34a5d11f0a25648001650a5b293e4a26032d8786393486a544d553"
+  },
+  {
+    "path": "corpus/docx/header-footer/word/document.xml",
+    "bytes": 495,
+    "sha256": "71158ac84adfb4c7d46a785a96584cb1d9de6092a7ebdb474457c8dd7cdd380b"
+  },
+  {
+    "path": "corpus/docx/header-footer/word/footer1.xml",
+    "bytes": 219,
+    "sha256": "f597874413b8da86d99dc3c63bde260f61e9f725ac6d651e3ab1ea2270face4a"
+  },
+  {
+    "path": "corpus/docx/header-footer/word/header1.xml",
+    "bytes": 219,
+    "sha256": "532ab3d924b5ff18eeaf80f8b16b51b074e7bfb1ea7acd0b6fb126cfbd631e7a"
+  },
+  {
+    "path": "corpus/docx/headings/_rels/.rels",
+    "bytes": 304,
+    "sha256": "98234822aef01d7ec0ef925a064556e744ac9393c5c81ec0c1e2a1b27c602237"
+  },
+  {
+    "path": "corpus/docx/headings/[Content_Types].xml",
+    "bytes": 578,
+    "sha256": "1980435096e5449e1d6db6c57fb0b6269394eaaa79cc2585f2d2f52b96e0a0ff"
+  },
+  {
+    "path": "corpus/docx/headings/word/_rels/document.xml.rels",
+    "bytes": 289,
+    "sha256": "012b5b00d1c085c5dd737e31e4ab48ea90b30ad6680213410005a6229e6afc62"
+  },
+  {
+    "path": "corpus/docx/headings/word/document.xml",
+    "bytes": 857,
+    "sha256": "b99bde6b75e99cb4e395cadea815e9826df13d7315917f1d3af0ba10004e8074"
+  },
+  {
+    "path": "corpus/docx/headings/word/styles.xml",
+    "bytes": 281,
+    "sha256": "193a6b48710fb33eaf97ac98534d1aa481f89e71dcd322d2c45978f1a0b78e3c"
+  },
+  {
+    "path": "corpus/docx/hyperlink/_rels/.rels",
+    "bytes": 304,
+    "sha256": "98234822aef01d7ec0ef925a064556e744ac9393c5c81ec0c1e2a1b27c602237"
+  },
+  {
+    "path": "corpus/docx/hyperlink/[Content_Types].xml",
+    "bytes": 444,
+    "sha256": "d5e1cf14e82e03028da69ac3cbad6ebba79a852d129f9e84c0a74f5c2f030ef1"
+  },
+  {
+    "path": "corpus/docx/hyperlink/word/_rels/document.xml.rels",
+    "bytes": 334,
+    "sha256": "a31feef783e6fa73d7e34ece0ee80731be485fa09839480067c2036d6866f62c"
+  },
+  {
+    "path": "corpus/docx/hyperlink/word/document.xml",
+    "bytes": 478,
+    "sha256": "adce3d3d328ee44b83ce2c23450bdd6333c687f4b7d70bbede7327875085f8dd"
+  },
+  {
+    "path": "corpus/docx/localised-style/_rels/.rels",
+    "bytes": 304,
+    "sha256": "98234822aef01d7ec0ef925a064556e744ac9393c5c81ec0c1e2a1b27c602237"
+  },
+  {
+    "path": "corpus/docx/localised-style/[Content_Types].xml",
+    "bytes": 578,
+    "sha256": "1980435096e5449e1d6db6c57fb0b6269394eaaa79cc2585f2d2f52b96e0a0ff"
+  },
+  {
+    "path": "corpus/docx/localised-style/word/_rels/document.xml.rels",
+    "bytes": 289,
+    "sha256": "012b5b00d1c085c5dd737e31e4ab48ea90b30ad6680213410005a6229e6afc62"
+  },
+  {
+    "path": "corpus/docx/localised-style/word/document.xml",
+    "bytes": 648,
+    "sha256": "58684fba180703765d71f5acdf6d10b789c845c044b7c623637877db69ee9f90"
+  },
+  {
+    "path": "corpus/docx/localised-style/word/styles.xml",
+    "bytes": 416,
+    "sha256": "0d06f6a9b11d241b9c9b1b400737d11b963f612b3350b0cfe3f6a5d67fa8842e"
+  },
+  {
+    "path": "corpus/docx/numbered-list/_rels/.rels",
+    "bytes": 304,
+    "sha256": "98234822aef01d7ec0ef925a064556e744ac9393c5c81ec0c1e2a1b27c602237"
+  },
+  {
+    "path": "corpus/docx/numbered-list/[Content_Types].xml",
+    "bytes": 581,
+    "sha256": "c3a04e30624a1029cf27c81da2a1c5700d1990c03872134fdf7b8af4aa58fd9d"
+  },
+  {
+    "path": "corpus/docx/numbered-list/word/_rels/document.xml.rels",
+    "bytes": 295,
+    "sha256": "b0e67e6e78681ef2242a8dd380bc87ebafd84d5e7e743f19ba74782c68655997"
+  },
+  {
+    "path": "corpus/docx/numbered-list/word/document.xml",
+    "bytes": 629,
+    "sha256": "ef1349549a8d870f845005dcb158adbc4ce72574169042aa05e2e79f479083f1"
+  },
+  {
+    "path": "corpus/docx/numbered-list/word/numbering.xml",
+    "bytes": 348,
+    "sha256": "1388f2cf598247cdbf976c143b95a0a6dced51c935bd0a6a18a8d9e44257b269"
+  },
+  {
+    "path": "corpus/docx/run-split/_rels/.rels",
+    "bytes": 304,
+    "sha256": "98234822aef01d7ec0ef925a064556e744ac9393c5c81ec0c1e2a1b27c602237"
+  },
+  {
+    "path": "corpus/docx/run-split/[Content_Types].xml",
+    "bytes": 444,
+    "sha256": "d5e1cf14e82e03028da69ac3cbad6ebba79a852d129f9e84c0a74f5c2f030ef1"
+  },
+  {
+    "path": "corpus/docx/run-split/word/document.xml",
+    "bytes": 628,
+    "sha256": "597499cb77f7189c951a3ba112be4ca9382973365fa557f3327d96ef3ddc7d35"
+  },
+  {
+    "path": "corpus/docx/table/_rels/.rels",
+    "bytes": 304,
+    "sha256": "98234822aef01d7ec0ef925a064556e744ac9393c5c81ec0c1e2a1b27c602237"
+  },
+  {
+    "path": "corpus/docx/table/[Content_Types].xml",
+    "bytes": 444,
+    "sha256": "d5e1cf14e82e03028da69ac3cbad6ebba79a852d129f9e84c0a74f5c2f030ef1"
+  },
+  {
+    "path": "corpus/docx/table/word/document.xml",
+    "bytes": 737,
+    "sha256": "94dbb19b97e0d115285e6958e14739ead3406252f3deb91b674583930b4828c7"
+  },
+  {
+    "path": "corpus/docx/textbox/_rels/.rels",
+    "bytes": 304,
+    "sha256": "98234822aef01d7ec0ef925a064556e744ac9393c5c81ec0c1e2a1b27c602237"
+  },
+  {
+    "path": "corpus/docx/textbox/[Content_Types].xml",
+    "bytes": 444,
+    "sha256": "d5e1cf14e82e03028da69ac3cbad6ebba79a852d129f9e84c0a74f5c2f030ef1"
+  },
+  {
+    "path": "corpus/docx/textbox/word/document.xml",
+    "bytes": 688,
+    "sha256": "c5f742c5e244e210ce082d3d86944624f4dd8ec4fa0286d23bdeb25324d68627"
+  },
+  {
+    "path": "corpus/docx/unknown-style/_rels/.rels",
+    "bytes": 304,
+    "sha256": "98234822aef01d7ec0ef925a064556e744ac9393c5c81ec0c1e2a1b27c602237"
+  },
+  {
+    "path": "corpus/docx/unknown-style/[Content_Types].xml",
+    "bytes": 578,
+    "sha256": "1980435096e5449e1d6db6c57fb0b6269394eaaa79cc2585f2d2f52b96e0a0ff"
+  },
+  {
+    "path": "corpus/docx/unknown-style/word/_rels/document.xml.rels",
+    "bytes": 289,
+    "sha256": "012b5b00d1c085c5dd737e31e4ab48ea90b30ad6680213410005a6229e6afc62"
+  },
+  {
+    "path": "corpus/docx/unknown-style/word/document.xml",
+    "bytes": 477,
+    "sha256": "29f8637b3fea6f8c5b06ad4c715e03da5dd4c7a63ba2d24be0354cf8310802f4"
+  },
+  {
+    "path": "corpus/docx/unknown-style/word/styles.xml",
+    "bytes": 235,
+    "sha256": "4ca026db67b2841348ef10efd50f1e25c2112ac19796335a62a8665310231d1c"
+  },
+  {
+    "path": "corpus/markdown/fences.md",
+    "bytes": 248,
+    "sha256": "4a1099e8a352413935074d858ca6b8ca1971495701df344fec74cbe2dff071d2"
+  },
+  {
+    "path": "corpus/markdown/giant-heading-section.md",
+    "bytes": 3866,
+    "sha256": "e706d8fcc5701cb7d3a6b0bbf5c5252eab80331fa86429a19b5dd02f93be6a37"
+  },
+  {
+    "path": "corpus/markdown/headings.md",
+    "bytes": 402,
+    "sha256": "0bbb67d71f47465d3daaf4053b831736d2c16efa2a59a0887f808f5bdc048bdd"
+  },
+  {
+    "path": "corpus/markdown/raw-html.md",
+    "bytes": 163,
+    "sha256": "a5be2e6cc68aa802d0e99dcab9015538315d10e99e789cde24245c4d69dadaf9"
+  },
+  {
+    "path": "corpus/markdown/tables-lists.md",
+    "bytes": 190,
+    "sha256": "41724421125458cfb0422f87602881b664368e66c6856bd125f7715ad1e61e70"
+  },
+  {
+    "path": "corpus/pdf/broken-startxref.pdf",
+    "bytes": 659,
+    "sha256": "a591ab28446827c66d6de4978fa5893fdff25ffb18043057a3265eb58489dffc"
+  },
+  {
+    "path": "corpus/pdf/flate-content.stream",
+    "bytes": 122,
+    "sha256": "4874d7ad8b47c58240adada461a0d84203d3187eed1af9045c86090f368758da"
+  },
+  {
+    "path": "corpus/pdf/hyphen-linebreak.pdf",
+    "bytes": 659,
+    "sha256": "37a0093b9cb772620e710a14702717b07cd50917ca1807deac86b32fc294bf73"
+  },
+  {
+    "path": "corpus/pdf/minimal-text.pdf",
+    "bytes": 656,
+    "sha256": "0b0973138745ab7816d57a40f5eb2109efd65995d8ca6e1662df3697590c4922"
+  },
+  {
+    "path": "corpus/pdf/no-text-layer.pdf",
+    "bytes": 643,
+    "sha256": "2aa48f771cc66560135c7ac6890c6086ac4ad8e5e3c2fcbc8ce3b25e7625e0c2"
+  },
+  {
+    "path": "corpus/pdf/two-columns.pdf",
+    "bytes": 732,
+    "sha256": "af7ec40289cc7551207f5050b6fa0e3b00207be341e86eac2b3b77363e8fb724"
+  },
+  {
+    "path": "corpus/pdf/two-pages.pdf",
+    "bytes": 787,
+    "sha256": "1d41d4eec20e11d3be6f98714f83f5fe0a990c270a5501dcdc6657d331bca885"
+  },
+  {
+    "path": "corpus/pdf/xref-stream.pdf",
+    "bytes": 964,
+    "sha256": "0559ad12bb76e63e40ed91f84a3c656d10325ec83eb08979b403994b05455e36"
+  },
+  {
+    "path": "corpus/text/bom.txt",
+    "bytes": 74,
+    "sha256": "c1ea8c926fadbbabcbac1cd47ef9f6baeeca3595a612ff0abe62e04750d029d6"
+  },
+  {
+    "path": "corpus/text/crlf-and-lone-cr.txt",
+    "bytes": 71,
+    "sha256": "8f452179905c47b2baa6a17f3709e2c008bea9a4f591f24c355362a852e37ec9"
+  },
+  {
+    "path": "corpus/text/empty.txt",
+    "bytes": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "path": "corpus/text/long-token.txt",
+    "bytes": 5000,
+    "sha256": "260679791fa8da4dddc6aa3b243c514025e83d3a2f60800b9734b990be5d11a0"
+  },
+  {
+    "path": "corpus/text/three-paragraphs.txt",
+    "bytes": 190,
+    "sha256": "9469d9507868eaf0a931eb7fde7aeda5bc34cbb251c92f2c89c03a0b6bed9e99"
+  },
+  {
+    "path": "corpus/text/unicode.txt",
+    "bytes": 136,
+    "sha256": "e6b237d83b94fd4add1b7389d3e188436791b27cc351f8ae970ee7460e3498dc"
+  },
+  {
+    "path": "corpus/text/whitespace-only.txt",
+    "bytes": 7,
+    "sha256": "3018a85eec1be9ff91c1060df01a9c0474bf9faf334bf9f363a7649b82a16fe4"
+  }
+]

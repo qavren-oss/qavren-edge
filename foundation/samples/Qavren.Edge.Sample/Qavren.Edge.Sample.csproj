@@ -108,6 +108,18 @@
 		<ProjectReference Include="..\..\..\embeddings\src\Qavren.Edge.Onnx\Qavren.Edge.Onnx.csproj" />
 		<ProjectReference Include="..\..\..\embeddings\src\Qavren.Edge.Embeddings.Onnx\Qavren.Edge.Embeddings.Onnx.csproj" />
 		<ProjectReference Include="..\..\..\embeddings\src\Qavren.Edge.VectorData\Qavren.Edge.VectorData.csproj" />
+
+		<!-- SP3's Ingest page (plan Task 8.2). The core plus the three satellites this sample calls:
+		     .Onnx for AddOnnxIngestion (the tokenizer and the throttle over SP2's resource monitor),
+		     .Pdf and .OpenXml for AddPdfExtractor/AddDocxExtractor. NOT .DataIngestion - the sample
+		     does not use MEDI and that package is prerelease-only. All four are net10.0 and this
+		     project is multi-TFM over the four platform heads; a platform TFM consuming a net10.0
+		     library is ordinary TFM compatibility, and the sample already resolves ORT's platform
+		     asset through Qavren.Edge.Embeddings.Onnx, so no SupportedOSPlatformVersion moves. -->
+		<ProjectReference Include="..\..\..\ingestion\src\Qavren.Edge.Ingestion\Qavren.Edge.Ingestion.csproj" />
+		<ProjectReference Include="..\..\..\ingestion\src\Qavren.Edge.Ingestion.Onnx\Qavren.Edge.Ingestion.Onnx.csproj" />
+		<ProjectReference Include="..\..\..\ingestion\src\Qavren.Edge.Ingestion.Pdf\Qavren.Edge.Ingestion.Pdf.csproj" />
+		<ProjectReference Include="..\..\..\ingestion\src\Qavren.Edge.Ingestion.OpenXml\Qavren.Edge.Ingestion.OpenXml.csproj" />
 	</ItemGroup>
 
 	<ItemGroup Condition="'$(QedgeCipher)' == 'true'">

@@ -1,6 +1,9 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <TargetFramework>net10.0</TargetFramework>
+    <!-- Plural on purpose (plan adjustment 10): the verify commands pass -p:TargetFrameworks=net10.0,
+         and against a singular <TargetFramework> that global property makes MTP's buildMultiTargeting
+         targets generate a second entry point beside xunit.v3's - CS8892. -->
+    <TargetFrameworks>net10.0</TargetFrameworks>
     <OutputType>Exe</OutputType>
     <IsPackable>false</IsPackable>
   </PropertyGroup>
@@ -17,5 +20,19 @@
          that, because it is the one SP1 keeps out of the device lanes and the only one that may
          reference Qavren.Edge.Sqlite.Native.Cipher. -->
     <ProjectReference Include="..\..\..\embeddings\src\Qavren.Edge.VectorData\Qavren.Edge.VectorData.csproj" />
+    <!-- Spec 14.3's one SQLCipher test: the full ingest lifecycle over a keyed connection.
+         Qavren.Edge.Ingestion transitively brings Qavren.Edge.VectorData, which is what the
+         collection half of the lifecycle needs. NOT Qavren.Edge.Ingestion.Onnx: the test uses
+         the RecordingEmbeddingGenerator, so no ORT graph enters this project and its
+         SupportedOSPlatformVersion floors are unchanged. -->
+    <ProjectReference Include="..\..\..\ingestion\src\Qavren.Edge.Ingestion\Qavren.Edge.Ingestion.csproj" />
+  </ItemGroup>
+  <!-- The three committed fixtures the SQLCipher lifecycle test ingests, embedded exactly as
+       Qavren.Edge.Ingestion.Tests embeds the whole corpus: this project must never reference a
+       test project, and a path walked up from the output directory breaks under ArtifactsPath. -->
+  <ItemGroup>
+    <EmbeddedResource Include="..\..\..\ingestion\tests\fixtures\corpus\text\three-paragraphs.txt" LogicalName="fixtures/corpus/text/three-paragraphs.txt" />
+    <EmbeddedResource Include="..\..\..\ingestion\tests\fixtures\corpus\text\unicode.txt" LogicalName="fixtures/corpus/text/unicode.txt" />
+    <EmbeddedResource Include="..\..\..\ingestion\tests\fixtures\corpus\markdown\headings.md" LogicalName="fixtures/corpus/markdown/headings.md" />
   </ItemGroup>
 </Project>

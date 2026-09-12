@@ -22,6 +22,12 @@
         ContentTemplate="{DataTemplate pages:EmbeddingsPage}"
         Route="EmbeddingsPage" />
 
+    <!-- Before Search: the two read in the order a user performs them (plan Task 8.2). -->
+    <ShellContent
+        Title="Ingest"
+        ContentTemplate="{DataTemplate pages:IngestPage}"
+        Route="IngestPage" />
+
     <ShellContent
         Title="Search"
         ContentTemplate="{DataTemplate pages:SearchPage}"

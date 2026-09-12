@@ -43,3 +43,8 @@ embeddings/tools/model-hashes/.venv/
 # -p:ArtifactsPath=<scratch>, which normally lands outside the repo - this entry exists only so
 # that a run pointed at an in-repo path cannot be committed by accident.
 /artifacts/
+
+# Sub-project 3 fixture toolchain. The generator's OUTPUT (the committed ASCII PDFs) is in git;
+# its venv and any scratch it writes are not. The script is run by hand, never by a build or CI.
+ingestion/tests/fixtures/.venv/
+ingestion/tests/fixtures/_scratch/

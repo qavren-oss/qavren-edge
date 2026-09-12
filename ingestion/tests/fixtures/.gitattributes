@@ -1,0 +1,7 @@
+# LOAD-BEARING. Chunk offsets are character positions. The repo root sets `* text=auto eol=lf`,
+# but this machine's editing tooling flips LF to CRLF on multi-line edits, and a CRLF that
+# sneaks into a fixture moves every expected boundary - on the Linux CI leg only, which is the
+# worst place to discover it. `-text` disables all end-of-line conversion, so what is committed
+# is byte-for-byte what every platform checks out.
+corpus/** -text
+golden/** -text

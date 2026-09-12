@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+  <w:style w:type="paragraph" w:styleId="Titre1"><w:name w:val="Titre 1" /><w:pPr><w:outlineLvl w:val="0" /></w:pPr></w:style>
+  <w:style w:type="paragraph" w:styleId="berschrift2"><w:name w:val="Überschrift 2" /><w:pPr><w:outlineLvl w:val="1" /></w:pPr></w:style>
+</w:styles>

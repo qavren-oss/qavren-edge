@@ -1,0 +1,5 @@
+The first paragraph is short.
+
+The second paragraph has two sentences. It exists so a sentence-aware cut has somewhere to land.
+
+The third paragraph ends the file without a trailing newline.
