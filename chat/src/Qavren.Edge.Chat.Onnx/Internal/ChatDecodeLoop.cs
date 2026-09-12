@@ -132,7 +132,7 @@ internal static class ChatDecodeLoop
 
         try
         {
-            while (!generator.IsDone())
+            while (true)
             {
                 ct.ThrowIfCancellationRequested();
 
@@ -142,6 +142,15 @@ internal static class ChatDecodeLoop
                         ? EdgeChatStopReason.Suspended
                         : EdgeChatStopReason.MemoryPressure;
                     ChatTurnLog.TurnTerminated(logger, stop, generated);
+                    break;
+                }
+
+                // AFTER those two checks, never before them. IsDone() is the one call GenAI 0.15.2
+                // leaves outside its C-API OGA_TRY/OGA_CATCH boundary, so reaching it with
+                // terminate_session already set aborts the process instead of throwing; see
+                // TerminationLatchedGenerator, which is what makes this call safe at all.
+                if (generator.IsDone())
+                {
                     break;
                 }
 
@@ -239,6 +248,26 @@ internal static class ChatDecodeLoop
 
             if (stop == EdgeChatStopReason.Completed)
             {
+                // The loop can also leave through IsDone() because the LATCH answered it - a
+                // terminate that landed between the checks above and the call. TerminationRequested
+                // is written before terminate_session is set, so it is already true here and the
+                // honest reason is that termination, not "the model stopped".
+                if (context.Host.TerminationRequested)
+                {
+                    stop = context.Host.SuspendRequested
+                        ? EdgeChatStopReason.Suspended
+                        : EdgeChatStopReason.MemoryPressure;
+                    ChatTurnLog.TurnTerminated(logger, stop, generated);
+                }
+                else
+                {
+                    // Same race, driven by the caller's cancel registration instead.
+                    ct.ThrowIfCancellationRequested();
+                }
+            }
+
+            if (stop == EdgeChatStopReason.Completed)
+            {
                 // The loop ended because the generator said so: end-of-sequence, or max_length.
                 var rest = context.StopMatcher.Finish(out var matchedAtEnd);
                 if (rest.Length > 0)
@@ -258,10 +287,13 @@ internal static class ChatDecodeLoop
         }
         catch (OnnxRuntimeGenAIException) when (ct.IsCancellationRequested)
         {
-            // The caller's cancel registration set terminate_session while IsDone() or
-            // GenerateNextToken() was inside native code, and GenAI 0.15.2 reports that as a throw
-            // ("Exiting due to terminate flag being set to true") rather than as a returned step.
-            // That is the cancel the caller asked for, not a native fault: same outcome as below.
+            // The caller's cancel registration set terminate_session while GenerateNextToken() was
+            // inside native code, and GenAI 0.15.2 reports that as a throw ("Exiting due to
+            // terminate flag being set to true") rather than as a returned step. That is the cancel
+            // the caller asked for, not a native fault: same outcome as below.
+            // NOT IsDone(): its C entry point has no OGA_TRY/OGA_CATCH, so a terminated-state throw
+            // there never becomes an OnnxRuntimeGenAIException - it aborts the process. The latch
+            // in TerminationLatchedGenerator is what keeps this catch honest.
             cancelled = true;
             stop = EdgeChatStopReason.Cancelled;
         }

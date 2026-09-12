@@ -38,6 +38,133 @@ internal interface IChatGenerator : IDisposable
     void SetRuntimeOption(string key, string value);
 }
 
+/// <summary>
+/// Answers <see cref="IChatGenerator.IsDone"/> in managed code once <c>terminate_session</c> has
+/// been set, and serialises the cheap native calls against the setter.
+/// </summary>
+/// <remarks>
+/// <para>
+/// GenAI 0.15.2 wraps nearly every C entry point in <c>OGA_TRY</c>/<c>OGA_CATCH</c>, so a native
+/// throw arrives as an <c>OgaResult</c> and then as an <c>OnnxRuntimeGenAIException</c>.
+/// <c>OgaGenerator_IsDone</c> (<c>src/ort_genai_c.cpp:470</c>) is one of the handful that is NOT:
+/// it is <c>return generator-&gt;IsDone();</c> with no handler. <c>Generator::IsDone</c>
+/// (<c>src/generators.cpp:784</c>) opens with <c>ThrowErrorIfSessionTerminated</c>, which throws
+/// <c>std::runtime_error("Session in Terminated state, exiting!")</c>
+/// (<c>src/generators.cpp:51</c>). That C++ exception unwinds into the P/Invoke frame, finds no
+/// handler, and the process aborts with <c>std::terminate</c> - not a catchable .NET exception.
+/// </para>
+/// <para>
+/// <c>terminate_session</c> is set from another thread (a cancel registration, or
+/// <c>TerminateActiveGeneration</c> under memory pressure or suspend), so "check a flag, then call
+/// <c>IsDone</c>" is not enough on its own: the latch and <c>IsDone</c> take the same lock, and the
+/// setter takes it too. <see cref="AppendTokens"/> and <see cref="GenerateNextToken"/> deliberately
+/// do NOT - prefill and the decode step are the multi-second native calls that
+/// <c>terminate_session</c> exists to interrupt (<c>ChatModelHost.TerminateActiveGeneration</c> is
+/// "the only thing that can stop a multi-second prefill", and it may be called from a lifecycle
+/// thread that must not block behind one), and both C entry points ARE wrapped, so a
+/// terminated-state throw there surfaces as an <c>OnnxRuntimeGenAIException</c> the decode loop
+/// already handles.
+/// </para>
+/// <para>
+/// The latch tracks the VALUE: <c>"0"</c> clears it, which is how a generator reused from the
+/// conversation cache starts its next turn clean (<c>ChatTurnPipeline.Resume</c>).
+/// </para>
+/// </remarks>
+/// <param name="inner">The generator being guarded.</param>
+internal sealed class TerminationLatchedGenerator(IChatGenerator inner) : IChatGenerator
+{
+    private readonly object _sync = new();
+    private bool _terminated;
+    private bool _disposed;
+
+    /// <summary>Whether <c>terminate_session=1</c> has been seen and not cleared.</summary>
+    public bool IsTerminated
+    {
+        get
+        {
+            lock (_sync)
+            {
+                return _terminated;
+            }
+        }
+    }
+
+    /// <inheritdoc />
+    public bool IsDone()
+    {
+        lock (_sync)
+        {
+            // The latch, not the native call: see the remarks. A terminated generator is done as
+            // far as the decode loop is concerned, and the loop reports the real reason from the
+            // host's termination flags rather than from this answer.
+            return _terminated || _disposed || inner.IsDone();
+        }
+    }
+
+    /// <inheritdoc />
+    /// <remarks>Outside the lock on purpose: see the class remarks. Interruptible by the setter.</remarks>
+    public void AppendTokens(ReadOnlySpan<int> tokens) => inner.AppendTokens(tokens);
+
+    /// <inheritdoc />
+    public ulong TokenCount()
+    {
+        lock (_sync)
+        {
+            return inner.TokenCount();
+        }
+    }
+
+    /// <inheritdoc />
+    public void GenerateNextToken() => inner.GenerateNextToken();
+
+    /// <inheritdoc />
+    public int LastToken()
+    {
+        lock (_sync)
+        {
+            return inner.LastToken();
+        }
+    }
+
+    /// <inheritdoc />
+    public void SetRuntimeOption(string key, string value)
+    {
+        lock (_sync)
+        {
+            if (_disposed)
+            {
+                // A terminate that lost the race with disposal. Calling into a freed native
+                // generator is an access violation, not an exception.
+                return;
+            }
+
+            if (string.Equals(key, "terminate_session", StringComparison.Ordinal))
+            {
+                // GenAI accepts "0" as well and clears the flag (src/models/model.cpp:149-160), so
+                // the latch tracks the value rather than the fact of the call.
+                _terminated = !string.Equals(value, "0", StringComparison.Ordinal);
+            }
+
+            inner.SetRuntimeOption(key, value);
+        }
+    }
+
+    /// <inheritdoc />
+    public void Dispose()
+    {
+        lock (_sync)
+        {
+            if (_disposed)
+            {
+                return;
+            }
+
+            _disposed = true;
+            inner.Dispose();
+        }
+    }
+}
+
 /// <summary>A stateful token-to-text decoder, one per turn.</summary>
 internal interface IChatTokenStream : IDisposable
 {
@@ -167,7 +294,8 @@ internal sealed class GenAiChatSession(ChatModelLease lease) : IChatModelSession
                 parameters.SetGuidance(request.Type, request.Data);
             }
 
-            return new NativeGenerator(new Generator(lease.Model, parameters), parameters);
+            return new TerminationLatchedGenerator(
+                new NativeGenerator(new Generator(lease.Model, parameters), parameters));
         }
         catch
         {

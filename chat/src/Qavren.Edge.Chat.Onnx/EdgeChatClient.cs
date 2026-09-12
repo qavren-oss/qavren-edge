@@ -286,6 +286,10 @@ public sealed class EdgeChatClient : IChatClient
         });
 
         using var consumerGone = new CancellationTokenSource();
+
+        // Start clean BEFORE anything can terminate this turn: a cached generator whose previous
+        // turn's terminate lost a race with FinishTurn would otherwise report done at once.
+        ChatTurnPipeline.Resume(turn.Generator);
         using var termination = cancellationToken.Register(static state => TryTerminate((IChatGenerator)state!), turn.Generator);
         _host.SetActiveGeneration(turn.Generator.SetRuntimeOption);
 
@@ -350,6 +354,11 @@ public sealed class EdgeChatClient : IChatClient
             }
             finally
             {
+                // Unregister BEFORE the generator can be handed to the conversation cache. Dispose
+                // waits for an in-flight callback, so after this line no TryTerminate can land on
+                // a generator a LATER turn will reuse - which would leave terminate_session stuck
+                // at "1" on a cached generator.
+                termination.Dispose();
                 FinishTurn(turn, result);
                 ReleaseGate();
             }

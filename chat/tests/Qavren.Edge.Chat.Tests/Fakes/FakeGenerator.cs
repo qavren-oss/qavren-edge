@@ -88,7 +88,8 @@ internal sealed class FakeGenerator : IChatGenerator
         RuntimeOptions.Add((key, value));
         if (key == "terminate_session")
         {
-            Terminated = true;
+            // Tracks the value like the native flag does: "1" terminates, "0" resumes.
+            Terminated = !string.Equals(value, "0", StringComparison.Ordinal);
         }
     }
 

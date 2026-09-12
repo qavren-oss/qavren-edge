@@ -39,6 +39,19 @@ internal static class ChatTurnPipeline
         generator.SetRuntimeOption(TerminateSessionKey, "1");
     }
 
+    /// <summary>
+    /// The inverse: clears <c>terminate_session</c> before a turn starts. GenAI 0.15.2 accepts
+    /// <c>"0"</c> and resets the flag (<c>State::SetRunOption</c>), and
+    /// <c>TerminationLatchedGenerator</c> unlatches on the same value. Called for every turn, so a
+    /// generator reused from the conversation cache can never carry a terminate that raced the end
+    /// of its previous turn into the next one - where it would answer "done" before the first token.
+    /// </summary>
+    public static void Resume(IChatGenerator generator)
+    {
+        ArgumentNullException.ThrowIfNull(generator);
+        generator.SetRuntimeOption(TerminateSessionKey, "0");
+    }
+
     // ---- (a) Refuse early, by name ---------------------------------------------------------------------
 
     /// <summary>
