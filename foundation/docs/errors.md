@@ -15,6 +15,9 @@ allocated them; the ranges themselves never overlap and are never reused.
 - **6000–6299** — sub-project 3 (ingestion): `Qavren.Edge.Ingestion` and its
   `.Pdf`, `.OpenXml`, `.Onnx` and `.DataIngestion` satellites. Only 6001–6011,
   6051–6055, 6101–6107, 6151–6155 and 6201–6208 are allocated so far.
+- **7000–7299** — sub-project 4 (chat + RAG): `Qavren.Edge.Chat.Onnx`,
+  `Qavren.Edge.Rag`. Only 7001–7009, 7051–7053, 7101–7108 and
+  7201–7204 are allocated so far.
 
 ## Sub-project 1 — `Qavren.Edge.Core` / `Qavren.Edge.Sqlite` (1001–4001)
 
@@ -900,3 +903,271 @@ first-document surprise.
 
 Remediation: Call `AddOnnxEmbeddings()` or register another
 `IEmbeddingGenerator<string, Embedding<float>>` before `AddIngestion`.
+
+## Sub-project 4 — Qavren.Edge.Chat.Onnx / Qavren.Edge.Rag (7001–7204)
+
+## 7001
+
+**ChatEnvironmentNotStarted**
+
+Meaning: A `Microsoft.ML.OnnxRuntimeGenAI` type was reached before the
+order-400 startup task ran, or the order-200 ONNX environment task has not
+run at all.
+
+Remediation: Call `AddOnnxChat()` and resolve `IChatClient` from the
+container rather than constructing `EdgeChatClient` yourself.
+
+## 7002
+
+**ChatModelLoadFailed**
+
+Meaning: `new Model(...)` or `new Tokenizer(...)` threw an
+`OnnxRuntimeGenAIException`, or the load did not finish inside
+`LoadTimeout`. Carries the model directory and the inner message preserved.
+
+Remediation: Inspect the inner exception and the model directory for
+corruption; re-provision the bundle if the files are damaged, or raise
+`LoadTimeout` if the device is simply slow to load.
+
+## 7003
+
+**ChatModelNotRegistered**
+
+Meaning: A preset lookup (`ChatPresets.ById`) was asked for an id that does
+not match any of the shipped presets.
+
+Remediation: Check the spelling of the preset constant; only the shipped
+`ChatPresets` members exist in v1.
+
+## 7004
+
+**ChatUnsupportedRuntime**
+
+Meaning: The current runtime identifier or Android ABI has no ORT GenAI
+native for chat (for example `armeabi-v7a`, which the AAR does not ship).
+Raised at startup, naming the RID or ABI and listing the ones that do work
+— never a `DllNotFoundException` on the user's first message.
+
+Remediation: Ship chat only for the supported ABIs (`arm64-v8a`, `x86_64`),
+or fall back to `AddExtractiveChat` on a runtime GenAI does not cover.
+
+## 7005
+
+**ChatInsufficientMemory**
+
+Meaning: The memory budget refused even at `MinContextTokens`. Carries the
+required, available and total byte counts, the budget kind, and the largest
+context that would have fit.
+
+Remediation: Names, in order, the smaller preset, a lower
+`MaxContextTokens`, and the two iOS entitlements
+(`com.apple.developer.kernel.increased-memory-limit` and
+`com.apple.developer.kernel.extended-virtual-addressing`) — and states that
+`WorkspaceBytes` and `ReserveBytes` are engineering estimates, not measured
+figures.
+
+## 7006
+
+**ChatDeviceTooSmall**
+
+Meaning: Total device RAM is below the preset's floor, or the device
+reports `IsLowRamDevice`. Carries `TotalMemoryBytes`.
+
+Remediation: `MinTotalMemoryBytes` can be set to null to try anyway, at the
+risk of an OS kill.
+
+## 7007
+
+**ChatConfigurationInvalid**
+
+Meaning: `genai_config.json` is missing, unparseable, or incoherent (zero
+layers, zero head size, a missing decoder filename). Names the file and the
+offending field.
+
+Remediation: Re-provision the model bundle; if the file is present and
+still fails, confirm it is a genuine ORT GenAI export rather than a
+hand-edited or truncated config.
+
+## 7008
+
+**ChatModelShapeMismatch**
+
+Meaning: The provisioned `genai_config.json` disagrees, field by field,
+with the preset's declared `ChatModelShape`. Names the field, the declared
+value and the preset's.
+
+Remediation: Re-run `fetch_chat_model_hashes.py`.
+
+## 7009
+
+**ChatExecutionProviderUnsupported**
+
+Meaning: `ConfigOverlayJson` names an execution provider other than CPU on
+a mobile TFM. GenAI has no CoreML and no NNAPI provider, so a non-CPU
+provider on iOS, Mac Catalyst or Android is refused by name rather than
+being silently ignored by the native config parser.
+
+Remediation: Remove the provider override on mobile targets; CPU is the
+only execution provider chat supports there in v1 (see ADR 0009).
+
+## 7051
+
+**ChatModelNotProvisioned**
+
+Meaning: The model is absent on disk. Carries the bundle's total byte
+count. Never a download.
+
+Remediation: Call `IChatModelProvisioner.Plan()`, show the consent sheet it
+feeds, then `ProvisionAsync()`.
+
+## 7052
+
+**ChatInsufficientDiskSpace**
+
+Meaning: Free disk space is short of the bundle total plus a safety
+margin — checked before the first byte, not partway through the transfer.
+
+Remediation: Free disk space, or choose the smaller preset.
+
+## 7053
+
+**ChatDownloadNotPermitted**
+
+Meaning: `ChatProvisioningOptions.IsTransferPermitted` returned false
+before a connection was opened.
+
+Remediation: Names the hook and the usual policy: wait for an unmetered
+network before retrying `ProvisionAsync`.
+
+## 7101
+
+**ChatTemplateUnsupported**
+
+Meaning: minja could not parse the model's chat template, and
+`RequireChatTemplate` is set.
+
+Remediation: Set `PromptFormatter` to a formatter minja can parse, or a
+hand-written one.
+
+## 7102
+
+**ChatPromptTooLong**
+
+Meaning: The prompt is still over budget after history reduction to the
+floor. Carries both numbers.
+
+Remediation: Names `MaxOutputTokens`, `ChatHistoryOptions`, and
+`RagOptions.MaxContextTokens`.
+
+## 7103
+
+**ChatGuidanceUnavailable**
+
+Meaning: `ChatOptions.ResponseFormat` is a `ChatResponseFormatJson` and the
+guidance policy is `Disabled` — or `RequireNative`/`PreferNative` and the
+positive-control probe did not come back `Enforced`. The shipped mobile
+natives are built without `USE_GUIDANCE`, and a request against such a
+build would otherwise be silently ignored.
+
+Remediation: Set `EdgeGuidancePolicy.PreferNative` to accept an
+unconstrained turn instead of a throw, or accept plain-text output.
+
+## 7104
+
+**ChatGenerationFailed**
+
+Meaning: The native decode loop threw mid-decode. The partial text already
+streamed stays streamed; the final update reports `StopReason = Error`
+before the exception surfaces from the iterator.
+
+Remediation: Inspect the inner exception; retry the turn.
+
+## 7105
+
+**ChatBusy**
+
+Meaning: A second concurrent turn arrived while one was already running,
+the gate timed out, the queue is full, or turns are not being accepted —
+naming which.
+
+Remediation: States that the GenAI C API is not thread safe, so turns
+serialise onto one cached `Generator`; queue the caller's own retry rather
+than starting a second turn concurrently.
+
+## 7106
+
+**ChatThermalAbort**
+
+Meaning: Device thermal state is at or above `AbortAt` before a turn
+starts. (The same condition reached mid-decode instead completes the
+stream with `StopReason = Thermal` rather than throwing.)
+
+Remediation: Wait for the device to cool, or raise `AbortAt`/`ThrottleAt`
+if the app's own UX already warns the user.
+
+## 7107
+
+**ChatToolCallingUnsupported**
+
+Meaning: `ChatOptions.Tools` is non-empty, or `ToolMode` requires a call. A
+~1B on-device model has no tool calling in v1 (ADR 0012); a required tool
+call that can never be emitted is a hard failure, not a footnote.
+
+Remediation: Remove `Tools`/`ToolMode` from the request, or perform tool
+calling above this client against a server-hosted model.
+
+## 7108
+
+**ChatOptionUnsupported**
+
+Meaning: A message carries non-`TextContent`, or `SearchOptions` sets
+`max_length` directly — naming the offending member. `max_length` is
+refused whatever its type, because it is the memory cap the budget owns.
+
+Remediation: Remove the unsupported content type or option from the
+request; use `ChatOptions.MaxOutputTokens` and the memory budget instead of
+`SearchOptions["max_length"]`.
+
+## 7201
+
+**RagRetrieverMissing**
+
+Meaning: `UseRag()` was added to the pipeline but no `IEdgeRetriever` is
+resolvable from the container.
+
+Remediation: Names `AddVectorStoreRetriever`/`AddRetriever` — register one
+of them before resolving `IChatClient`.
+
+## 7202
+
+**RagRetrievalFailed**
+
+Meaning: Retrieval threw and `ContinueOnRetrievalFailure` is false, or
+`Top + Skip` exceeded `SQLITE_VEC_VEC0_K_MAX` — named before SP2 ever sees
+the call.
+
+Remediation: Fix the retriever's collection or query, or lower `Top`/`Skip`
+under the vec0 candidate ceiling; leave `ContinueOnRetrievalFailure` at its
+default to get an ungrounded answer instead of a throw.
+
+## 7203
+
+**RagCollectionNotSearchable**
+
+Meaning: `RequireHybridSearch` is true and the collection does not
+implement `IKeywordHybridSearchable<TRecord>`, so the hybrid lane cannot be
+taken and the retriever refuses rather than silently falling back to the
+vector lane.
+
+Remediation: Point the retriever at a collection that implements
+`IKeywordHybridSearchable<TRecord>`, or leave `RequireHybridSearch` at its
+default `false` to accept the vector-lane fallback.
+
+## 7204
+
+**RagContextBudgetTooSmall**
+
+Meaning: `MaxContextTokens` cannot fit even one truncated source.
+
+Remediation: Raise `RagOptions.MaxContextTokens`, or lower
+`MaxCharsPerSource` so a single source fits inside the budget.

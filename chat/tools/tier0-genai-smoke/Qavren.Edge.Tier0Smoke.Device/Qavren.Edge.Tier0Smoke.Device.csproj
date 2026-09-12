@@ -1,0 +1,115 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <!-- THROWAWAY. Deliberately NOT in QavrenEdge.slnx: it must not reach dotnet format, dotnet
+         pack or the wave-8 gate. Same UseMaui/SingleProject/DeviceRunners shape as
+         Qavren.Edge.DeviceTests - the four platform TFMs are spec 16.0's device targets, and this
+         head has no SP1 SQLite native to carry, so the AndroidNativeLibrary / NativeReference /
+         _QedgeDropHostNativeFromAppleBundle blocks that project needs do not apply here.
+         _QedgeDropOrtExtensionsNativeSymbol DOES apply and is copied across verbatim: it is not
+         about SQLite at all, it is about ORT's Apple __Internal P/Invokes, and this head
+         reproduces both of its preconditions - a direct Microsoft.ML.OnnxRuntime PackageReference
+         and MtouchLink=None - so without it tier0-ios and tier0-maccatalyst die at ld rather than
+         answering spec 16.0 item 1(a). See the comment on the target itself. -->
+    <TargetFrameworks>net10.0-android;net10.0-ios;net10.0-maccatalyst;net10.0-windows10.0.19041.0</TargetFrameworks>
+    <!-- Linux CI hosts can only ever get the android workload: the iOS and Mac Catalyst SDK
+         packs do not exist for linux-x64 (NETSDK1178) and the Windows TFM needs a Windows host.
+         Restore evaluates EVERY entry of TargetFrameworks for every project in the graph, so
+         leaving them listed fails `dotnet test -f net10.0-android` before a test can run. -->
+    <TargetFrameworks Condition="$([MSBuild]::IsOSPlatform('Linux'))">net10.0-android</TargetFrameworks>
+    <!-- Same restore-evaluates-every-TFM rule on macOS hosts: the Windows TFM needs a Windows
+         host (NETSDK1100), so the apple and maccatalyst lanes drop it. -->
+    <TargetFrameworks Condition="$([MSBuild]::IsOSPlatform('OSX'))">net10.0-android;net10.0-ios;net10.0-maccatalyst</TargetFrameworks>
+    <UseMaui>true</UseMaui>
+    <SingleProject>true</SingleProject>
+    <OutputType>Exe</OutputType>
+    <IsPackable>false</IsPackable>
+    <ApplicationId>app.qavren.edge.tier0smoke</ApplicationId>
+    <ApplicationTitle>Qavren.Edge tier-0 GenAI smoke</ApplicationTitle>
+    <ApplicationDisplayVersion>1.0</ApplicationDisplayVersion>
+    <ApplicationVersion>1</ApplicationVersion>
+    <RootNamespace>Qavren.Edge.Tier0Smoke.Device</RootNamespace>
+    <!-- ORT GenAI's own floors (Environment ground truth / adjustment 8's evidence) - tier 0 is
+         where a floor that is too low announces itself as a manifest-merge or linker failure
+         rather than in wave 7. -->
+    <SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'android'">24.0</SupportedOSPlatformVersion>
+    <SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'ios'">15.4</SupportedOSPlatformVersion>
+    <SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'maccatalyst'">15.4</SupportedOSPlatformVersion>
+    <SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows'">10.0.17763.0</SupportedOSPlatformVersion>
+    <TargetPlatformMinVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows'">10.0.17763.0</TargetPlatformMinVersion>
+    <!-- Unpackaged: proves the UNPACKAGED WinUI path only - this repo has no signing identity for
+         MSIX, same reason Qavren.Edge.DeviceTests is unpackaged. chat/README.md says so in those
+         words rather than implying the packaged path was tested. -->
+    <WindowsPackageType>None</WindowsPackageType>
+    <!-- Same PublishTrimmed/MtouchLink/RunAOTCompilation settings as Qavren.Edge.DeviceTests: a
+         UseMaui app head on Android Release defaults RunAOTCompilation on, and AOT without
+         trimming is XA1030 - so AOT goes too, this app is a smoke harness, not something anyone
+         ships. On iOS and Mac Catalyst the Apple SDK rejects PublishTrimmed=false outright and
+         demands MtouchLink=None instead. -->
+    <PublishTrimmed Condition="!$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)').Equals('ios')) And !$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)').Equals('maccatalyst'))">false</PublishTrimmed>
+    <MtouchLink Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'ios' Or $([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'maccatalyst'">None</MtouchLink>
+    <RunAOTCompilation>false</RunAOTCompilation>
+    <!-- CA2007: same conflict the two hosted test libraries hit - .editorconfig makes it an error,
+         and its fix, ConfigureAwait(false) inside a test body, is what xunit's xUnit1030 forbids.
+         CA1711: AppDelegate is the fixed name the iOS and Mac Catalyst app heads must use. -->
+    <NoWarn>$(NoWarn);CA2007;CA1711</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Maui.Controls" />
+    <PackageReference Include="DeviceRunners.VisualRunners.Maui" />
+    <PackageReference Include="DeviceRunners.VisualRunners.Xunit3" />
+    <!-- Provides the MSBuild targets that make `dotnet test -f net10.0-android` deploy, launch,
+         stream results back over TCP and write a TRX. -->
+    <PackageReference Include="DeviceRunners.Testing.Targets" />
+    <!-- This project's OWN test class (Tier0SmokeFacts) needs the attributes and asserts.
+         Never xunit.v3 or xunit.v3.core here - same rule as the hosted libraries. -->
+    <PackageReference Include="xunit.v3.extensibility.core" />
+    <PackageReference Include="xunit.v3.assert" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.ML.OnnxRuntimeGenAI" />
+    <PackageReference Include="Microsoft.ML.OnnxRuntime" />
+    <PackageReference Include="Microsoft.Extensions.AI" />
+  </ItemGroup>
+  <ItemGroup>
+    <Compile Include="..\Tier0Smoke.cs" Link="Tier0Smoke.cs" />
+    <Compile Include="..\..\..\tests\fixtures\TinyChatModel.g.cs" Link="TinyChatModel.g.cs" />
+  </ItemGroup>
+  <!-- ORT's two Apple assemblies (lib/net9.0-ios18.0 and lib/net9.0-maccatalyst18.0) declare
+       EVERY P/Invoke against "__Internal" - the static-xcframework model SP2 spec 10.1 describes -
+       and that set includes OrtExtensionsNativeMethods.RegisterCustomOps, the entry point of
+       onnxruntime-extensions. That is a SEPARATE package (Microsoft.ML.OnnxRuntime.Extensions)
+       which SP2 deliberately does not reference, so nothing anywhere defines the symbol.
+       The Apple SDK emits `-u<symbol>` on the native link line for every __Internal P/Invoke that
+       SURVIVES trimming (Xamarin.Shared.Sdk.targets, @(_ProcessedReferenceNativeSymbol)), which is
+       normally harmless because the unreachable SessionOptions.RegisterOrtExtensions() is trimmed
+       away first. MtouchLink=None above turns trimming off on purpose, so the method survives,
+       `-u_RegisterCustomOps` reaches ld, and the link dies with
+         Undefined symbols for architecture x86_64:
+           "_RegisterCustomOps", referenced from: <initial-undefines>
+       (run 34607846150, device-tests-maccatalyst; the iOS head links exactly the same way, which
+       is why this target covers both and neither android - the AAR - nor windows -
+       runtimes/win-x64/native - forces undefined symbols at all).
+       Dropping the forced-undefined entry IS the fix: there is no call site, so the symbol is not
+       needed, and anyone who did call RegisterOrtExtensions() would get EntryPointNotFoundException,
+       which is the honest answer when extensions are not linked. The alternatives are both worse -
+       take a dependency on Microsoft.ML.OnnxRuntime.Extensions to satisfy one linker flag, or
+       re-enable the trimming that MtouchLink=None exists to prevent. Both spellings are removed
+       because the item identity carries the leading underscore ld sees; a Remove that matches
+       nothing is a no-op, so this stays safe if the SDK ever changes the spelling. -->
+  <Target Name="_QedgeDropOrtExtensionsNativeSymbol"
+          Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'ios' Or $([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'maccatalyst'"
+          AfterTargets="_LoadLinkerOutput">
+    <ItemGroup>
+      <_ProcessedReferenceNativeSymbol Remove="_RegisterCustomOps;RegisterCustomOps" />
+    </ItemGroup>
+  </Target>
+
+  <!-- Linked, not duplicated: a UseMaui app head does not build without an icon and a splash. -->
+  <ItemGroup>
+    <MauiIcon Include="..\..\..\..\foundation\tests\Qavren.Edge.DeviceTests\Resources\AppIcon\appicon.svg"
+              ForegroundFile="..\..\..\..\foundation\tests\Qavren.Edge.DeviceTests\Resources\AppIcon\appiconfg.svg" Color="#512BD4" />
+    <MauiSplashScreen Include="..\..\..\..\foundation\tests\Qavren.Edge.DeviceTests\Resources\Splash\splash.svg" Color="#512BD4" BaseSize="128,128" />
+  </ItemGroup>
+</Project>

@@ -27,6 +27,7 @@
                       Condition="'$(QedgeTrimSatellites)' == 'true'" />
     <ProjectReference Include="..\..\..\ingestion\src\Qavren.Edge.Ingestion.OpenXml\Qavren.Edge.Ingestion.OpenXml.csproj"
                       Condition="'$(QedgeTrimSatellites)' == 'true'" />
+    <ProjectReference Include="..\..\..\chat\src\Qavren.Edge.Rag\Qavren.Edge.Rag.csproj" />
   </ItemGroup>
 
   <!-- The satellite trim run (Task 7.2 Step 3) ingests one real PDF and one real DOCX, so it

@@ -1,6 +1,7 @@
 #if DEBUG
 using Microsoft.Extensions.Logging;
 #endif
+using Qavren.Edge.Chat;
 using Qavren.Edge.Embeddings.Onnx;
 using Qavren.Edge.Ingestion;
 using Qavren.Edge.Ingestion.Onnx;
@@ -8,6 +9,7 @@ using Qavren.Edge.Ingestion.OpenXml;
 using Qavren.Edge.Ingestion.Pdf;
 using Qavren.Edge.Maui;
 using Qavren.Edge.Onnx;
+using Qavren.Edge.Rag;
 using Qavren.Edge.Sample.Migrations;
 using Qavren.Edge.Sample.Models;
 using Qavren.Edge.Sample.Pages;
@@ -69,10 +71,25 @@ public static class MauiProgram
 
     public const string IncludeRowCountsPreferenceKey = "Qavren.Edge.Sample.IncludeRowCountsInDiagnostics";
 
+    /// <summary>
+    /// Preferences key for the Chat page's "simulate a tight device" toggle (SP4 spec 18: a
+    /// <c>ChatInsufficientMemory</c> refusal rendered in full rather than swallowed). The memory
+    /// gate's options are read once, when <c>AddOnnxChat</c>'s configure callback runs, so like
+    /// the Diagnostics toggles this persists and applies on next launch. When set,
+    /// <see cref="ChatMemoryBudgetOptions.Override"/> feeds the REAL gate a fake 256 MiB
+    /// available-memory reading - the refusal text is the gate's own words at that number, not a
+    /// string the sample made up.
+    /// </summary>
+    public const string SimulateTightDevicePreferenceKey = "Qavren.Edge.Sample.SimulateTightDevice";
+
+    /// <summary>The fake available-memory reading the tight-device toggle feeds the gate.</summary>
+    public const long SimulatedAvailableMemoryBytes = 256L * 1024 * 1024;
+
     public static MauiApp CreateMauiApp()
     {
         var profileComputePlan = Preferences.Default.Get(ProfileComputePlanPreferenceKey, false);
         var includeRowCounts = Preferences.Default.Get(IncludeRowCountsPreferenceKey, false);
+        var simulateTightDevice = Preferences.Default.Get(SimulateTightDevicePreferenceKey, false);
 
         var builder = MauiApp.CreateBuilder();
         builder
@@ -143,7 +160,50 @@ public static class MauiProgram
                 .AddIngestion(migrationVersion: 3, o => o.CollectionName = ChunksCollectionName)
                 .AddOnnxIngestion()
                 .AddPdfExtractor()
-                .AddDocxExtractor());
+                .AddDocxExtractor()
+                // SP4 spec 4.3 / 18: chat with retrieval over the Search page's notes. AddOnnxChat
+                // calls AddOnnx() for you (idempotent - one OrtEnv task shared with the embeddings
+                // above), and UseRag() resolves the retriever registered below at resolve time, so
+                // the order of these two calls is irrelevant.
+                .AddOnnxChat(
+                    ChatPresets.Llama32_1BInstructInt4,
+                    configure: o =>
+                    {
+                        // The metered-network hook, in one line. SP4 does not read connectivity
+                        // for you (spec 12.2.1): a 1.24 GB transfer on a metered link is the
+                        // app's decision, so the library asks and the app answers. (Spec 18
+                        // writes `ConnectionProfile == ConnectionProfile.WiFi`; MAUI's
+                        // IConnectivity exposes ConnectionProfiles, a set - a device can be on
+                        // Wi-Fi and cellular at once - so the real one-liner is a Contains.)
+                        o.Provisioning.IsTransferPermitted =
+                            () => Connectivity.Current.ConnectionProfiles.Contains(ConnectionProfile.WiFi);
+
+                        if (simulateTightDevice)
+                        {
+                            // Chat page toggle: the whole gate, run over a reading of 256 MiB
+                            // free, so the refusal that comes back is the real gate's own
+                            // explanation. A fresh options instance so the override does not
+                            // re-enter itself.
+                            var gate = new ChatMemoryBudgetOptions();
+                            o.Memory.Override = request => ChatMemoryBudget.Resolve(
+                                request with
+                                {
+                                    Resources = request.Resources with
+                                    {
+                                        AvailableMemoryBytes = SimulatedAvailableMemoryBytes,
+                                    },
+                                },
+                                gate);
+                        }
+                    },
+                    pipeline: chat => chat.UseRag())
+                // Spec 4.3's projector, over this sample's Note (spec 18: "the existing Search
+                // page's notes"). The record has no Url, so no Uri is set; the collection is
+                // NotesCollectionName rather than the spec's literal "notes" for the reason on
+                // that constant.
+                .AddVectorStoreRetriever<string, Note>(
+                    NotesCollectionName,
+                    n => new RagSource(n.Key, n.Body) { Title = n.Title }));
 
 #if DEBUG
         builder.Logging.AddDebug();
@@ -156,6 +216,8 @@ public static class MauiProgram
         builder.Services.AddTransient<EmbeddingsPage>();
         builder.Services.AddTransient<IngestPage>();
         builder.Services.AddTransient<SearchPage>();
+        builder.Services.AddTransient<ChatPage>();
+        builder.Services.AddTransient<AskPage>();
 
         return builder.Build();
     }

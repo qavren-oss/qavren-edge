@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <!-- iOS 15+: raises the OS-imposed resident limit. -->
+  <key>com.apple.developer.kernel.increased-memory-limit</key><true/>
+  <!-- iOS 14+: extends the process virtual address space - the one that matters for a
+       multi-GB memory-mapped model. -->
+  <key>com.apple.developer.kernel.extended-virtual-addressing</key><true/>
+</dict>
+</plist>

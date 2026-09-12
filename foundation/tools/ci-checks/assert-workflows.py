@@ -116,6 +116,57 @@ else:
     if "actions/cache@v6.1.0" not in ci_text:
         problems.append("model-tests does not cache the model with actions/cache@v6.1.0")
 
+# --- Sub-project 4 ---
+# Every test project under chat/tests/ must appear as an explicit ci.yml step, so a new test
+# project cannot silently never run. Same rule as embeddings/tests/, same reason.
+sp4_tests = sorted((root / "chat" / "tests").glob("*/*.csproj"))
+if not sp4_tests:
+    problems.append("no test projects found under chat/tests/")
+for proj in sp4_tests:
+    relp = proj.relative_to(root).as_posix()
+    if relp not in ci_text:
+        problems.append("ci.yml has no explicit step for " + relp)
+
+# The GenAI managed-asset assertion. Written against the .Managed package on purpose: the native
+# Microsoft.ML.OnnxRuntimeGenAI package has no compile assets for any TFM, so an assertion against
+# that id would pass vacuously forever.
+for token in ("Microsoft.ML.OnnxRuntimeGenAI.Managed/0.15.2", "lib/net9.0-android31.0",
+              "lib/net9.0-ios15.4", "lib/net9.0-maccatalyst14.0"):
+    if token not in ci_text:
+        problems.append("ci.yml GenAI asset assertion is incomplete (" + token + ")")
+
+# The ORT floor guard. GenAI declares >= 1.28.0; the repo pins 1.30.0. Both halves must be asserted
+# or somebody "fixes" the skew by downgrading ORT.
+for token in ("1.28.0", "the repo pin is 1.30.0"):
+    if token not in ci_text:
+        problems.append("ci.yml ORT floor guard is incomplete (" + token + ")")
+
+# The tier-3 chat lane (spec 16.3): it must exist, be guarded to schedule/workflow_dispatch, stay
+# OUT of ci-gate's needs, and key its cache on the model's content hash.
+if "chat-model-tests" not in ci["jobs"]:
+    problems.append("ci.yml missing job chat-model-tests (spec 16.3 tier 3)")
+else:
+    cmt = ci["jobs"]["chat-model-tests"]
+    if "schedule" not in str(cmt.get("if", "")):
+        problems.append("chat-model-tests is not guarded to schedule/workflow_dispatch; it would run on PRs")
+    if "chat-model-tests" in ci["jobs"]["ci-gate"]["needs"]:
+        problems.append("chat-model-tests must NOT gate ci-gate: spec 16.3 says never on a PR")
+    if "52640ca0d65e00d33dfb10b822c6a41e31bab1aaa6a49457b1dc5952c0dab0fb" not in ci_text:
+        problems.append("chat-model-tests does not pin the model sha256; the cache key must be the content hash")
+
+# Tier 0 (Task 1.5) is a THROWAWAY workflow in its own file, on workflow_dispatch only. It must
+# never migrate into ci.yml: a six-job emulator/simulator matrix on every PR is not a gate anyone
+# wants, and spec 16.0 scopes it to one run before wave 2.
+if any(j.startswith("tier0-") for j in ci["jobs"]):
+    problems.append("a tier0-* job has been added to ci.yml; tier 0 is workflow_dispatch only (spec 16.0)")
+tier0 = w / "tier0-genai-smoke.yml"
+if tier0.exists():
+    t0 = yaml.safe_load(tier0.read_text(encoding="utf-8"))
+    # `on:` parses as the boolean True in YAML 1.1, which is why this reads both keys.
+    trig = t0.get("on", t0.get(True))
+    if trig != "workflow_dispatch" and list(trig or []) != ["workflow_dispatch"]:
+        problems.append("tier0-genai-smoke.yml is not workflow_dispatch-only")
+
 # Issue #13: the sample app head's Apple native wiring (foundation/samples/Directory.Build.targets)
 # is only ever linked by the two Apple device lanes, so each must build it or it rots unseen.
 for job, tfm in (("device-tests-ios", "net10.0-ios"), ("device-tests-maccatalyst", "net10.0-maccatalyst")):

@@ -122,6 +122,52 @@ jobs:
             Write-Host "OK $tfm -> lib/net9.0 ($($names.Count) assemblies)"
           }
 
+      # Assertion 1: the GenAI MANAGED package's asset per TFM. Written against
+      # Microsoft.ML.OnnxRuntimeGenAI.Managed on purpose: the native Microsoft.ML.OnnxRuntimeGenAI
+      # package resolves ZERO compile assets on every TFM (measured), so an assertion written
+      # against that id would pass vacuously forever - sub-project 2 adjustment 2's lesson, and the
+      # `if ($native.compile)` line below is what makes the trap itself a test.
+      - name: Assert ONNX Runtime GenAI asset resolution
+        if: matrix.os == 'windows-2025'
+        shell: pwsh
+        run: |
+          $assets = 'chat/src/Qavren.Edge.Chat.Onnx/obj/project.assets.json'
+          if (-not (Test-Path $assets)) { throw "no project.assets.json at $assets" }
+          $a = Get-Content $assets -Raw | ConvertFrom-Json
+          $expected = [ordered]@{
+            'net10.0'             = 'lib/net8.0/Microsoft.ML.OnnxRuntimeGenAI.dll'
+            'net10.0-android'     = 'lib/net9.0-android31.0/Microsoft.ML.OnnxRuntimeGenAI.dll'
+            'net10.0-ios'         = 'lib/net9.0-ios15.4/Microsoft.ML.OnnxRuntimeGenAI.dll'
+            'net10.0-maccatalyst' = 'lib/net9.0-maccatalyst14.0/Microsoft.ML.OnnxRuntimeGenAI.dll'
+          }
+          foreach ($tfm in $expected.Keys) {
+            $m = $a.targets.$tfm.'Microsoft.ML.OnnxRuntimeGenAI.Managed/0.15.2'
+            if (-not $m) { throw "$tfm did not resolve Microsoft.ML.OnnxRuntimeGenAI.Managed 0.15.2" }
+            $got = ($m.compile.PSObject.Properties.Name) -join ','
+            if ($got -ne $expected[$tfm]) { throw "$tfm resolved '$got'; expected '$($expected[$tfm])'" }
+            $native = $a.targets.$tfm.'Microsoft.ML.OnnxRuntimeGenAI/0.15.2'
+            if ($native.compile) { throw "${tfm}: the native package resolved compile assets; this assertion is scanning the wrong package id" }
+            Write-Host "OK $tfm -> $got"
+          }
+
+      # Assertion 2: the ORT floor guard. GenAI 0.15.2 declares Microsoft.ML.OnnxRuntime >= 1.28.0
+      # - a FLOOR, not a pin - and its native links ORT dynamically, negotiating through
+      # OrtApiBase::GetApi, which fails only on an OLDER runtime. This is the guard that stops
+      # someone "fixing" the version skew by downgrading ORT to match GenAI's floor.
+      - name: Assert the ONNX Runtime floor and pin
+        if: matrix.os == 'windows-2025'
+        shell: pwsh
+        run: |
+          $assets = 'chat/src/Qavren.Edge.Chat.Onnx/obj/project.assets.json'
+          $a = Get-Content $assets -Raw | ConvertFrom-Json
+          foreach ($tfm in 'net10.0','net10.0-android','net10.0-ios','net10.0-maccatalyst') {
+            $id = $a.targets.$tfm.PSObject.Properties.Name | Where-Object { $_ -like 'Microsoft.ML.OnnxRuntime/*' }
+            $v  = [version]($id -replace '^.*/','')
+            if ($v -lt [version]'1.28.0') { throw "$tfm resolved ORT $v, below GenAI's 1.28.0 floor" }
+            if ($v -ne [version]'1.30.0') { throw "$tfm resolved ORT $v; the repo pin is 1.30.0 and GenAI's floor must not move it" }
+            Write-Host "OK $tfm -> ORT $v"
+          }
+
       - name: Provider drift check
         run: >
           dotnet run --project foundation/tools/ProviderGen/ProviderGen.csproj -c Release --
@@ -194,6 +240,13 @@ jobs:
 
       - name: Ingestion MEDI tests
         run: dotnet run --project ingestion/tests/Qavren.Edge.Ingestion.DataIngestion.Tests/Qavren.Edge.Ingestion.DataIngestion.Tests.csproj -c Release -p:TargetFrameworks=net10.0
+
+      - name: Chat tests
+        run: dotnet run --project chat/tests/Qavren.Edge.Chat.Tests/Qavren.Edge.Chat.Tests.csproj -c Release -f net10.0 -p:TargetFrameworks=net10.0
+
+      # Single-TFM project, so no -f. It is host-only and never runs on a device lane (spec 16.4).
+      - name: Rag tests
+        run: dotnet run --project chat/tests/Qavren.Edge.Rag.Tests/Qavren.Edge.Rag.Tests.csproj -c Release -p:TargetFrameworks=net10.0
 
       - name: Pack
         if: matrix.os == 'windows-2025'
@@ -617,6 +670,63 @@ jobs:
         run: dotnet run --project ingestion/tests/Qavren.Edge.Ingestion.Tests/Qavren.Edge.Ingestion.Tests.csproj -c Release -f net10.0 -p:TargetFrameworks=net10.0
         env:
           QAVREN_EDGE_TIER3: '1'
+
+  # Spec 16.3. The real model, nightly only. Qwen3 0.6B int4 - the smallest genai-config-ready
+  # model, Apache-2.0 so its presence in a CI cache is not a licensing question, and the one whose
+  # KV-heavy geometry (112 KiB/token, measured) the budget most needs to be right about. Keyed on
+  # the CONTENT hash, and sha256sum -c runs on EVERY run including cache hits: a poisoned cache
+  # entry is exactly the failure this lane would otherwise report as a quality regression.
+  chat-model-tests:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      QAVREN_EDGE_CHAT_MODEL_REPO: Arm/qwen3-0-6b-onnx-genai-int4-kquantlast-emb-int4
+      QAVREN_EDGE_CHAT_MODEL_REV: c1d7bbbbb20630eef24c00d8ad18250bd57b232c
+      QAVREN_EDGE_CHAT_MODEL_SHA256: 52640ca0d65e00d33dfb10b822c6a41e31bab1aaa6a49457b1dc5952c0dab0fb
+      QAVREN_EDGE_CHAT_GRAPH_SHA256: e9208ab7164ea6da0206eec2a2f0996a24e75d164f85823b02111f23046aab89
+      QAVREN_EDGE_CHAT_TOKENIZER_SHA256: be75606093db2094d7cd20f3c2f385c212750648bd6ea4fb2bf507a6a4c55506
+      QAVREN_EDGE_CHAT_MODEL_DIR: ${{ github.workspace }}/.chat-model-cache
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0, filter: 'tree:0' }
+      - uses: actions/setup-dotnet@v4
+        with: { global-json-file: global.json }
+
+      - uses: actions/cache@v6.1.0
+        id: chat-model-cache
+        with:
+          path: ${{ env.QAVREN_EDGE_CHAT_MODEL_DIR }}
+          key: qavren-edge-chat-model-${{ env.QAVREN_EDGE_CHAT_MODEL_SHA256 }}
+
+      - name: Fetch the pinned chat model
+        if: steps.chat-model-cache.outputs.cache-hit != 'true'
+        run: |
+          set -euo pipefail
+          mkdir -p "$QAVREN_EDGE_CHAT_MODEL_DIR"
+          base="https://huggingface.co/$QAVREN_EDGE_CHAT_MODEL_REPO/resolve/$QAVREN_EDGE_CHAT_MODEL_REV"
+          for f in genai_config.json model.onnx model.onnx.data tokenizer.json tokenizer_config.json chat_template.jinja; do
+            curl -fsSL "$base/$f" -o "$QAVREN_EDGE_CHAT_MODEL_DIR/$f"
+          done
+
+      - name: Verify the model hashes
+        run: |
+          set -euo pipefail
+          echo "$QAVREN_EDGE_CHAT_GRAPH_SHA256  $QAVREN_EDGE_CHAT_MODEL_DIR/model.onnx" | sha256sum -c -
+          echo "$QAVREN_EDGE_CHAT_MODEL_SHA256  $QAVREN_EDGE_CHAT_MODEL_DIR/model.onnx.data" | sha256sum -c -
+          echo "$QAVREN_EDGE_CHAT_TOKENIZER_SHA256  $QAVREN_EDGE_CHAT_MODEL_DIR/tokenizer.json" | sha256sum -c -
+
+      # QAVREN_EDGE_CHAT_MODEL_DIR is what SkipUnless reads, at RUNTIME. It is set for the whole
+      # job, so the tier-3 facts run; on every other lane it is unset and they skip after the class
+      # constructor, which is why the model is loaded inside the test body (spec 16.3).
+      - name: Tier-3 chat tests
+        run: dotnet run --project chat/tests/Qavren.Edge.Chat.Tests/Qavren.Edge.Chat.Tests.csproj -c Release -f net10.0 -p:TargetFrameworks=net10.0
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: chat-model-tests
+          path: artifacts/chat-nightly/**
 
   # The required status check for ci (adjustment 28). It always reports; it is red if any job
   # it depends on failed or was cancelled, green if they all succeeded or were skipped.

@@ -113,4 +113,42 @@ public enum EdgeErrorCode
     IngestionEmbeddingGeneratorMissing = 6208,   // no IEmbeddingGenerator<string, Embedding<float>>
 
     // 6250-6299 reserved for sub-project 3.
+
+    // ---- Sub-project 4: 7000-7299. SP3's 6001-6208 above are untouched. ----
+
+    // Qavren.Edge.Chat.Onnx - runtime and model hosting
+    ChatEnvironmentNotStarted = 7001,
+    ChatModelLoadFailed = 7002,
+    ChatModelNotRegistered = 7003,
+    /// <summary>No ORT GenAI native for this RID or Android ABI. armeabi-v7a has none.</summary>
+    ChatUnsupportedRuntime = 7004,
+    ChatInsufficientMemory = 7005,
+    ChatDeviceTooSmall = 7006,
+    /// <summary>genai_config.json missing, unparseable or incoherent.</summary>
+    ChatConfigurationInvalid = 7007,
+    /// <summary>The config disagrees with the preset's declared shape.</summary>
+    ChatModelShapeMismatch = 7008,
+    ChatExecutionProviderUnsupported = 7009,
+
+    // Qavren.Edge.Chat.Onnx - provisioning
+    ChatModelNotProvisioned = 7051,
+    ChatInsufficientDiskSpace = 7052,
+    /// <summary>ChatProvisioningOptions.IsTransferPermitted said no.</summary>
+    ChatDownloadNotPermitted = 7053,
+
+    // Qavren.Edge.Chat.Onnx - generation
+    ChatTemplateUnsupported = 7101,
+    ChatPromptTooLong = 7102,
+    ChatGuidanceUnavailable = 7103,
+    ChatGenerationFailed = 7104,
+    ChatBusy = 7105,
+    ChatThermalAbort = 7106,
+    ChatToolCallingUnsupported = 7107,
+    ChatOptionUnsupported = 7108,
+
+    // Qavren.Edge.Rag
+    RagRetrieverMissing = 7201,
+    RagRetrievalFailed = 7202,
+    RagCollectionNotSearchable = 7203,
+    RagContextBudgetTooSmall = 7204,
 }

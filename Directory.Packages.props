@@ -95,4 +95,16 @@
     <PackageVersion Include="Microsoft.Extensions.DataIngestion" Version="10.10.0-preview.1.26459.2" />
   </ItemGroup>
 
+  <!-- Sub-project 4. Verified by restore AND build on 2026-09-11 (plan Environment ground truth):
+       Microsoft.ML.OnnxRuntimeGenAI.Managed 0.15.2 resolves lib/net8.0 for net10.0 and
+       lib/net9.0-{android31.0,ios15.4,maccatalyst14.0} for the three platform TFMs, and the NATIVE
+       package resolves zero compile assets on every TFM. GenAI declares ORT >= 1.28.0 as a FLOOR,
+       not a pin, so sub-project 2's 1.30.0 stands - ci.yml's ORT floor guard is what stops anyone
+       "fixing" the skew by downgrading. Microsoft.ML.OnnxRuntimeGenAI.Managed is deliberately NOT
+       pinned here: CentralPackageTransitivePinningEnabled is false precisely so a transitive is not
+       promoted into the produced nuspec. -->
+  <ItemGroup Label="SP4 runtime">
+    <PackageVersion Include="Microsoft.ML.OnnxRuntimeGenAI" Version="0.15.2" />
+  </ItemGroup>
+
 </Project>

@@ -1,0 +1,69 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             x:Class="Qavren.Edge.Sample.Pages.ChatPage"
+             Title="Chat">
+    <Grid Padding="16" RowDefinitions="Auto,*,Auto,Auto" RowSpacing="8">
+
+        <!-- The consent sheet comes first (spec 12.2): nothing downloads until the human has seen
+             the size, the licence and the free disk, and pressed the button. -->
+        <Border Grid.Row="0" Padding="12" StrokeThickness="1"
+                Stroke="{AppThemeBinding Light=#ccc, Dark=#444}">
+            <VerticalStackLayout Spacing="6">
+                <Label Text="Model consent" FontAttributes="Bold" FontSize="16" />
+
+                <Grid ColumnDefinitions="Auto,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto" ColumnSpacing="12" RowSpacing="2">
+                    <Label Grid.Row="0" Grid.Column="0" Text="Model" FontAttributes="Bold" />
+                    <Label Grid.Row="0" Grid.Column="1" x:Name="ModelLabel" Text="-" />
+
+                    <Label Grid.Row="1" Grid.Column="0" Text="Transfer" FontAttributes="Bold" />
+                    <Label Grid.Row="1" Grid.Column="1" x:Name="SizeLabel" Text="-" />
+
+                    <Label Grid.Row="2" Grid.Column="0" Text="Licence" FontAttributes="Bold" />
+                    <Label Grid.Row="2" Grid.Column="1" x:Name="LicenseLabel" Text="-" TextDecorations="Underline">
+                        <Label.GestureRecognizers>
+                            <TapGestureRecognizer Tapped="OnLicenseTapped" />
+                        </Label.GestureRecognizers>
+                    </Label>
+
+                    <Label Grid.Row="3" Grid.Column="0" Text="Free disk" FontAttributes="Bold" />
+                    <Label Grid.Row="3" Grid.Column="1" x:Name="DiskLabel" Text="-" />
+
+                    <Label Grid.Row="4" Grid.Column="0" Text="Location" FontAttributes="Bold" />
+                    <Label Grid.Row="4" Grid.Column="1" x:Name="DirectoryLabel" Text="-" LineBreakMode="MiddleTruncation" />
+                </Grid>
+
+                <Label FontSize="12"
+                       Text="Transfers only over Wi-Fi: EdgeChatOptions.Provisioning.IsTransferPermitted is the app's one-line answer to a question the library asks and never answers for you (spec 12.2.1)." />
+
+                <Grid ColumnDefinitions="Auto,Auto,*" ColumnSpacing="8">
+                    <Button Grid.Column="0" x:Name="DownloadButton" Text="Download" Clicked="OnDownload" />
+                    <Button Grid.Column="1" x:Name="RemoveButton" Text="Remove" Clicked="OnRemove" />
+                    <ProgressBar Grid.Column="2" x:Name="ProvisionProgress" IsVisible="False" VerticalOptions="Center" />
+                </Grid>
+                <Label x:Name="ProvisionStatusLabel" Text="Not provisioned." />
+
+                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                    <Label Grid.Column="0" VerticalOptions="Center" FontSize="12"
+                           Text="Simulate a tight device (256 MiB free) so the next launch renders a ChatInsufficientMemory refusal in full." />
+                    <Switch Grid.Column="1" x:Name="TightDeviceSwitch" Toggled="OnTightDeviceToggled" />
+                </Grid>
+            </VerticalStackLayout>
+        </Border>
+
+        <!-- The conversation. Every turn carries its own stats line, ugly ones included. -->
+        <ScrollView Grid.Row="1" x:Name="TranscriptScroll">
+            <VerticalStackLayout x:Name="Transcript" Spacing="8" />
+        </ScrollView>
+
+        <Grid Grid.Row="2" ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8">
+            <Entry Grid.Column="0" x:Name="PromptEntry" Placeholder="Ask the model something" Completed="OnSend" />
+            <Button Grid.Column="1" x:Name="SendButton" Text="Send" Clicked="OnSend" />
+            <Button Grid.Column="2" x:Name="CancelButton" Text="Cancel" Clicked="OnCancel" IsEnabled="False" />
+        </Grid>
+
+        <Label Grid.Row="3" FontSize="12"
+               Text="Background the app mid-turn: the turn ends with stop reason Suspended rather than an exception, and the next Send starts clean. Set a tight device above to see the memory gate refuse." />
+
+    </Grid>
+</ContentPage>

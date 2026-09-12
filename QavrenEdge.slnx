@@ -52,4 +52,12 @@
     <Project Path="ingestion/samples/Ingestion.Background.Android/Ingestion.Background.Android.csproj" />
     <Project Path="ingestion/samples/Ingestion.Background.iOS/Ingestion.Background.iOS.csproj" />
   </Folder>
+  <Folder Name="/chat/src/">
+    <Project Path="chat/src/Qavren.Edge.Chat.Onnx/Qavren.Edge.Chat.Onnx.csproj" />
+    <Project Path="chat/src/Qavren.Edge.Rag/Qavren.Edge.Rag.csproj" />
+  </Folder>
+  <Folder Name="/chat/tests/">
+    <Project Path="chat/tests/Qavren.Edge.Chat.Tests/Qavren.Edge.Chat.Tests.csproj" />
+    <Project Path="chat/tests/Qavren.Edge.Rag.Tests/Qavren.Edge.Rag.Tests.csproj" />
+  </Folder>
 </Solution>

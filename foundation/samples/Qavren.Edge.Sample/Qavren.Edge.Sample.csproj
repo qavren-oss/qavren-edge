@@ -48,8 +48,12 @@
 		<!-- To develop, package, and publish an app to the Microsoft Store, see: https://aka.ms/MauiTemplateUnpackaged -->
 		<WindowsPackageType>None</WindowsPackageType>
 
-		<SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'ios'">15.0</SupportedOSPlatformVersion>
-		<SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'maccatalyst'">15.0</SupportedOSPlatformVersion>
+		<!-- Raised from 15.0 (SP4 plan adjustment 8 / Task 7.2): the sample now references
+		     Qavren.Edge.Chat.Onnx, and Microsoft.ML.OnnxRuntimeGenAI's managed asset group is
+		     net9.0-ios15.4 with its xcframework slices built at that floor. Qavren.Edge.DeviceTests
+		     and the tier-0 device head carry the same 15.4 for the same reason. -->
+		<SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'ios'">15.4</SupportedOSPlatformVersion>
+		<SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'maccatalyst'">15.4</SupportedOSPlatformVersion>
 		<!-- Raised from 21.0 (ADR 0008 / Task 7.1): the sample now references Qavren.Edge.Onnx, whose
 		     ORT 1.30.0 AAR declares minSdkVersion 24, and .NET for Android merges library manifests
 		     into the app's. Task 7.1 measured the manifest-merge failure at 21.0 on
@@ -58,6 +62,27 @@
 		<SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'android'">24.0</SupportedOSPlatformVersion>
 		<SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows'">10.0.17763.0</SupportedOSPlatformVersion>
 		<TargetPlatformMinVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows'">10.0.17763.0</TargetPlatformMinVersion>
+
+		<!-- SP4 spec 12.4 / Task 7.2: the two iOS entitlements a multi-GB memory-mapped model needs
+		     (increased-memory-limit, extended-virtual-addressing). They are plist lines in the APP,
+		     not code in a library; Qavren.Edge.Chat.Onnx writes nobody's entitlements file, and this
+		     sample setting both is how a consumer discovers they need them. Mac Catalyst keeps its
+		     own template-issued Entitlements.plist, which the SDK picks up by convention.
+		     DEVICE ONLY: both entitlements mean nothing on a simulator, and a non-empty
+		     CodesignEntitlements makes the DetectSigningIdentity task demand a keychain identity
+		     hosted CI has none of (PR #18, device-tests-ios "Build sample (ios)"). The simulator
+		     case is handled by the _QedgeDropSimulatorEntitlements target at the bottom of this
+		     file, NOT by a condition here: _SdkIsSimulator is computed in Xamarin.Shared.Sdk.props,
+		     which the workload SDK imports AFTER this body (and after Directory.Build.targets), so
+		     it is always empty during static evaluation of this property. -->
+		<CodesignEntitlements Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'ios'">Platforms\iOS\Entitlements.plist</CodesignEntitlements>
+
+		<!-- XA0141 (android head only): ORT GenAI 0.15.2's AAR ships libmat.so without 16 KB page
+		     alignment, which Android 16 requires. Upstream's to fix; every GenAI consumer sees it.
+		     Kept VISIBLE as a warning (WarningsNotAsErrors, not NoWarn) but exempted from
+		     -warnaserror, exactly as Qavren.Edge.DeviceTests does, so the wave-close solution build
+		     is not broken by a package this sample cannot change. See chat/README.md. -->
+		<WarningsNotAsErrors Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'android'">$(WarningsNotAsErrors);XA0141</WarningsNotAsErrors>
 	</PropertyGroup>
 
 	<!-- Spec 15: the Encryption page toggles the native package by BUILD CONFIGURATION.
@@ -122,6 +147,14 @@
 		<ProjectReference Include="..\..\..\ingestion\src\Qavren.Edge.Ingestion.OpenXml\Qavren.Edge.Ingestion.OpenXml.csproj" />
 	</ItemGroup>
 
+	<!-- SP4 Task 7.2 / spec 18: the two SP4 packages behind the Chat and Ask pages. Qavren.Edge.Rag
+	     is net10.0-only and references no ONNX package; Qavren.Edge.Chat.Onnx is what brings the
+	     GenAI natives onto each head. -->
+	<ItemGroup>
+		<ProjectReference Include="..\..\..\chat\src\Qavren.Edge.Chat.Onnx\Qavren.Edge.Chat.Onnx.csproj" />
+		<ProjectReference Include="..\..\..\chat\src\Qavren.Edge.Rag\Qavren.Edge.Rag.csproj" />
+	</ItemGroup>
+
 	<ItemGroup Condition="'$(QedgeCipher)' == 'true'">
 		<ProjectReference Include="..\..\src\Qavren.Edge.Sqlite.Native.Cipher\Qavren.Edge.Sqlite.Native.Cipher.csproj" />
 	</ItemGroup>
@@ -129,5 +162,19 @@
 	<ItemGroup Condition="'$(QedgeCipher)' != 'true'">
 		<ProjectReference Include="..\..\src\Qavren.Edge.Sqlite.Native\Qavren.Edge.Sqlite.Native.csproj" />
 	</ItemGroup>
+
+	<!-- Simulator builds carry no entitlements (see the CodesignEntitlements comment above). The
+	     DetectSigningIdentity task reads $(CodesignEntitlements) and $(_SdkIsSimulator) when it
+	     RUNS, so clearing the property here, before the targets that consume it, is what a static
+	     condition cannot do. _CompileEntitlements depends on _DetectSigningIdentity; both are named
+	     so this runs first whichever the build reaches first. -->
+	<Target Name="_QedgeDropSimulatorEntitlements"
+	        BeforeTargets="_DetectSigningIdentity;_CompileEntitlements"
+	        Condition="'$(_SdkIsSimulator)' == 'true' and '$(CodesignEntitlements)' != ''">
+		<Message Importance="normal" Text="Qavren.Edge.Sample: simulator build, dropping CodesignEntitlements '$(CodesignEntitlements)'." />
+		<PropertyGroup>
+			<CodesignEntitlements />
+		</PropertyGroup>
+	</Target>
 
 </Project>

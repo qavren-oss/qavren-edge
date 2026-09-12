@@ -48,3 +48,12 @@ embeddings/tools/model-hashes/.venv/
 # its venv and any scratch it writes are not. The script is run by hand, never by a build or CI.
 ingestion/tests/fixtures/.venv/
 ingestion/tests/fixtures/_scratch/
+
+# Sub-project 4 fixture toolchain. The generator's OUTPUT (TinyChatModel.g.cs) is committed;
+# its venv and any model directory it writes for debugging are not.
+chat/tests/fixtures/.venv/
+chat/tests/fixtures/_scratch/
+
+# Sub-project 4 preset-hash toolchain. Same shape: ChatPresets.g.cs is committed, the venv is not.
+# The script is run by hand and never by a build or by CI.
+chat/tools/model-hashes/.venv/

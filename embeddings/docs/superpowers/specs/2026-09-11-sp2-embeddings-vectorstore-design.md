@@ -1604,8 +1604,10 @@ is the first statement of the task.
 
 `ShareThreadPool` (default true once more than one model is registered) calls
 `SessionOptions.DisablePerSessionThreads()`. With one embedding session it changes
-nothing; the moment SP4's chat model lands beside it, it is one thread pool on a
-six-core phone instead of two.
+nothing, and it stays that way once a sub-project 4 chat model lands beside it:
+ORT GenAI builds its session options natively from the `session_options` block
+inside `genai_config.json`, so `OnnxOptions.ShareThreadPool` never reaches the
+chat model and the two do not share a thread pool.
 
 `SetLoadCancellationFlag(true)` is wired to **both** the `AcquireAsync`
 cancellation token **and** `MemoryPressure(Critical)` arriving mid-load, so a
