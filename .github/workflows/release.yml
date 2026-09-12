@@ -17,6 +17,13 @@ jobs:
   # already built, which is the normal case for a release cut from a green main.
   natives:
     uses: ./.github/workflows/native.yml
+    # native.yml's `reuse` job asks for `actions: read` to repair a missing cache entry from the last
+    # good run's artifact. The top-level `contents: write` above leaves every other scope at none,
+    # and a called workflow cannot widen the caller's token: without this grant the run dies at
+    # startup ("startup_failure", run 34715152977) before a single job is scheduled.
+    permissions:
+      contents: read
+      actions: read
 
   release:
     needs: natives

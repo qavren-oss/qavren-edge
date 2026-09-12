@@ -58,8 +58,9 @@ if nat_text.count("actions/cache/save@v4") != 3:
     problems.append("native.yml reuse job must re-seed all three OS caches after an artifact fallback")
 if not (w.parent / "scripts" / "reuse-native-artifact.sh").is_file():
     problems.append(".github/scripts/reuse-native-artifact.sh is missing")
-if "actions: read" not in ci_text:
-    problems.append("ci.yml must grant the natives job `actions: read`; a called workflow cannot widen the caller's token")
+for f, text in (("ci.yml", ci_text), ("release.yml", rel_text)):
+    if "actions: read" not in text:
+        problems.append(f + " must grant the natives job `actions: read`; a called workflow cannot widen the caller's token (release.yml run 34715152977 died at startup without it)")
 for f in ("ci.yml", "release.yml"):
     if "force: true" in (w / f).read_text(encoding="utf-8"):
         problems.append(f + " passes force:true to native.yml, forcing a rebuild on managed-only PRs")
