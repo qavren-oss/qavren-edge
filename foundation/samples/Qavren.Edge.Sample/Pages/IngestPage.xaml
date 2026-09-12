@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             x:Class="Qavren.Edge.Sample.Pages.IngestPage"
+             Title="Ingest">
+    <ScrollView>
+        <VerticalStackLayout Padding="16" Spacing="10">
+
+            <!-- Location: the platform split (spec 16 / plan Task 8.2 Step 3). The code-behind shows
+                 exactly one of these two blocks. Desktop walks a folder path with
+                 IngestionSource.Folder; mobile hands picked FileResults to IngestionSource.Items. -->
+            <VerticalStackLayout x:Name="DesktopLocation" Spacing="6">
+                <Label Text="Folder to ingest (IngestionSource.Folder)" FontAttributes="Bold" />
+                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                    <Entry x:Name="FolderEntry" AutomationId="IngestFolderEntry" Grid.Column="0" Placeholder="C:\path\to\corpus" />
+                    <Button x:Name="BrowseButton" Grid.Column="1" Text="Browse..." Clicked="OnBrowse" />
+                </Grid>
+            </VerticalStackLayout>
+
+            <VerticalStackLayout x:Name="MobileLocation" Spacing="6">
+                <Label Text="Files to ingest (IngestionSource.Items)" FontAttributes="Bold" />
+                <Button Text="Pick files..." Clicked="OnPickFiles" />
+                <Label x:Name="PickedLabel" Text="Nothing picked yet." />
+            </VerticalStackLayout>
+
+            <Label Text="Budget" FontAttributes="Bold" />
+            <Picker x:Name="BudgetPicker" Title="Budget" />
+
+            <Grid ColumnDefinitions="*,*,*" ColumnSpacing="8">
+                <Button x:Name="IngestButton" AutomationId="IngestRunButton" Grid.Column="0" Text="Ingest" Clicked="OnIngest" />
+                <Button x:Name="StopButton" Grid.Column="1" Text="Stop" Clicked="OnStop" IsEnabled="False" />
+                <Button x:Name="PruneButton" Grid.Column="2" Text="Prune" Clicked="OnPrune" />
+            </Grid>
+
+            <Label x:Name="StatusLabel" AutomationId="IngestStatusLabel" Text="Idle." />
+
+            <BoxView HeightRequest="1" Color="{AppThemeBinding Light=#ddd, Dark=#333}" />
+
+            <Label Text="Live progress (IProgress&lt;IngestionProgress&gt;)" FontAttributes="Bold" />
+            <Label x:Name="StageLabel" Text="Stage: -" />
+            <Label x:Name="DocumentsLabel" Text="Documents: -" />
+            <Label x:Name="ChunksLabel" Text="Chunks: -" />
+            <Label x:Name="CurrentLabel" Text="Current: -" LineBreakMode="TailTruncation" />
+
+            <BoxView HeightRequest="1" Color="{AppThemeBinding Light=#ddd, Dark=#333}" />
+
+            <Label Text="Last IngestionRunResult" FontAttributes="Bold" />
+            <Label x:Name="ResultLabel" AutomationId="IngestResultLabel" Text="-" FontFamily="Consolas" FontSize="12" LineBreakMode="WordWrap" />
+
+            <Label Text="Per-document results" FontAttributes="Bold" />
+            <CollectionView x:Name="DocumentList" HeightRequest="180">
+                <CollectionView.ItemTemplate>
+                    <DataTemplate>
+                        <Label Text="{Binding}" FontSize="12" LineBreakMode="WordWrap" Padding="0,2" />
+                    </DataTemplate>
+                </CollectionView.ItemTemplate>
+            </CollectionView>
+
+            <BoxView HeightRequest="1" Color="{AppThemeBinding Light=#ddd, Dark=#333}" />
+
+            <Label Text="Collection status (GetStatusAsync)" FontAttributes="Bold" />
+            <Label x:Name="CollectionStatusLabel" Text="-" FontFamily="Consolas" FontSize="12" LineBreakMode="WordWrap" />
+            <Label x:Name="KnownOutstandingLabel" Text="Known outstanding: -" FontAttributes="Bold" />
+            <Label FontSize="12"
+                   LineBreakMode="WordWrap"
+                   Text="A count of zero means nothing is KNOWN to be owed - documents indexed under an older recipe, or rows the last completed run did not stamp. It does not mean the files on disk are unchanged: establishing that means opening and hashing every file, which is a run. Edited files are found by running again, not by reading this number." />
+
+        </VerticalStackLayout>
+    </ScrollView>
+</ContentPage>
