@@ -109,6 +109,13 @@ else:
     if "actions/cache@v6.1.0" not in ci_text:
         problems.append("model-tests does not cache the model with actions/cache@v6.1.0")
 
+# Issue #13: the sample app head's Apple native wiring (foundation/samples/Directory.Build.targets)
+# is only ever linked by the two Apple device lanes, so each must build it or it rots unseen.
+for job, tfm in (("device-tests-ios", "net10.0-ios"), ("device-tests-maccatalyst", "net10.0-maccatalyst")):
+    runs = [str(s.get("run", "")) for s in ci["jobs"].get(job, {}).get("steps", [])]
+    if not any("Qavren.Edge.Sample.csproj" in r and "-f " + tfm in r for r in runs):
+        problems.append(job + " does not build the sample for " + tfm + " (issue #13)")
+
 win = ci["jobs"]["device-tests-windows"]["runs-on"]
 print("\n".join(problems) if problems else "OK: gates, 4 device lanes, JUnit, win-arm64, native artifact cache + reuse, SBOM and native release assets all present (windows lane on %s)" % win)
 sys.exit(1 if problems else 0)
