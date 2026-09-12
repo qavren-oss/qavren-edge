@@ -365,6 +365,10 @@ jobs:
           -p:DeviceRunnersDevice=$SIMULATOR_UDID
           -p:VSTestLogger=trx%3BLogFileName=ios-device-tests.trx
 
+      # Issue #13: the sample app head carries the same Apple native wiring (foundation/samples/Directory.Build.targets); link it here so it cannot silently rot.
+      - name: Build sample (ios)
+        run: dotnet build foundation/samples/Qavren.Edge.Sample/Qavren.Edge.Sample.csproj -f net10.0-ios -r iossimulator-x64 -c Release
+
       - name: Convert TRX to JUnit
         if: always()
         run: |
@@ -418,6 +422,10 @@ jobs:
           dotnet build foundation/tests/Qavren.Edge.DeviceTests/Qavren.Edge.DeviceTests.csproj
           -f net10.0-maccatalyst -r maccatalyst-x64 -c Release -t:VSTest
           -p:VSTestLogger=trx%3BLogFileName=maccatalyst-device-tests.trx
+
+      # Issue #13: the sample app head carries the same Apple native wiring (foundation/samples/Directory.Build.targets); link it here so it cannot silently rot.
+      - name: Build sample (maccatalyst)
+        run: dotnet build foundation/samples/Qavren.Edge.Sample/Qavren.Edge.Sample.csproj -f net10.0-maccatalyst -r maccatalyst-x64 -c Release
 
       - name: Convert TRX to JUnit
         if: always()
