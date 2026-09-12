@@ -174,6 +174,14 @@ for job, tfm in (("device-tests-ios", "net10.0-ios"), ("device-tests-maccatalyst
     if not any("Qavren.Edge.Sample.csproj" in r and "-f " + tfm in r for r in runs):
         problems.append(job + " does not build the sample for " + tfm + " (issue #13)")
 
+# --- Sub-project 5 (release path) ---
+# Every nupkg must carry the icon, a README and its sub-project tags; the Windows pack lane runs
+# the script that proves it, so a package that loses its README fails the PR, not the release.
+if ci_text.count("assert-packages.ps1") != 1:
+    problems.append("ci.yml Windows pack lane must run foundation/tools/ci-checks/assert-packages.ps1 exactly once")
+if not (root / "foundation" / "tools" / "ci-checks" / "assert-packages.ps1").is_file():
+    problems.append("foundation/tools/ci-checks/assert-packages.ps1 is missing")
+
 win = ci["jobs"]["device-tests-windows"]["runs-on"]
 print("\n".join(problems) if problems else "OK: gates, 4 device lanes, JUnit, win-arm64, native artifact cache + reuse, SBOM and native release assets all present (windows lane on %s)" % win)
 sys.exit(1 if problems else 0)

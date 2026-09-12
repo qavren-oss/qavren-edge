@@ -276,6 +276,11 @@ jobs:
           }
           Write-Host 'OK: every expected RID and the xcframework are packed'
 
+      - name: Assert package metadata (icon, README, tags)
+        if: matrix.os == 'windows-2025'
+        shell: pwsh
+        run: pwsh foundation/tools/ci-checks/assert-packages.ps1
+
       - uses: actions/upload-artifact@v7
         if: matrix.os == 'windows-2025'
         with:
