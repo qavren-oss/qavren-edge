@@ -58,6 +58,43 @@
     <PackageVersion Include="Microsoft.Extensions.VectorData.ConformanceTests" Version="10.10.0" />
   </ItemGroup>
 
+  <!-- Sub-project 3. Versions verified by restore on 2026-09-11 (plan Environment ground truth).
+       All five runtime packages resolve identically across net10.0 and the four platform TFMs:
+       Markdig, System.IO.Hashing and DocumentFormat.OpenXml land on lib/net10.0, PdfPig on
+       lib/net9.0 (never lib/netstandard2.0 - see the ci.yml assertion), Microsoft.ML.Tokenizers
+       on lib/net8.0. New transitives: DocumentFormat.OpenXml.Framework 3.5.1 and
+       System.IO.Packaging 10.0.2. Central transitive pinning stays off, so neither is promoted
+       into a produced nuspec. -->
+  <ItemGroup Label="SP3 runtime">
+    <PackageVersion Include="Markdig" Version="1.3.2" />
+    <PackageVersion Include="System.IO.Hashing" Version="10.0.12" />
+    <PackageVersion Include="PdfPig" Version="0.1.16" />
+    <PackageVersion Include="DocumentFormat.OpenXml" Version="3.5.1" />
+    <PackageVersion Include="Microsoft.Extensions.DataIngestion.Abstractions" Version="10.10.0-preview.1.26459.2" />
+  </ItemGroup>
+
+  <ItemGroup Label="SP3 test">
+    <PackageVersion Include="CsCheck" Version="4.8.0" />
+  </ItemGroup>
+
+  <!-- Referenced by ingestion/samples/Ingestion.Background.Android ONLY (net10.0-android class
+       library): Worker, ForegroundInfo, SetForegroundAsync and the stop-reason constants are
+       AndroidX WorkManager, not Mono.Android. Never referenced by a src/ project. -->
+  <ItemGroup Label="SP3 samples">
+    <PackageVersion Include="Xamarin.AndroidX.Work.Runtime" Version="2.11.2.1" />
+  </ItemGroup>
+
+  <!-- Referenced by ingestion/tests/Qavren.Edge.Ingestion.DataIngestion.Tests ONLY.
+       The MEDI IMPLEMENTATION package ships IngestionPipeline<T>, which the conformance test
+       needs and the shim does not. Never referenced by a src/ project. Its net10.0 closure is
+       twelve packages and it demands Microsoft.Extensions.VectorData.Abstractions 9.7.0 and
+       Microsoft.ML.Tokenizers 1.0.1 - BELOW this repo's pins, which is the safe direction: the
+       test project's higher direct and project-carried references unify upward with no NU1605.
+       Measured with TreatWarningsAsErrors on, 2026-09-11. -->
+  <ItemGroup Label="SP3 test (MEDI conformance)">
+    <PackageVersion Include="Microsoft.Extensions.DataIngestion" Version="10.10.0-preview.1.26459.2" />
+  </ItemGroup>
+
   <!-- Sub-project 4. Verified by restore AND build on 2026-09-11 (plan Environment ground truth):
        Microsoft.ML.OnnxRuntimeGenAI.Managed 0.15.2 resolves lib/net8.0 for net10.0 and
        lib/net9.0-{android31.0,ios15.4,maccatalyst14.0} for the three platform TFMs, and the NATIVE

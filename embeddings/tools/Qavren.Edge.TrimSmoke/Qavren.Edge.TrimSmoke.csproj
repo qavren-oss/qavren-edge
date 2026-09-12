@@ -16,8 +16,47 @@
     <ProjectReference Include="..\..\src\Qavren.Edge.VectorData\Qavren.Edge.VectorData.csproj" />
     <ProjectReference Include="..\..\src\Qavren.Edge.Embeddings.Onnx\Qavren.Edge.Embeddings.Onnx.csproj" />
     <ProjectReference Include="..\..\..\foundation\src\Qavren.Edge.Sqlite.Native\Qavren.Edge.Sqlite.Native.csproj" />
+    <!-- Spec 17: the trim-smoke job publishes this console twice. The unconditional core
+         reference is the PR gate and runs the Markdown one-document path, which puts Markdig -
+         the only dependency in the CORE that declares neither IsTrimmable nor IsAotCompatible -
+         under the trimmer on every PR. The two satellites arrive only with
+         -p:QedgeTrimSatellites=true, which is the second, continue-on-error publish
+         (verification item 4's run (b)). -->
+    <ProjectReference Include="..\..\..\ingestion\src\Qavren.Edge.Ingestion\Qavren.Edge.Ingestion.csproj" />
+    <ProjectReference Include="..\..\..\ingestion\src\Qavren.Edge.Ingestion.Pdf\Qavren.Edge.Ingestion.Pdf.csproj"
+                      Condition="'$(QedgeTrimSatellites)' == 'true'" />
+    <ProjectReference Include="..\..\..\ingestion\src\Qavren.Edge.Ingestion.OpenXml\Qavren.Edge.Ingestion.OpenXml.csproj"
+                      Condition="'$(QedgeTrimSatellites)' == 'true'" />
     <ProjectReference Include="..\..\..\chat\src\Qavren.Edge.Rag\Qavren.Edge.Rag.csproj" />
   </ItemGroup>
+
+  <!-- The satellite trim run (Task 7.2 Step 3) ingests one real PDF and one real DOCX, so it
+       needs their bytes. They travel as EmbeddedResource rather than as files: this console is
+       published self-contained to an output directory that contains nothing but the publish,
+       and a CopyToOutputDirectory item would have to be re-found at runtime on two host RIDs.
+       Conditioned with the ProjectReferences above, so the CORE-only publish - the PR gate -
+       embeds nothing and links neither satellite.
+       The DOCX is the committed run-split PART TREE, not a .docx: no zip is committed anywhere
+       in this repo (Task 1.3 Step 5), so the console assembles the package itself from these
+       three parts. It does NOT use Extractors.Tests' DeterministicOpc - this console has no
+       reference to any test project and must never gain one. -->
+  <ItemGroup Condition="'$(QedgeTrimSatellites)' == 'true'">
+    <EmbeddedResource Include="..\..\..\ingestion\tests\fixtures\corpus\pdf\minimal-text.pdf"
+                      LogicalName="trimsmoke/minimal-text.pdf" />
+    <EmbeddedResource Include="..\..\..\ingestion\tests\fixtures\corpus\docx\run-split\[Content_Types].xml"
+                      LogicalName="trimsmoke/docx/[Content_Types].xml" />
+    <EmbeddedResource Include="..\..\..\ingestion\tests\fixtures\corpus\docx\run-split\_rels\.rels"
+                      LogicalName="trimsmoke/docx/_rels/.rels" />
+    <EmbeddedResource Include="..\..\..\ingestion\tests\fixtures\corpus\docx\run-split\word\document.xml"
+                      LogicalName="trimsmoke/docx/word/document.xml" />
+  </ItemGroup>
+
+  <!-- Program.cs switches its satellite path on this symbol: AddPdfExtractor/AddDocxExtractor live in
+       assemblies the core-only publish does not reference, so the calls cannot exist in that compilation.
+       Same condition as the two ProjectReferences and the four EmbeddedResources above. -->
+  <PropertyGroup Condition="'$(QedgeTrimSatellites)' == 'true'">
+    <DefineConstants>$(DefineConstants);QEDGE_TRIM_SATELLITES</DefineConstants>
+  </PropertyGroup>
 
   <!-- The concrete container and the concrete logger factory. Every src project references only
        the Abstractions packages, so a console that calls BuildServiceProvider() and AddLogging()

@@ -1,0 +1,14 @@
+[
+  {
+    "index": 0,
+    "startChar": 10,
+    "endChar": 247,
+    "tokenCount": 48,
+    "headingPath": [
+      "Fences"
+    ],
+    "breadcrumb": "Fences",
+    "text": "~~~\ntilde fenced block\n## not a heading, this line is inside a tilde fence\n~~~\n\n\u0060\u0060\u0060\u0060\n\u0060\u0060\u0060\nthree backticks inside a four-tick fence\n\u0060\u0060\u0060\n\u0060\u0060\u0060\u0060\n\n    indented code block\n    ## not a heading either\n\nClosing paragraph after three kinds of code.",
+    "embedText": "Fences\n\n~~~\ntilde fenced block\n## not a heading, this line is inside a tilde fence\n~~~\n\n\u0060\u0060\u0060\u0060\n\u0060\u0060\u0060\nthree backticks inside a four-tick fence\n\u0060\u0060\u0060\n\u0060\u0060\u0060\u0060\n\n    indented code block\n    ## not a heading either\n\nClosing paragraph after three kinds of code."
+  }
+]

@@ -1,0 +1,31 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <!-- net10.0 alone. Nothing in SP3 touches a platform API: Markdig, System.IO.Hashing and
+         Microsoft.ML.Tokenizers are pure managed with no runtimes/ folder between them, and a
+         platform TFM consumes a net10.0 library unchanged - exactly as Qavren.Edge.VectorData
+         already does. It does NOT reference Qavren.Edge.Embeddings.Onnx: IChunkTokenizer and
+         ChunkModelProfile are the core-owned seams, and a ProjectReference would drag ~100 MB of
+         ORT AARs and xcframeworks into a Markdown-only app using a cloud generator (spec 4.1). -->
+    <TargetFramework>net10.0</TargetFramework>
+    <IsPackable>true</IsPackable>
+    <PackageId>Qavren.Edge.Ingestion</PackageId>
+    <Description>File-to-collection ingestion for Qavren.Edge: streaming extraction, token-budgeted structure-aware chunking, xxHash128 content addressing, incremental re-index, and a budget-driven runner that suspends on a committed boundary.</Description>
+    <RootNamespace>Qavren.Edge.Ingestion</RootNamespace>
+    <!-- No MEVD9001 suppression, and that is a deliberate outcome of plan adjustment 2: with the
+         collection DDL going through SP2's own AddVectorCollectionMigration, nothing on this
+         package's registration path names a Microsoft.Extensions.VectorData.ProviderServices
+         type. IngestionSchema.BuildDefinition names VectorStoreCollectionDefinition and friends,
+         which are not experimental. Task 5.1's 6011 check is the one exception and carries its
+         own file-scoped suppression with the reason on it. -->
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Markdig" />
+    <PackageReference Include="System.IO.Hashing" />
+    <PackageReference Include="Microsoft.ML.Tokenizers" />
+    <PackageReference Include="Microsoft.Extensions.Options" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" />
+    <ProjectReference Include="..\..\..\embeddings\src\Qavren.Edge.VectorData\Qavren.Edge.VectorData.csproj" />
+  </ItemGroup>
+</Project>

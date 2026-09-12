@@ -67,8 +67,12 @@
 		     (increased-memory-limit, extended-virtual-addressing). They are plist lines in the APP,
 		     not code in a library; Qavren.Edge.Chat.Onnx writes nobody's entitlements file, and this
 		     sample setting both is how a consumer discovers they need them. Mac Catalyst keeps its
-		     own template-issued Entitlements.plist, which the SDK picks up by convention. -->
-		<CodesignEntitlements Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'ios'">Platforms\iOS\Entitlements.plist</CodesignEntitlements>
+		     own template-issued Entitlements.plist, which the SDK picks up by convention.
+		     DEVICE ONLY: both entitlements mean nothing on a simulator, and setting the property
+		     there makes _DetectSigningIdentity demand a keychain identity hosted CI has none of
+		     (PR #18, device-tests-ios "Build sample (ios)"). Xamarin.Shared.Sdk.props sets the
+		     simulator RuntimeIdentifier and _SdkIsSimulator before this body is evaluated. -->
+		<CodesignEntitlements Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'ios' and '$(_SdkIsSimulator)' != 'true'">Platforms\iOS\Entitlements.plist</CodesignEntitlements>
 
 		<!-- XA0141 (android head only): ORT GenAI 0.15.2's AAR ships libmat.so without 16 KB page
 		     alignment, which Android 16 requires. Upstream's to fix; every GenAI consumer sees it.
@@ -126,6 +130,18 @@
 		<ProjectReference Include="..\..\..\embeddings\src\Qavren.Edge.Onnx\Qavren.Edge.Onnx.csproj" />
 		<ProjectReference Include="..\..\..\embeddings\src\Qavren.Edge.Embeddings.Onnx\Qavren.Edge.Embeddings.Onnx.csproj" />
 		<ProjectReference Include="..\..\..\embeddings\src\Qavren.Edge.VectorData\Qavren.Edge.VectorData.csproj" />
+
+		<!-- SP3's Ingest page (plan Task 8.2). The core plus the three satellites this sample calls:
+		     .Onnx for AddOnnxIngestion (the tokenizer and the throttle over SP2's resource monitor),
+		     .Pdf and .OpenXml for AddPdfExtractor/AddDocxExtractor. NOT .DataIngestion - the sample
+		     does not use MEDI and that package is prerelease-only. All four are net10.0 and this
+		     project is multi-TFM over the four platform heads; a platform TFM consuming a net10.0
+		     library is ordinary TFM compatibility, and the sample already resolves ORT's platform
+		     asset through Qavren.Edge.Embeddings.Onnx, so no SupportedOSPlatformVersion moves. -->
+		<ProjectReference Include="..\..\..\ingestion\src\Qavren.Edge.Ingestion\Qavren.Edge.Ingestion.csproj" />
+		<ProjectReference Include="..\..\..\ingestion\src\Qavren.Edge.Ingestion.Onnx\Qavren.Edge.Ingestion.Onnx.csproj" />
+		<ProjectReference Include="..\..\..\ingestion\src\Qavren.Edge.Ingestion.Pdf\Qavren.Edge.Ingestion.Pdf.csproj" />
+		<ProjectReference Include="..\..\..\ingestion\src\Qavren.Edge.Ingestion.OpenXml\Qavren.Edge.Ingestion.OpenXml.csproj" />
 	</ItemGroup>
 
 	<!-- SP4 Task 7.2 / spec 18: the two SP4 packages behind the Chat and Ask pages. Qavren.Edge.Rag

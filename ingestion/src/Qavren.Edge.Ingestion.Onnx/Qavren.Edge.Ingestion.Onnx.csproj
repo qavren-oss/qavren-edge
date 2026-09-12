@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <!-- net10.0 even though it references a four-TFM project. A net10.0 assembly referencing a
+         multi-TFM package is ordinary TFM compatibility, and the consuming app resolves
+         Qavren.Edge.Embeddings.Onnx's platform asset for ITS OWN TFM through the package graph,
+         so an Android app still links ORT's net9.0-android35.0 asset. Nothing is lost by this
+         satellite being unversioned (spec 4.1). -->
+    <TargetFramework>net10.0</TargetFramework>
+    <IsPackable>true</IsPackable>
+    <PackageId>Qavren.Edge.Ingestion.Onnx</PackageId>
+    <Description>Bridges Qavren.Edge.Ingestion to the ONNX embedding stack: a chunk tokenizer over IEdgeTokenizer, a throttle over IEdgeResourceMonitor, and a chunk budget derived from the resolved EmbeddingPreset.</Description>
+    <RootNamespace>Qavren.Edge.Ingestion.Onnx</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Qavren.Edge.Ingestion\Qavren.Edge.Ingestion.csproj" />
+    <ProjectReference Include="..\..\..\embeddings\src\Qavren.Edge.Embeddings.Onnx\Qavren.Edge.Embeddings.Onnx.csproj" />
+  </ItemGroup>
+</Project>

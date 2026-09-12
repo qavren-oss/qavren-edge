@@ -64,7 +64,57 @@ public enum EdgeErrorCode
     /// <summary>A property claims the reserved "_rowid" storage name.</summary>
     ReservedColumnName = 5213,
 
-    // ---- Sub-project 4: 7000-7299. 6000-6299 is reserved for sub-project 3 and stays unallocated. ----
+    // ---- Sub-project 3: 6000-6299. SP1's 1001-4001 and SP2's 5001-5213 are untouched. ----
+
+    // 6000-6049 configuration and runner
+    TokenCounterMissing = 6001,
+    IngestionCollectionNotConfigured = 6002,
+    IngestionChunkBudgetInvalid = 6003,
+    IngestionDuplicateExtractorId = 6004,
+    IngestionOptionsInvalid = 6005,
+    IngestionCollectionDimensionMismatch = 6006,
+    IngestionMigrationVersionConflict = 6007,
+    IngestionRunAlreadyActive = 6008,
+    IngestionRecipeChanged = 6009,   // StrictRecipe only
+    IngestionRunAborted = 6010,
+    IngestionCollectionSchemaMismatch = 6011,   // migration DDL != the runtime store's DDL
+
+    // 6050-6099 source
+    IngestionSourceUnavailable = 6051,
+    IngestionDocumentTooLarge = 6052,
+    IngestionDocumentUnreadable = 6053,
+    IngestionDuplicateDocumentId = 6054,
+    IngestionSourceIdInvalid = 6055,
+
+    // 6100-6149 extraction
+    ExtractorNotFound = 6101,
+    ExtractionFailed = 6102,
+    DocumentEncrypted = 6103,
+    DocumentMalformed = 6104,
+    DocumentHasNoTextLayer = 6105,
+    DocumentEncodingUndecodable = 6106,
+    DocumentPageBudgetExceeded = 6107,
+
+    // 6150-6199 chunking
+    ChunkExceedsTokenBudget = 6151,
+    ChunkContextTooLong = 6152,
+    ChunkTokenizerCeilingExceeded = 6153,
+    ChunkerProducedEmptyChunk = 6154,
+    MarkdownParseFailed = 6155,
+
+    // 6200-6249 state and writes
+    IngestionStateMissing = 6201,
+    IngestionHashAlgorithmMismatch = 6202,
+    IngestionStateSchemaUnsupported = 6203,
+    IngestionStateCorrupt = 6204,
+    IngestionCheckpointWriteFailed = 6205,
+    IngestionEmbeddingFailed = 6206,   // SP3's own GenerateAsync (spec 9.5 a1)
+    IngestionWriteFailed = 6207,   // SP2's UpsertAsync / DeleteAsync (spec 9.5 a2, b)
+    IngestionEmbeddingGeneratorMissing = 6208,   // no IEmbeddingGenerator<string, Embedding<float>>
+
+    // 6250-6299 reserved for sub-project 3.
+
+    // ---- Sub-project 4: 7000-7299. SP3's 6001-6208 above are untouched. ----
 
     // Qavren.Edge.Chat.Onnx - runtime and model hosting
     ChatEnvironmentNotStarted = 7001,

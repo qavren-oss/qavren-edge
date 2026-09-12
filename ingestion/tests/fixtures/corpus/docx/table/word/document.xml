@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+  <w:body>
+    <w:tbl>
+      <w:tr>
+        <w:tc><w:p><w:r><w:t>Region</w:t></w:r></w:p></w:tc>
+        <w:tc><w:p><w:r><w:t>Total</w:t></w:r></w:p></w:tc>
+      </w:tr>
+      <w:tr>
+        <w:tc><w:p><w:r><w:t>North</w:t></w:r></w:p></w:tc>
+        <w:tc><w:p><w:r><w:t>12</w:t></w:r></w:p></w:tc>
+      </w:tr>
+      <w:tr>
+        <w:tc><w:p><w:r><w:t>South</w:t></w:r></w:p></w:tc>
+        <w:tc><w:p><w:r><w:t>34</w:t></w:r></w:p></w:tc>
+      </w:tr>
+    </w:tbl>
+    <w:p>
+      <w:r><w:t xml:space="preserve">A paragraph after the table.</w:t></w:r>
+    </w:p>
+  </w:body>
+</w:document>

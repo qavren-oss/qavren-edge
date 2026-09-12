@@ -1,0 +1,38 @@
+%PDF-1.5
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [3 0 R] /Count 1 >>
+endobj
+4 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
+endobj
+5 0 obj
+<< /Length 145 >>
+stream
+BT
+/F1 12 Tf
+14 TL
+72 720 Td
+(A PDF 1.5 file whose cross-reference is a stream.) Tj T*
+(The page dictionary lives in an object stream.) Tj T*
+ET
+
+endstream
+endobj
+6 0 obj
+<< /Type /ObjStm /N 1 /First 4 /Filter /ASCIIHexDecode /Length 229 >>
+stream
+3320300a3c3c202f54797065202f50616765202f506172656e74203220302052202f4d65646961426f78205b30203020363132203739325d202f5265736f7572636573203c3c202f466f6e74203c3c202f4631203420302052203e3e203e3e202f436f6e74656e7473203520302052203e3e>
+endstream
+endobj
+7 0 obj
+<< /Type /XRef /Size 8 /W [1 4 2] /Root 1 0 R /Filter /ASCIIHexDecode /Length 113 >>
+stream
+0000000000ffff01000000090000010000003a0000020000000600000100000073000001000000b90000010000017d000001000002c90000>
+endstream
+endobj
+startxref
+713
+%%EOF

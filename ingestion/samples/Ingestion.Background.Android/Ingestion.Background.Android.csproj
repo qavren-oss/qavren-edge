@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <!-- A class library, not an app head: it exists to be READ and copied, and an app head would
+         need an icon, a splash, a manifest and a signing story for something nobody installs.
+         It IS in the .slnx (plan adjustment 8) so restore, format and pack on the windows-2025
+         leg compile it - a documentation project nothing builds is one that rots on the first
+         rename. -->
+    <TargetFramework>net10.0-android</TargetFramework>
+    <IsPackable>false</IsPackable>
+    <!-- 29, not 24: ForegroundService.TypeDataSync and the typed StartForeground overload are
+         API 29+, and CA1416 (an error here) refuses them below that floor. The channel-based
+         Notification.Builder(Context, string) this needs is API 26+, so 29 covers it too. An app
+         with a lower minimum guards these calls with OperatingSystem.IsAndroidVersionAtLeast(29)
+         and runs unpromoted below it. -->
+    <SupportedOSPlatformVersion>29.0</SupportedOSPlatformVersion>
+    <RootNamespace>Ingestion.Background.Android</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
+    <!-- WorkManager: Worker, ForegroundInfo, SetForegroundAsync and the stop-reason constants.
+         Transitively brings AndroidX.Core (NotificationCompat) - not used here on purpose, the
+         platform Notification.Builder is enough at API 26+. -->
+    <PackageReference Include="Xamarin.AndroidX.Work.Runtime" />
+    <ProjectReference Include="..\..\src\Qavren.Edge.Ingestion\Qavren.Edge.Ingestion.csproj" />
+  </ItemGroup>
+</Project>

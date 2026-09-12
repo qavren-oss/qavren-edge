@@ -4,7 +4,8 @@ namespace Qavren.Edge.Core.Tests;
 
 /// <summary>
 /// Sub-project 4 owns 7000-7299. These tests pin that range, pin the SP1 and SP2 ranges below it
-/// against renumbering, and guard 6000-6299 - reserved for sub-project 3 - against being squatted.
+/// against renumbering, and check that SP4 stays clear of 6000-6299, which sub-project 3 allocated
+/// to its ingestion codes. The SP3 block's exact membership is pinned by EdgeErrorCodeSp3RangeTests.
 /// </summary>
 public class ChatErrorCodeRangeTests
 {
@@ -36,13 +37,22 @@ public class ChatErrorCodeRangeTests
     }
 
     [Fact]
-    public void Range6000To6299IsUnallocated()
+    public void Range6000To6299IsSubProject3sAndIsDisjointFromSp4()
     {
-        var squatters = Enum.GetValues<EdgeErrorCode>()
+        var sp3 = Enum.GetValues<EdgeErrorCode>()
             .Where(static v => (int)v is >= 6000 and <= 6299)
             .ToArray();
+        var sp4 = Enum.GetValues<EdgeErrorCode>()
+            .Where(static v => (int)v is >= 7000 and <= 7299)
+            .ToArray();
 
-        Assert.Empty(squatters);
+        // 6000-6299 is allocated - sub-project 3's ingestion codes live there.
+        Assert.NotEmpty(sp3);
+        Assert.All(sp3, static code => Assert.InRange((int)code, 6000, 6299));
+
+        // The two blocks share no member and no numeric value.
+        Assert.Empty(sp3.Intersect(sp4));
+        Assert.Empty(sp3.Select(static v => (int)v).Intersect(sp4.Select(static v => (int)v)));
     }
 
     [Theory]

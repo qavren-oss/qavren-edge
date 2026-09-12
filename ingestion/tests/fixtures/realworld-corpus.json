@@ -1,0 +1,11 @@
+{
+  "note": "Spec 14.5. OWNER INPUT. Add one entry per real-world document, then nothing else changes: the nightly fetch step reads this file and the tier-3 test reads whatever it fetched. The files themselves are NEVER committed - only their URL and digest are. Each producer in the spec (Word, LibreOffice, Acrobat) should appear at least once.",
+  "schema": {
+    "id": "stable, lower-case, used as the DocumentId - never rename one",
+    "producer": "word | libreoffice | acrobat",
+    "url": "a stable direct-download URL",
+    "sha256": "lower-case hex, 64 chars",
+    "phrase": "a short phrase the extracted text must contain, chosen by whoever added the entry"
+  },
+  "documents": []
+}

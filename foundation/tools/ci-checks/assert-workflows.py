@@ -65,16 +65,23 @@ for f in ("ci.yml", "release.yml"):
         problems.append(f + " passes force:true to native.yml, forcing a rebuild on managed-only PRs")
 
 # --- Sub-project 2 ---
-# Every test project under embeddings/tests/ must appear as an explicit ci.yml step, so a new
-# test project cannot silently never run. The trim-smoke console deliberately lives under
-# embeddings/tools/ instead, because it is published rather than run as a test step.
-sp2_tests = sorted((root / "embeddings" / "tests").glob("*/*.csproj"))
-if not sp2_tests:
-    problems.append("no test projects found under embeddings/tests/")
-for proj in sp2_tests:
-    rel = proj.relative_to(root).as_posix()
-    if rel not in ci_text:
-        problems.append("ci.yml has no explicit step for " + rel)
+# Every test project under embeddings/tests/ and ingestion/tests/ must appear as an explicit
+# ci.yml step, so a new test project cannot silently never run. Neither trim-smoke (published,
+# not run as a test step) nor ingestion/tests/fixtures/ (no csproj) is matched by the glob.
+for area in ("embeddings", "ingestion"):
+    area_tests = sorted((root / area / "tests").glob("*/*.csproj"))
+    if not area_tests:
+        problems.append("no test projects found under %s/tests/" % area)
+    for proj in area_tests:
+        rel_path = proj.relative_to(root).as_posix()
+        if rel_path not in ci_text:
+            problems.append("ci.yml has no explicit step for " + rel_path)
+
+# The PdfPig asset assertion (spec 15). PdfPig ships no net10.0 TFM; a silent fall-back to
+# lib/netstandard2.0 is a static-constructor throw on a device with no compile error anywhere.
+for token in ("PdfPig/0.1.16", "lib/net9.0"):
+    if token not in ci_text:
+        problems.append("ci.yml PdfPig asset assertion is incomplete (" + token + ")")
 
 # The ORT managed-asset assertion. Written against Microsoft.ML.OnnxRuntime.Managed on purpose:
 # the native Microsoft.ML.OnnxRuntime package has no compile/runtime assets for any TFM, so an

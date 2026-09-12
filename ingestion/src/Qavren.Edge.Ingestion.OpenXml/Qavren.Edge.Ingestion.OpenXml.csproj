@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <IsPackable>true</IsPackable>
+    <PackageId>Qavren.Edge.Ingestion.OpenXml</PackageId>
+    <Description>DOCX text extraction for Qavren.Edge.Ingestion, over DocumentFormat.OpenXml. Outline-level heading detection, run merging, and an OpenXmlPartReader streaming path above 8 MiB. Separate from the core because the dependency is 14.66 MB.</Description>
+    <RootNamespace>Qavren.Edge.Ingestion.OpenXml</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="DocumentFormat.OpenXml" />
+    <ProjectReference Include="..\Qavren.Edge.Ingestion\Qavren.Edge.Ingestion.csproj" />
+  </ItemGroup>
+</Project>

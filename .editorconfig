@@ -45,7 +45,12 @@ dotnet_diagnostic.CA1859.severity = none
 dotnet_diagnostic.CA1707.severity = none
 dotnet_diagnostic.CA1859.severity = none
 
-# SP4 test projects get the same relaxations as SP1's and SP2's.
+# SP3 test projects get the same relaxations as SP1's and SP2's.
+[ingestion/tests/**/*.cs]
+dotnet_diagnostic.CA1707.severity = none
+dotnet_diagnostic.CA1859.severity = none
+
+# SP4 test projects get the same relaxations as SP1's, SP2's and SP3's.
 [chat/tests/**/*.cs]
 dotnet_diagnostic.CA1707.severity = none
 dotnet_diagnostic.CA1859.severity = none

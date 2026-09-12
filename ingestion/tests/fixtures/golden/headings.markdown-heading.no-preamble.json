@@ -1,0 +1,28 @@
+[
+  {
+    "index": 0,
+    "startChar": 115,
+    "endChar": 228,
+    "tokenCount": 28,
+    "headingPath": [
+      "Top level"
+    ],
+    "breadcrumb": "Top level",
+    "text": "Body under the h1.\n\n## Second level\n\nBody under the h2.\n\n\u0060\u0060\u0060text\n# not a heading, this line is inside a fence\n\u0060\u0060\u0060",
+    "embedText": "Top level\n\nBody under the h1.\n\n## Second level\n\nBody under the h2.\n\n\u0060\u0060\u0060text\n# not a heading, this line is inside a fence\n\u0060\u0060\u0060"
+  },
+  {
+    "index": 1,
+    "startChar": 247,
+    "endChar": 401,
+    "tokenCount": 40,
+    "headingPath": [
+      "Top level",
+      "Second level",
+      "Third level"
+    ],
+    "breadcrumb": "Top level \u203A Second level \u203A Third level",
+    "text": "Body under the h3.\n\nSetext heading\n==============\n\nBody under the setext h1.\n\n#### Fourth level\n\nBody under the h4, which must stay inside its h3 section.",
+    "embedText": "Top level \u203A Second level \u203A Third level\n\nBody under the h3.\n\nSetext heading\n==============\n\nBody under the setext h1.\n\n#### Fourth level\n\nBody under the h4, which must stay inside its h3 section."
+  }
+]
