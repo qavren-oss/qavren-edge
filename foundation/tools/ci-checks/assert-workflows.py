@@ -193,7 +193,10 @@ for token in ("name: release-dry-run", "prerelease: ${{ contains(github.ref_name
         problems.append("release.yml missing " + token)
 rel_steps = rel["jobs"]["release"]["steps"]
 names = [str(s.get("name", s.get("uses", ""))) for s in rel_steps]
-if names.index("Push to NuGet.org") > [i for i, s in enumerate(rel_steps) if str(s.get("uses", "")).startswith("softprops/action-gh-release")][0]:
+release_idx = [i for i, s in enumerate(rel_steps) if str(s.get("uses", "")).startswith("softprops/action-gh-release")]
+if "Push to NuGet.org" not in names or not release_idx:
+    problems.append("release.yml must keep a step named `Push to NuGet.org` and a softprops/action-gh-release step")
+elif names.index("Push to NuGet.org") > release_idx[0]:
     problems.append("release.yml must push to NuGet before creating the GitHub release")
 
 win = ci["jobs"]["device-tests-windows"]["runs-on"]

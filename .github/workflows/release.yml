@@ -42,7 +42,7 @@ jobs:
 
       - name: Assert package metadata (icon, README, tags)
         shell: pwsh
-        run: pwsh foundation/tools/ci-checks/assert-packages.ps1
+        run: ./foundation/tools/ci-checks/assert-packages.ps1
 
       # One zip per build host keeps the release page readable.
       - name: Zip the native artifacts
@@ -73,7 +73,7 @@ jobs:
           $snupkg = @(Get-ChildItem artifacts/packages/*.snupkg)
           $zips   = @(Get-ChildItem artifacts/native/*.zip)
           if ($nupkg.Count -ne 17) { throw "expected 17 .nupkg, found $($nupkg.Count)" }
-          if ($snupkg.Count -lt 15) { throw "expected at least 15 .snupkg, found $($snupkg.Count)" }
+          if ($snupkg.Count -ne 17) { throw "expected 17 .snupkg, found $($snupkg.Count)" }
           if ($zips.Count -ne 3)    { throw "expected 3 native zips, found $($zips.Count)" }
           if (-not (Test-Path artifacts/sbom.spdx.json)) { throw "artifacts/sbom.spdx.json is missing" }
           $files = $nupkg + $snupkg + $zips + @(Get-Item artifacts/sbom.spdx.json)

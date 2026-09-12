@@ -85,9 +85,9 @@ The root tags stay on every package.
   and checksums, and uploads `artifacts/` as a workflow artifact named
   `release-dry-run`. That is the pipeline proof before a tag exists.
 - The GitHub release is `prerelease: ${{ contains(github.ref_name, '-') }}`.
-- The "at least 8 files" floor becomes exact counts: 17 `.nupkg`, 3 zips and
-  the SBOM. `.snupkg` keeps a floor (at least 15) until the dry run shows
-  whether the two native-only packages emit one; then it is pinned too.
+- The "at least 8 files" floor becomes exact counts: 17 `.nupkg`, 17 `.snupkg`
+  (the native-only packages emit one too, measured locally), 3 zips and the
+  SBOM.
 
 ### 3.5 Verification in CI
 

@@ -11,9 +11,10 @@ dotnet add package Qavren.Edge.Core
 ```
 
 ```csharp
-services.AddQavrenEdge(edge => edge
-    // providers register here: .AddSqlite(...), .AddOnnxEmbeddings(...), .AddOnnxChat(...)
-);
+services.AddQavrenEdge(edge =>
+{
+    // providers register here: edge.AddSqlite(...), .AddOnnxEmbeddings(...), .AddOnnxChat(...)
+});
 ```
 
 You rarely reference this package alone: `Qavren.Edge` (SQLite + native library) or

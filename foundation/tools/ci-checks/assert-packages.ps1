@@ -38,7 +38,8 @@ foreach ($nupkg in $nupkgs) {
         if ($m.readme -ne 'README.md')  { throw "$($m.id): PackageReadmeFile is '$($m.readme)', expected README.md" }
         if ($m.license.'#text' -ne 'MIT') { throw "$($m.id): licence expression is '$($m.license.'#text')', expected MIT" }
         $tags = ($m.tags -split ' ')
-        $rule = $folderTag | Where-Object { $m.id.StartsWith($_.Prefix) } | Select-Object -First 1
+        $rule = $folderTag | Where-Object { $m.id.StartsWith($_.Prefix, [StringComparison]::Ordinal) } | Select-Object -First 1
+        if (-not $rule) { throw "$($m.id): no sub-project tag rule matches this package id" }
         if ($tags -notcontains $rule.Tag) { throw "$($m.id): tags '$($m.tags)' lack the sub-project tag '$($rule.Tag)'" }
         foreach ($suite in 'sqlite', 'maui') {
             if ($tags -notcontains $suite) { throw "$($m.id): tags '$($m.tags)' lack the suite tag '$suite'" }

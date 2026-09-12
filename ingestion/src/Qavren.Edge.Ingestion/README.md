@@ -17,7 +17,7 @@ builder.UseQavrenEdge(edge => edge
     .AddVectorStore()
     .AddIngestion(migrationVersion: 10));   // claims versions 10 AND 11
 
-var pipeline = services.GetRequiredService<IIngestionPipeline>();
+var pipeline = sp.GetRequiredService<IIngestionPipeline>();
 var result = await pipeline.RunAsync(
     IngestionSource.Folder(@"C:\docs", "*.md", recursive: true),
     options: new IngestionRunOptions { Budget = IngestionBudget.Background });
