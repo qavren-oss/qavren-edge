@@ -28,6 +28,13 @@ jobs:
   release:
     needs: natives
     runs-on: windows-2025
+    # OIDC trusted publishing, no long-lived key and no secret: the policy on nuget.org (owner
+    # Qavren, repository qavren-oss/qavren-edge, workflow release.yml) lets NuGet/login exchange
+    # the GitHub OIDC token for a one-hour API key at publish time. id-token: write is what mints
+    # that token; the job-level block replaces the workflow-level one, so contents: write stays.
+    permissions:
+      contents: write
+      id-token: write
     steps:
       - uses: actions/checkout@v4
         with:
@@ -104,11 +111,18 @@ jobs:
       # One push per package, enumerated by PowerShell: on the Windows runner `dotnet nuget push`
       # does not expand a forward-slash glob ("File does not exist (artifacts/packages/*.nupkg)",
       # run 34721241400). The matching .snupkg beside each .nupkg is pushed with it.
+      - name: NuGet login (OIDC -> temp API key)
+        if: startsWith(github.ref, 'refs/tags/v')
+        id: login
+        uses: NuGet/login@v1
+        with:
+          user: stevenfackley
+
       - name: Push to NuGet.org
         if: startsWith(github.ref, 'refs/tags/v')
         shell: pwsh
         env:
-          NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
+          NUGET_API_KEY: ${{ steps.login.outputs.NUGET_API_KEY }}
         run: |
           $packages = @(Get-ChildItem artifacts/packages/*.nupkg)
           if ($packages.Count -ne 17) { throw "expected 17 .nupkg to push, found $($packages.Count)" }
