@@ -11,6 +11,13 @@
     <TargetFrameworks Condition="$([MSBuild]::IsOSPlatform('Linux'))">net10.0;net10.0-android</TargetFrameworks>
     <TargetFrameworks Condition="$([MSBuild]::IsOSPlatform('OSX'))">net10.0;net10.0-android;net10.0-ios;net10.0-maccatalyst</TargetFrameworks>
     <IsPackable>false</IsPackable>
+    <!-- Spec 14.6 / Task 7.1: the Qavren.Edge.Ingestion.Onnx reference below brings a transitive
+         ORT dependency into this project for the first time, so the device lanes take SP2's raised
+         floors - NOT Qavren.Edge.Sqlite.Tests's 21.0/15.0. A device lane at the wrong floor is
+         testing a configuration no consumer can ship. -->
+    <SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'android'">24.0</SupportedOSPlatformVersion>
+    <SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'ios'">15.1</SupportedOSPlatformVersion>
+    <SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'maccatalyst'">15.1</SupportedOSPlatformVersion>
   </PropertyGroup>
 
   <PropertyGroup Condition="'$(TargetFramework)' == 'net10.0'">
@@ -45,6 +52,15 @@
          stages qedge_sqlite3.dll flat beside the test binary, so the host lane runs on a dev box
          with no package installed. Same arrangement Qavren.Edge.VectorData.Tests uses. -->
     <ProjectReference Include="..\..\..\foundation\src\Qavren.Edge.Sqlite.Native\Qavren.Edge.Sqlite.Native.csproj" />
+    <!-- Task 7.1: the tier-2 suite exercises the two extractor satellites at integration scope and
+         the ONNX bridge's registration (EdgeChunkTokenizer, ResourceMonitorThrottle,
+         AddOnnxIngestion). None of it runs an ORT session: every embedding in this project comes
+         from RecordingEmbeddingGenerator (plan adjustment 27), and no <Compile Link=...> of SP2's
+         TinyModels.g.cs exists here - a future task that wants that fixture must add the link in
+         its own Files list and take spec 14.3's distance_metric = L2 rule with it. -->
+    <ProjectReference Include="..\..\src\Qavren.Edge.Ingestion.Pdf\Qavren.Edge.Ingestion.Pdf.csproj" />
+    <ProjectReference Include="..\..\src\Qavren.Edge.Ingestion.OpenXml\Qavren.Edge.Ingestion.OpenXml.csproj" />
+    <ProjectReference Include="..\..\src\Qavren.Edge.Ingestion.Onnx\Qavren.Edge.Ingestion.Onnx.csproj" />
   </ItemGroup>
 
   <!-- Fixtures ship as EmbeddedResource, not files: device filesystem layout differs from the
@@ -55,5 +71,9 @@
     <EmbeddedResource Include="..\fixtures\corpus\**\*" LogicalName="fixtures/corpus/%(RecursiveDir)%(Filename)%(Extension)" />
     <EmbeddedResource Include="..\fixtures\golden\**\*" LogicalName="fixtures/golden/%(RecursiveDir)%(Filename)%(Extension)" />
     <EmbeddedResource Include="..\fixtures\manifest.json" LogicalName="fixtures/manifest.json" />
+    <!-- Spec 14.5's real-world document manifest (plan adjustment 26). The tier-1 shape test and
+         the coverage test read it on every lane; the tier-3 lane reads what the fetch step
+         produced from it. -->
+    <EmbeddedResource Include="..\fixtures\realworld-corpus.json" LogicalName="fixtures/realworld-corpus.json" />
   </ItemGroup>
 </Project>

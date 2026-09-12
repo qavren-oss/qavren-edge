@@ -50,6 +50,13 @@
                       LogicalName="trimsmoke/docx/word/document.xml" />
   </ItemGroup>
 
+  <!-- Program.cs switches its satellite path on this symbol: AddPdfExtractor/AddDocxExtractor live in
+       assemblies the core-only publish does not reference, so the calls cannot exist in that compilation.
+       Same condition as the two ProjectReferences and the four EmbeddedResources above. -->
+  <PropertyGroup Condition="'$(QedgeTrimSatellites)' == 'true'">
+    <DefineConstants>$(DefineConstants);QEDGE_TRIM_SATELLITES</DefineConstants>
+  </PropertyGroup>
+
   <!-- The concrete container and the concrete logger factory. Every src project references only
        the Abstractions packages, so a console that calls BuildServiceProvider() and AddLogging()
        has to bring both itself. Both versions already exist in Directory.Packages.props. -->

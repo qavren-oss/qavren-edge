@@ -201,7 +201,45 @@ wiring lives somewhere a reader can copy from, not as shipped packages.
 
 ## Trim warnings
 
-<!-- Filled by Task 7.2 Step 4 (wave 7): the IL2xxx/IL3xxx output of the core-only trimmed
-     publish and of the satellite publish, recorded SEPARATELY, or the sentence "both
-     publishes were warning-free". Do not delete this heading; Task 7.2 replaces this comment
-     and nothing else in this file. -->
+Spec 17 item 4, measured rather than assumed. `embeddings/tools/Qavren.Edge.TrimSmoke`
+is published with `-p:PublishTrimmed=true` twice from one project — once with
+the core alone, once with `-p:QedgeTrimSatellites=true`, which adds the Pdf and
+OpenXml `ProjectReference`s, the four embedded fixtures and the
+`QEDGE_TRIM_SATELLITES` compile symbol the console's `#if` switches on — and
+each publish log is scanned for `IL2xxx` / `IL3xxx` lines. Nothing in either
+publish graph suppresses a trim warning: no `SuppressTrimAnalysisWarnings`, no
+`TrimmerSingleWarn` override, no `NoWarn` on an `IL` code in any `src/` project
+or in the console (two *test* projects mute `IL2026`; neither is referenced
+here). The repo-wide `TreatWarningsAsErrors` reaches ILLink too, so a trim
+warning would have failed the publish outright rather than scrolled past.
+Both runs below exit 0 through `EdgeDynamicVectorStoreCollection`, on SDK
+10.0.401, `win-x64`, 2026-09-11. The `linux-x64` leg is the `trim-smoke` CI
+job's.
+
+### Core only
+
+`Qavren.Edge.Ingestion` plus its Markdig, System.IO.Hashing and
+Microsoft.ML.Tokenizers references, running the Markdown one-document path
+(a heading, a fence and a table, chunked by `markdown-heading` and read back
+through the dynamic collection): **this publish was warning-free.**
+
+Markdig — the one core dependency that declares neither `IsTrimmable` nor
+`IsAotCompatible` — survived the trimmer with nothing to say; the two
+reflection sites it does carry (`Markdown.Version`'s `GetCustomAttribute` and
+the `Configure(string)` switch) are not on SP3's path, and the linker agreed.
+The Markdown extractor therefore stays in the core; the open risk that it
+might need a satellite of its own is closed on this evidence.
+
+### With the Pdf and OpenXml satellites
+
+The core above plus `Qavren.Edge.Ingestion.Pdf` (PdfPig 0.1.16, six
+assemblies) and `Qavren.Edge.Ingestion.OpenXml` (DocumentFormat.OpenXml, two
+assemblies), ingesting the committed `minimal-text.pdf` byte for byte and a
+DOCX the console assembles from the three embedded `run-split` parts: **this
+publish was warning-free.**
+
+Neither `DocumentLayoutAnalysis.Export` nor `OpenXmlValidator` is on SP3's
+path, which is the assumption spec 17 item 4 made, and the linker produced no
+`IL2104` for any of the eight third-party assemblies. The CI step for this
+variant is `continue-on-error` for one release cycle; on this measurement it
+could be promoted to required.

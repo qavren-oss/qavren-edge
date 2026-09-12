@@ -1,4 +1,4 @@
-﻿// MEVD9001: Microsoft.Extensions.VectorData.ProviderServices is marked experimental. This is the
+// MEVD9001: Microsoft.Extensions.VectorData.ProviderServices is marked experimental. This is the
 // ONE file in Qavren.Edge.Ingestion that names a type from it - CollectionModel, obtained through
 // EdgeCollectionModelBuilder.BuildDynamic - and it does so to build the CHECK side of error 6011's
 // DDL comparison. A project-wide NoWarn would hide a future, real use; a file-scoped suppression
