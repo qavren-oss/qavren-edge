@@ -174,6 +174,31 @@ for job, tfm in (("device-tests-ios", "net10.0-ios"), ("device-tests-maccatalyst
     if not any("Qavren.Edge.Sample.csproj" in r and "-f " + tfm in r for r in runs):
         problems.append(job + " does not build the sample for " + tfm + " (issue #13)")
 
+# --- Sub-project 5 (release path) ---
+# Every nupkg must carry the icon, a README and its sub-project tags; the Windows pack lane runs
+# the script that proves it, so a package that loses its README fails the PR, not the release.
+if ci_text.count("assert-packages.ps1") != 1:
+    problems.append("ci.yml Windows pack lane must run foundation/tools/ci-checks/assert-packages.ps1 exactly once")
+if not (root / "foundation" / "tools" / "ci-checks" / "assert-packages.ps1").is_file():
+    problems.append("foundation/tools/ci-checks/assert-packages.ps1 is missing")
+
+# release.yml: workflow_dispatch is a dry run. Exactly the two publishing steps are guarded on a
+# v* tag, the dry run uploads the would-be assets, prereleases are flagged from the tag name, and
+# the release job proves package metadata before anything is pushed.
+if rel_text.count("if: startsWith(github.ref, 'refs/tags/v')") != 2:
+    problems.append("release.yml must guard exactly two steps (NuGet push, GitHub release) on startsWith(github.ref, 'refs/tags/v')")
+for token in ("name: release-dry-run", "prerelease: ${{ contains(github.ref_name, '-') }}",
+              "assert-packages.ps1", "expected 17 .nupkg"):
+    if token not in rel_text:
+        problems.append("release.yml missing " + token)
+rel_steps = rel["jobs"]["release"]["steps"]
+names = [str(s.get("name", s.get("uses", ""))) for s in rel_steps]
+release_idx = [i for i, s in enumerate(rel_steps) if str(s.get("uses", "")).startswith("softprops/action-gh-release")]
+if "Push to NuGet.org" not in names or not release_idx:
+    problems.append("release.yml must keep a step named `Push to NuGet.org` and a softprops/action-gh-release step")
+elif names.index("Push to NuGet.org") > release_idx[0]:
+    problems.append("release.yml must push to NuGet before creating the GitHub release")
+
 win = ci["jobs"]["device-tests-windows"]["runs-on"]
 print("\n".join(problems) if problems else "OK: gates, 4 device lanes, JUnit, win-arm64, native artifact cache + reuse, SBOM and native release assets all present (windows lane on %s)" % win)
 sys.exit(1 if problems else 0)

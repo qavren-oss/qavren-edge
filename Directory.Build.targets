@@ -18,8 +18,20 @@
     <PackageProjectUrl>https://github.com/qavren-oss/qavren-edge</PackageProjectUrl>
     <RepositoryUrl>https://github.com/qavren-oss/qavren-edge</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
+    <PackageIcon>icon.png</PackageIcon>
+    <PackageReadmeFile Condition="Exists('$(MSBuildProjectDirectory)/README.md')">README.md</PackageReadmeFile>
+    <!-- Suite-wide tags plus the sub-project's own, set by the Directory.Build.props of the
+         folder the project lives in. Composed here (targets) because that props file has
+         already been evaluated by now. -->
     <PackageTags>sqlite;sqlite-vec;vector;maui;embedded</PackageTags>
+    <PackageTags Condition="'$(QedgeSubProjectTags)' != ''">$(PackageTags);$(QedgeSubProjectTags)</PackageTags>
     <MinVerTagPrefix>v</MinVerTagPrefix>
   </PropertyGroup>
+
+  <ItemGroup Condition="'$(IsPackable)' == 'true'">
+    <!-- One icon for the suite, packed at the package root. Visible=false keeps it out of IDE trees. -->
+    <None Include="$(MSBuildThisFileDirectory)icon.png" Pack="true" PackagePath="\" Visible="false" />
+    <None Include="$(MSBuildProjectDirectory)/README.md" Pack="true" PackagePath="\" Visible="false" Condition="Exists('$(MSBuildProjectDirectory)/README.md')" />
+  </ItemGroup>
 
 </Project>

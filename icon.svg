@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-label="Qavren">
+  <title>Qavren</title>
+  <!-- The Qavren hex-Q mark: ink hexagon, cream circular counter, azure diamond. Source of
+       truth for icon.png (rendered by foundation/tools/icon/render-icon.py). -->
+  <polygon points="8,0 24,0 32,16 24,32 8,32 0,16" fill="#1b2330"/>
+  <circle cx="16" cy="14" r="7" fill="none" stroke="#f5f4ef" stroke-width="2.5"/>
+  <polygon points="9,22 13,26 9,30 5,26" fill="#3b7bd6"/>
+</svg>
