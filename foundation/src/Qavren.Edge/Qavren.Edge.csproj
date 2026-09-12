@@ -11,7 +11,6 @@
     <PackageId>Qavren.Edge</PackageId>
     <Description>One-line install for the common Qavren.Edge case: hosting core, SQLite with sqlite-vec, and the plain native library. Add Qavren.Edge.Maui for MAUI lifecycle, or swap the native package for Qavren.Edge.Sqlite.Native.Cipher for encryption.</Description>
     <RootNamespace>Qavren.Edge.Meta</RootNamespace>
-    <PackageReadmeFile>README.md</PackageReadmeFile>
     <!-- Meta package: no code of its own. -->
     <NoWarn>$(NoWarn);NU5128</NoWarn>
   </PropertyGroup>
@@ -19,8 +18,5 @@
     <ProjectReference Include="..\Qavren.Edge.Core\Qavren.Edge.Core.csproj" />
     <ProjectReference Include="..\Qavren.Edge.Sqlite\Qavren.Edge.Sqlite.csproj" />
     <ProjectReference Include="..\Qavren.Edge.Sqlite.Native\Qavren.Edge.Sqlite.Native.csproj" />
-  </ItemGroup>
-  <ItemGroup>
-    <None Include="README.md" Pack="true" PackagePath="\" />
   </ItemGroup>
 </Project>
