@@ -211,7 +211,7 @@ public static class ChatMemoryBudget
                 requested,
                 available: request.Resources.AvailableMemoryBytes,
                 usable: null,
-                
+
                     $"Device total memory {totalBytes} bytes ({device.TotalMemorySource}) is below the " +
                     $"{minimum}-byte floor this preset's {shape.WeightsBytes} bytes of weights require, " +
                     $"so the device floor bound and no context was tried. Set " +
@@ -230,7 +230,7 @@ public static class ChatMemoryBudget
                 requested,
                 available: request.Resources.AvailableMemoryBytes,
                 usable: null,
-                
+
                     $"The platform reports IsLowRamDevice = true, which bound before any context was " +
                     $"tried; the preset's {shape.WeightsBytes} bytes of weights cannot be hosted on a " +
                     $"device the OS itself classifies that way.");
@@ -258,7 +258,7 @@ public static class ChatMemoryBudget
                     device.TotalMemoryBytes,
                     kind,
                     terms.UsedMeasuredPeak,
-                    
+
                         $"The platform reported no usable available-memory figure and " +
                         $"RefuseWhenUnknown is set, so the unknown reading bound: " +
                         $"{requested} tokens would have needed {terms.Required} bytes " +
@@ -279,7 +279,7 @@ public static class ChatMemoryBudget
                 device.TotalMemoryBytes,
                 kind,
                 terms.UsedMeasuredPeak,
-                
+
                     $"The platform reported no usable available-memory figure, so nothing bound and " +
                     $"the gate was skipped: proceeding at {requested} tokens, which needs " +
                     $"{terms.Required} bytes (weights {shape.WeightsBytes} + KV " +
@@ -328,7 +328,7 @@ public static class ChatMemoryBudget
                 device.TotalMemoryBytes,
                 kind,
                 terms.UsedMeasuredPeak,
-                
+
                     $"{context} tokens need {terms.Required} bytes ({RequiredTerms(shape, terms, options)}) " +
                     $"against {available.Value} available ({kind}) = {usable} usable, so {bound}. " +
                     $"Every constant here is an engineering estimate.");
@@ -354,7 +354,7 @@ public static class ChatMemoryBudget
             device.TotalMemoryBytes,
             kind,
             smallest.UsedMeasuredPeak,
-            
+
                 $"No rung at or above {options.MinContextTokens} tokens fits: even {smallestContext} " +
                 $"tokens need {smallest.Required} bytes ({RequiredTerms(shape, smallest, options)}) " +
                 $"against {available.Value} available ({kind}) = {usable} usable, so available memory " +
@@ -450,11 +450,11 @@ public static class ChatMemoryBudget
         (long Required, long KvCacheBytes, bool UsedMeasuredPeak) terms,
         ChatMemoryBudgetOptions options)
         => terms.UsedMeasuredPeak
-            ? 
+            ?
                 $"measured peak {shape.MeasuredPeakBytes} + reserve {options.ReserveBytes}, which " +
                 $"exceeded weights {shape.WeightsBytes} + KV {terms.KvCacheBytes} + workspace " +
                 $"{options.WorkspaceBytes} + reserve {options.ReserveBytes}"
-            : 
+            :
                 $"weights {shape.WeightsBytes} + KV {terms.KvCacheBytes} + workspace " +
                 $"{options.WorkspaceBytes} + reserve {options.ReserveBytes}";
 }
