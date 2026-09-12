@@ -1,0 +1,6 @@
+<Project>
+  <Import Project="$([MSBuild]::GetPathOfFileAbove('Directory.Build.props', '$(MSBuildThisFileDirectory)../'))" />
+  <PropertyGroup>
+    <QedgeSubProjectTags>onnx;onnxruntime;embeddings;vector-search;semantic-search;fts5</QedgeSubProjectTags>
+  </PropertyGroup>
+</Project>
