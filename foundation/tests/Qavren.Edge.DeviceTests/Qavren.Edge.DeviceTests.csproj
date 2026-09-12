@@ -23,8 +23,14 @@
          library manifests into the app's. A test host, not a shipped SP1 package - spec 16.4
          names this as the one contingency, and spec 19 item 2(a) is the build that decided it. -->
     <SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'android'">24.0</SupportedOSPlatformVersion>
-    <SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'ios'">15.0</SupportedOSPlatformVersion>
-    <SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'maccatalyst'">15.0</SupportedOSPlatformVersion>
+    <!-- Raised from 15.0 for sub-project 4: ORT GenAI's managed asset group is net9.0-ios15.4 and
+         its xcframework slices are built at that floor, so linking one into a 15.0 deployment
+         target is a linker warning at best and a load failure on a 15.0 device at worst. Android
+         stays 24.0 - GenAI's AAR declares minSdkVersion 24, the same floor ORT's already did. A
+         test host, not a shipped package; spec 5 named this as the one contingency and the plan
+         makes it definite. -->
+    <SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'ios'">15.4</SupportedOSPlatformVersion>
+    <SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'maccatalyst'">15.4</SupportedOSPlatformVersion>
     <SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows'">10.0.17763.0</SupportedOSPlatformVersion>
     <TargetPlatformMinVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows'">10.0.17763.0</TargetPlatformMinVersion>
     <!-- Unpackaged: the CI windows lane launches the built .exe directly, and MSIX packaging would
@@ -46,6 +52,13 @@
          and its fix, ConfigureAwait(false) inside a test body, is what xunit's xUnit1030 forbids.
          CA1711: AppDelegate is the fixed name the iOS and Mac Catalyst app heads must use. -->
     <NoWarn>$(NoWarn);CA2007;CA1711</NoWarn>
+    <!-- XA0141 (android head only): ORT GenAI 0.15.2's AAR ships libmat.so without 16 KB page
+         alignment, which Android 16 requires; libonnxruntime-genai.so itself is aligned. The
+         warning is upstream's to fix and every GenAI consumer sees it. Kept VISIBLE as a warning
+         (WarningsNotAsErrors, not NoWarn) so the CI android lane still prints it, but exempted
+         from -warnaserror so the wave-close solution build is not broken by a package this test
+         host cannot change. Consumers are told in the Qavren.Edge.Chat.Onnx README. -->
+    <WarningsNotAsErrors Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'android'">$(WarningsNotAsErrors);XA0141</WarningsNotAsErrors>
   </PropertyGroup>
 
   <ItemGroup>
@@ -85,6 +98,14 @@
     <ProjectReference Include="..\..\..\embeddings\tests\Qavren.Edge.Onnx.Tests\Qavren.Edge.Onnx.Tests.csproj" />
     <ProjectReference Include="..\..\..\embeddings\tests\Qavren.Edge.Embeddings.Tests\Qavren.Edge.Embeddings.Tests.csproj" />
     <ProjectReference Include="..\..\..\embeddings\tests\Qavren.Edge.VectorData.Tests\Qavren.Edge.VectorData.Tests.csproj" />
+  </ItemGroup>
+  <!-- SP4 spec 16.4: the device lanes run Qavren.Edge.Chat.Tests' tier 1 and tier 2 against GenAI's
+       real Android .so, the real iOS xcframework and the Mac Catalyst RID-graph resolution.
+       SetTargetFramework is not needed: it multi-targets the four device TFMs, so MSBuild resolves
+       the matching one. Qavren.Edge.Rag.Tests is deliberately NOT here - it is host-only and
+       net10.0 alone, exactly as Qavren.Edge.VectorData.Conformance.Tests is. -->
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\chat\tests\Qavren.Edge.Chat.Tests\Qavren.Edge.Chat.Tests.csproj" />
   </ItemGroup>
 
   <!-- Qavren.Edge.Sqlite.Native is taken by ProjectReference here, and a project reference
