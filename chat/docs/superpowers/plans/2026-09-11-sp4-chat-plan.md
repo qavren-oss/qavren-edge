@@ -2987,6 +2987,7 @@ Write-Host 'OK: all four device TFMs compile'
 - [ ] **Step 1:** `Remove-Item -Recurse -Force "D:\Local\Temp\qedge-sp4\w6" -ErrorAction SilentlyContinue`
 - [ ] **Step 2:** Re-run Steps 6 and 7 sequentially without `ArtifactsPath`. This is where the new `Chat.Tests → Qavren.Edge.Rag` edge is proved in the tree CI will use.
 - [ ] **Step 3:** Optionally exercise the tier-3 **opt-in** path once by hand — download the Qwen bundle into a scratch directory, set `QAVREN_EDGE_CHAT_MODEL_DIR`, and run the suite — so the lane is known to work before the first nightly rather than after it. 495 MB, paid once, by hand, never in CI on a PR. If skipped, say so here.
+  - **2026-09-11 close: skipped.** No Qwen bundle was downloaded on this box; the tier-3 facts were exercised on the skip path only (Step 6: Total 418 / Failed 0 / Skipped 5, all five tier-3, `CorpusInvariantTests` ran). The first nightly `chat-model-tests` run is the first real exercise of `RealModelFacts` and `ConfigOverlaySemanticsFacts`, including the `/no_think` system prompt.
 - [ ] **Step 4: Commit**
 
 ```

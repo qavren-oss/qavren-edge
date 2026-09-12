@@ -3,6 +3,7 @@ using System.Text;
 using System.Threading.Channels;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging;
+using Microsoft.ML.OnnxRuntimeGenAI;
 using Qavren.Edge.Onnx;
 
 namespace Qavren.Edge.Chat.Internal;
@@ -254,6 +255,26 @@ internal static class ChatDecodeLoop
                     stop = EdgeChatStopReason.MaxOutputTokens;
                 }
             }
+        }
+        catch (OnnxRuntimeGenAIException) when (ct.IsCancellationRequested)
+        {
+            // The caller's cancel registration set terminate_session while IsDone() or
+            // GenerateNextToken() was inside native code, and GenAI 0.15.2 reports that as a throw
+            // ("Exiting due to terminate flag being set to true") rather than as a returned step.
+            // That is the cancel the caller asked for, not a native fault: same outcome as below.
+            cancelled = true;
+            stop = EdgeChatStopReason.Cancelled;
+        }
+        catch (OnnxRuntimeGenAIException) when (context.Host.TerminationRequested)
+        {
+            // TerminateActiveGeneration() from another thread - MemoryPressure(Critical), Sleeping
+            // or a caller - landed inside the native call instead of between two tokens. Spec
+            // section 15.3: the stream COMPLETES with StopReason = MemoryPressure / Suspended and
+            // FinishReason.Stop; it is not a 7104.
+            stop = context.Host.SuspendRequested
+                ? EdgeChatStopReason.Suspended
+                : EdgeChatStopReason.MemoryPressure;
+            ChatTurnLog.TurnTerminated(logger, stop, generated);
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {

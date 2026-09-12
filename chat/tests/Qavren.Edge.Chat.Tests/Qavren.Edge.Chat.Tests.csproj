@@ -55,10 +55,25 @@
     <EmbeddedResource Include="..\..\..\foundation\docs\errors.md" Link="Fixtures\errors.md" LogicalName="errors.md" />
   </ItemGroup>
 
+  <!-- EMBEDDED, never copied, for the same reason errors.md is: Tier3/corpus.json is read by
+       CorpusInvariantTests, a TIER-1 test that runs on every host and device lane (plan
+       adjustment 26), and a file "beside the assembly" is not a thing on an Android or iOS lane.
+       The tier-3 facts load the same resource through the same constant, so the corpus the
+       invariant guards and the corpus the nightly answers over cannot be two different files. -->
+  <ItemGroup>
+    <EmbeddedResource Include="Tier3\corpus.json" LogicalName="corpus.json" />
+  </ItemGroup>
+
   <ItemGroup>
     <PackageReference Include="Microsoft.Extensions.DependencyInjection" />
     <PackageReference Include="Microsoft.Extensions.Logging" />
     <ProjectReference Include="..\..\src\Qavren.Edge.Chat.Onnx\Qavren.Edge.Chat.Onnx.csproj" />
+    <!-- Spec 16.1's cross-package literal assertion needs a project that sees BOTH packages. The
+         edge is created HERE and not in the skeleton, because waves 3 and 4 had one task writing
+         Qavren.Edge.Rag while another built this project (plan adjustment 14). Qavren.Edge.Rag is
+         net10.0 only and this project multi-targets; a platform TFM referencing a net10.0 library
+         is ordinary TFM compatibility, exactly as Qavren.Edge.VectorData.Tests already does. -->
+    <ProjectReference Include="..\..\src\Qavren.Edge.Rag\Qavren.Edge.Rag.csproj" />
   </ItemGroup>
 
   <!-- Spec 16.4's device-only assertions (Task 6.1). An ActivityManager read or an
