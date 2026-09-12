@@ -18,8 +18,14 @@
     <PackageProjectUrl>https://github.com/qavren-oss/qavren-edge</PackageProjectUrl>
     <RepositoryUrl>https://github.com/qavren-oss/qavren-edge</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
+    <PackageIcon>icon.png</PackageIcon>
     <PackageTags>sqlite;sqlite-vec;vector;maui;embedded</PackageTags>
     <MinVerTagPrefix>v</MinVerTagPrefix>
   </PropertyGroup>
+
+  <ItemGroup Condition="'$(IsPackable)' == 'true'">
+    <!-- One icon for the suite, packed at the package root. Visible=false keeps it out of IDE trees. -->
+    <None Include="$(MSBuildThisFileDirectory)icon.png" Pack="true" PackagePath="\" Visible="false" />
+  </ItemGroup>
 
 </Project>
