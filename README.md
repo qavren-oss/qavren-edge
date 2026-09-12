@@ -251,15 +251,15 @@ never use it in a remote URL, a workflow, or a tool argument.
 - [x] **`main` exists and CI reports on it.** Sub-projects 1 and 2 merged through PRs #1 and #15.
 - [x] **Apply branch protection** (applied 2026-09-12; required contexts `ci-gate` and
       `natives / native-gate`, linear history, conversation resolution).
-- [ ] Reserve the `Qavren.` NuGet ID prefix by **emailing `account@nuget.org`** with the
-      nuget.org owner display name (`Qavren`, admin `stevenfackley`) and the requested prefix.
-      There is no web form. Do this after the first package is published with a `license`
-      expression and an embedded `icon`.
+- [x] **`Qavren.` NuGet ID prefix reserved.** Requested by email to `account@nuget.org` on
+      2026-09-10 (owner display name `Qavren`, admin `stevenfackley`; there is no web form) and
+      confirmed by nuget.org support on 2026-09-11.
 - [x] Added to the workspace CI audit roster (2026-09-12).
+- [x] **`release.yml` dry run green** (2026-09-12, run 34716740504): natives, pack, the package
+      metadata assertion, zips, SBOM, checksums and the `release-dry-run` artifact, with the
+      NuGet push and the GitHub release skipped as designed.
 - [ ] Add the `NUGET_API_KEY` repository secret (scope: push new packages and versions, glob
-      `Qavren.*`). Then dispatch `release.yml` by hand once as a dry run, download
-      `release-dry-run`, and only then push `v0.1.0-preview.1` on `main`. The prefix email goes
-      out after nuget.org lists the packages. Design:
+      `Qavren.*`), then push `v0.1.0-preview.1` on `main`. Design:
       `docs/superpowers/specs/2026-09-12-sp5-release-path-design.md`.
 
 ## Licence
