@@ -249,22 +249,18 @@ The GitHub organisation is `qavren-oss` and the repo is `qavren-oss/qavren-edge`
 never use it in a remote URL, a workflow, or a tool argument.
 
 - [x] **`main` exists and CI reports on it.** Sub-projects 1 and 2 merged through PRs #1 and #15.
-- [ ] **Apply branch protection**, now that `ci.yml` and `native.yml` have each reported and their
-      contexts are known to GitHub:
-
-      ```powershell
-      gh api --method PUT repos/qavren-oss/qavren-edge/branches/main/protection --input .github/branch-protection.json
-      ```
-
-      Required contexts are `ci-gate` and `natives / native-gate` (see
-      `.github/branch-protection.json`); both gate jobs always report, so a managed-only
-      PR is never blocked waiting on a skipped native build.
+- [x] **Apply branch protection** (applied 2026-09-12; required contexts `ci-gate` and
+      `natives / native-gate`, linear history, conversation resolution).
 - [ ] Reserve the `Qavren.` NuGet ID prefix by **emailing `account@nuget.org`** with the
       nuget.org owner display name (`Qavren`, admin `stevenfackley`) and the requested prefix.
       There is no web form. Do this after the first package is published with a `license`
       expression and an embedded `icon`.
-- [ ] Add the repo to `_tooling/lib/repos.psd1` (`ActiveCI`) and regenerate the roster.
-- [ ] Add the `NUGET_API_KEY` repository secret before the first `v*` tag, or `release.yml` fails at the push step.
+- [x] Added to the workspace CI audit roster (2026-09-12).
+- [ ] Add the `NUGET_API_KEY` repository secret (scope: push new packages and versions, glob
+      `Qavren.*`). Then dispatch `release.yml` by hand once as a dry run, download
+      `release-dry-run`, and only then push `v0.1.0-preview.1` on `main`. The prefix email goes
+      out after nuget.org lists the packages. Design:
+      `docs/superpowers/specs/2026-09-12-sp5-release-path-design.md`.
 
 ## Licence
 
