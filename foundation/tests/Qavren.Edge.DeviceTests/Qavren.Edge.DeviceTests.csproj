@@ -85,6 +85,14 @@
     <ProjectReference Include="..\..\..\embeddings\tests\Qavren.Edge.Onnx.Tests\Qavren.Edge.Onnx.Tests.csproj" />
     <ProjectReference Include="..\..\..\embeddings\tests\Qavren.Edge.Embeddings.Tests\Qavren.Edge.Embeddings.Tests.csproj" />
     <ProjectReference Include="..\..\..\embeddings\tests\Qavren.Edge.VectorData.Tests\Qavren.Edge.VectorData.Tests.csproj" />
+    <!-- Spec 14.6: no new device lane. These two multi-target the same four device TFMs as the
+         SP2 test libraries above, so the four existing lanes run SP3's tier-1 assertions, the
+         vec0/FTS5 half of tier 2, the PdfPig asset trap and the whole-observer-chain Sleeping
+         measurement against the real Android .so and the real iOS xcframework.
+         Qavren.Edge.Ingestion.Onnx.Tests and ...DataIngestion.Tests are deliberately absent:
+         both are net10.0 alone and host-only. -->
+    <ProjectReference Include="..\..\..\ingestion\tests\Qavren.Edge.Ingestion.Tests\Qavren.Edge.Ingestion.Tests.csproj" />
+    <ProjectReference Include="..\..\..\ingestion\tests\Qavren.Edge.Ingestion.Extractors.Tests\Qavren.Edge.Ingestion.Extractors.Tests.csproj" />
   </ItemGroup>
 
   <!-- Qavren.Edge.Sqlite.Native is taken by ProjectReference here, and a project reference
