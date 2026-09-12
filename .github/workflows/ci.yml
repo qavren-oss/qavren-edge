@@ -124,7 +124,7 @@ jobs:
             $got = ($m.compile.PSObject.Properties.Name) -join ','
             if ($got -ne $expected[$tfm]) { throw "$tfm resolved '$got'; expected '$($expected[$tfm])'" }
             $native = $a.targets.$tfm.'Microsoft.ML.OnnxRuntimeGenAI/0.15.2'
-            if ($native.compile) { throw "$tfm: the native package resolved compile assets; this assertion is scanning the wrong package id" }
+            if ($native.compile) { throw "${tfm}: the native package resolved compile assets; this assertion is scanning the wrong package id" }
             Write-Host "OK $tfm -> $got"
           }
 

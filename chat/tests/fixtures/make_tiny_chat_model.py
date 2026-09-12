@@ -220,11 +220,33 @@ FILES = [
     ("ChatTemplateJinja", "chat_template.jinja"),
 ]
 
+# The builder's save_processing round-trips the tokenizer through transformers, which writes
+# genai_config.json, tokenizer.json, tokenizer_config.json and chat_template.jinja with a plain
+# text-mode open() and no newline=, so on Windows every LF in them lands on disk as CRLF and on
+# Linux it does not. That made the committed base64 a function of the generator's OS: a
+# Windows-generated chat_template.jinja renders "<|user|>\r\nping\r\n" through minja, which is
+# what the tier-2 template assertions (LF, as CHAT_TEMPLATE above is written) caught on the
+# ubuntu and macOS legs while Windows-local runs of the same fixture agreed with themselves.
+# Normalise the TEXT files - and only the text files - to LF before base64, so the fixture is
+# the same bytes whoever regenerates it. model.onnx and model.onnx.data are binary protobuf and
+# tensor data and must never be touched: a CRLF-looking byte pair in them is data.
+TEXT_FILES = frozenset({
+    "genai_config.json",
+    "tokenizer.json",
+    "tokenizer_config.json",
+    "chat_template.jinja",
+})
+
 
 def emit(out_dir: pathlib.Path, cs_path: pathlib.Path) -> None:
     blobs = {}
     for name, filename in FILES:
         data = (out_dir / filename).read_bytes()
+        if filename in TEXT_FILES:
+            data = data.replace(b"\r\n", b"\n")
+            if b"\r" in data:
+                raise SystemExit(f"{filename} carries a lone CR after normalisation; it is not "
+                                 f"the LF text file this fixture assumes")
         blobs[name] = (filename, data, base64.b64encode(data).decode("ascii"))
 
     lines = [
