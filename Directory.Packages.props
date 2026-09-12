@@ -77,6 +77,13 @@
     <PackageVersion Include="CsCheck" Version="4.8.0" />
   </ItemGroup>
 
+  <!-- Referenced by ingestion/samples/Ingestion.Background.Android ONLY (net10.0-android class
+       library): Worker, ForegroundInfo, SetForegroundAsync and the stop-reason constants are
+       AndroidX WorkManager, not Mono.Android. Never referenced by a src/ project. -->
+  <ItemGroup Label="SP3 samples">
+    <PackageVersion Include="Xamarin.AndroidX.Work.Runtime" Version="2.11.2.1" />
+  </ItemGroup>
+
   <!-- Referenced by ingestion/tests/Qavren.Edge.Ingestion.DataIngestion.Tests ONLY.
        The MEDI IMPLEMENTATION package ships IngestionPipeline<T>, which the conformance test
        needs and the shim does not. Never referenced by a src/ project. Its net10.0 closure is

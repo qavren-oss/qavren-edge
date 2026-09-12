@@ -7,12 +7,21 @@
          rename. -->
     <TargetFramework>net10.0-android</TargetFramework>
     <IsPackable>false</IsPackable>
-    <SupportedOSPlatformVersion>24.0</SupportedOSPlatformVersion>
+    <!-- 29, not 24: ForegroundService.TypeDataSync and the typed StartForeground overload are
+         API 29+, and CA1416 (an error here) refuses them below that floor. The channel-based
+         Notification.Builder(Context, string) this needs is API 26+, so 29 covers it too. An app
+         with a lower minimum guards these calls with OperatingSystem.IsAndroidVersionAtLeast(29)
+         and runs unpromoted below it. -->
+    <SupportedOSPlatformVersion>29.0</SupportedOSPlatformVersion>
     <RootNamespace>Ingestion.Background.Android</RootNamespace>
   </PropertyGroup>
 
   <ItemGroup>
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
+    <!-- WorkManager: Worker, ForegroundInfo, SetForegroundAsync and the stop-reason constants.
+         Transitively brings AndroidX.Core (NotificationCompat) - not used here on purpose, the
+         platform Notification.Builder is enough at API 26+. -->
+    <PackageReference Include="Xamarin.AndroidX.Work.Runtime" />
     <ProjectReference Include="..\..\src\Qavren.Edge.Ingestion\Qavren.Edge.Ingestion.csproj" />
   </ItemGroup>
 </Project>
