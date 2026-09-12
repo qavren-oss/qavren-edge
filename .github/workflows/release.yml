@@ -40,6 +40,10 @@ jobs:
       - name: Pack
         run: dotnet pack QavrenEdge.slnx -c Release -o artifacts/packages
 
+      - name: Assert package metadata (icon, README, tags)
+        shell: pwsh
+        run: pwsh foundation/tools/ci-checks/assert-packages.ps1
+
       # One zip per build host keeps the release page readable.
       - name: Zip the native artifacts
         shell: pwsh
@@ -65,17 +69,39 @@ jobs:
       - name: Checksums
         shell: pwsh
         run: |
-          $files = @(Get-ChildItem artifacts/packages/*.nupkg, artifacts/packages/*.snupkg, artifacts/native/*.zip, artifacts/sbom.spdx.json -ErrorAction SilentlyContinue)
-          if ($files.Count -lt 8) { throw "expected at least 8 release files, found $($files.Count)" }
+          $nupkg  = @(Get-ChildItem artifacts/packages/*.nupkg)
+          $snupkg = @(Get-ChildItem artifacts/packages/*.snupkg)
+          $zips   = @(Get-ChildItem artifacts/native/*.zip)
+          if ($nupkg.Count -ne 17) { throw "expected 17 .nupkg, found $($nupkg.Count)" }
+          if ($snupkg.Count -lt 15) { throw "expected at least 15 .snupkg, found $($snupkg.Count)" }
+          if ($zips.Count -ne 3)    { throw "expected 3 native zips, found $($zips.Count)" }
+          if (-not (Test-Path artifacts/sbom.spdx.json)) { throw "artifacts/sbom.spdx.json is missing" }
+          $files = $nupkg + $snupkg + $zips + @(Get-Item artifacts/sbom.spdx.json)
           $files | ForEach-Object { "{0}  {1}" -f (Get-FileHash $_ -Algorithm SHA256).Hash, $_.Name } |
             Set-Content artifacts/SHA256SUMS.txt
           Get-Content artifacts/SHA256SUMS.txt
 
+      # workflow_dispatch is the dry run: everything above ran, nothing below does, and the
+      # would-be release assets are inspectable as a workflow artifact.
+      - uses: actions/upload-artifact@v7
+        if: "!startsWith(github.ref, 'refs/tags/v')"
+        with:
+          name: release-dry-run
+          path: |
+            artifacts/packages/*.nupkg
+            artifacts/packages/*.snupkg
+            artifacts/native/*.zip
+            artifacts/sbom.spdx.json
+            artifacts/SHA256SUMS.txt
+
       - name: Push to NuGet.org
+        if: startsWith(github.ref, 'refs/tags/v')
         run: dotnet nuget push "artifacts/packages/*.nupkg" --source https://api.nuget.org/v3/index.json --api-key ${{ secrets.NUGET_API_KEY }} --skip-duplicate
 
       - uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/v')
         with:
+          prerelease: ${{ contains(github.ref_name, '-') }}
           files: |
             artifacts/packages/*.nupkg
             artifacts/packages/*.snupkg

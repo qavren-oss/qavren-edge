@@ -182,6 +182,20 @@ if ci_text.count("assert-packages.ps1") != 1:
 if not (root / "foundation" / "tools" / "ci-checks" / "assert-packages.ps1").is_file():
     problems.append("foundation/tools/ci-checks/assert-packages.ps1 is missing")
 
+# release.yml: workflow_dispatch is a dry run. Exactly the two publishing steps are guarded on a
+# v* tag, the dry run uploads the would-be assets, prereleases are flagged from the tag name, and
+# the release job proves package metadata before anything is pushed.
+if rel_text.count("if: startsWith(github.ref, 'refs/tags/v')") != 2:
+    problems.append("release.yml must guard exactly two steps (NuGet push, GitHub release) on startsWith(github.ref, 'refs/tags/v')")
+for token in ("name: release-dry-run", "prerelease: ${{ contains(github.ref_name, '-') }}",
+              "assert-packages.ps1", "expected 17 .nupkg"):
+    if token not in rel_text:
+        problems.append("release.yml missing " + token)
+rel_steps = rel["jobs"]["release"]["steps"]
+names = [str(s.get("name", s.get("uses", ""))) for s in rel_steps]
+if names.index("Push to NuGet.org") > [i for i, s in enumerate(rel_steps) if str(s.get("uses", "")).startswith("softprops/action-gh-release")][0]:
+    problems.append("release.yml must push to NuGet before creating the GitHub release")
+
 win = ci["jobs"]["device-tests-windows"]["runs-on"]
 print("\n".join(problems) if problems else "OK: gates, 4 device lanes, JUnit, win-arm64, native artifact cache + reuse, SBOM and native release assets all present (windows lane on %s)" % win)
 sys.exit(1 if problems else 0)
