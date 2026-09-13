@@ -96,7 +96,7 @@ Six decisions shape everything below.
 
 | # | Decision | How SP3 honours it |
 |---|---|---|
-| 1 | On par with Shiny = hosting + DX only | No scheduling. `IngestionBudget` + `Suspended` + durable state is the seam; the two OS wirings are samples and a docs page. |
+| 1 | Hosting ergonomics = hosting + DX only | No scheduling. `IngestionBudget` + `Suspended` + durable state is the seam; the two OS wirings are samples and a docs page. |
 | 2 | L0 → L1 → L2 layering | Ingestion is L2 and consumes only L1 public surface: `IEmbeddingGenerator`, `EdgeVectorStore`, `IEdgeDatabase`. The core package does **not** reference `Qavren.Edge.Embeddings.Onnx` and **names no type from it** — `IChunkTokenizer` and `ChunkModelProfile` are the core-owned seams, and `Qavren.Edge.Ingestion.Onnx` is the bridge (§4.1, §11.2). |
 | 6 | TFMs | Every SP3 shipped package is `net10.0` alone. Nothing in SP3 touches a platform API: PdfPig, DocumentFormat.OpenXml and Markdig are pure managed with no `runtimes/` folder between them. **Two** of the four test projects — `Ingestion.Tests` and `Ingestion.Extractors.Tests` — are device-hosted and take all five TFMs (`net10.0;net10.0-android;net10.0-ios;net10.0-maccatalyst;net10.0-windows10.0.19041.0`) so the Windows device lane can reference them, exactly as SP2's do. `Ingestion.Onnx.Tests` and `Ingestion.DataIngestion.Tests` are `net10.0` host-only (§4.2, §14.6). |
 | 9 | Ingestion inputs | Text + Markdown chunkers, PDF and DOCX extraction. Images later — an image element is not in the document model, and the MEDI shim drops images with a logged warning (§7.1). HTML is **not** in decision 9 and is not in SP3 (§18). |
