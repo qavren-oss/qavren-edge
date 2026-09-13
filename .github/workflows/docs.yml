@@ -1,0 +1,55 @@
+name: docs
+
+# Builds the DocFX site on every PR (no deploy; a broken link or a metadata failure is a red
+# check) and builds + deploys it to GitHub Pages on every push to main.
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+env:
+  DOTNET_NOLOGO: 'true'
+  DOTNET_SKIP_FIRST_TIME_EXPERIENCE: 'true'
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0    # the template's "edit this page" and last-updated read git history
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+      # Qavren.Edge.Maui has no net10.0 target; its API metadata is built as net10.0-android,
+      # the one MAUI target a Linux runner can restore.
+      - run: dotnet workload install maui-android --version 10.0.201
+      - run: dotnet tool restore
+      - name: Build the site
+        run: dotnet docfx docs/site/docfx.json --warningsAsErrors
+      - uses: actions/upload-pages-artifact@v4
+        with:
+          path: docs/site/_site
+
+  deploy:
+    if: github.event_name != 'pull_request'
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
