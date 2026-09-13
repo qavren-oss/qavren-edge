@@ -207,6 +207,32 @@ if "Push to NuGet.org" not in names or not release_idx:
 elif names.index("Push to NuGet.org") > release_idx[0]:
     problems.append("release.yml must push to NuGet before creating the GitHub release")
 
+# --- Docs site (SP5 part 2) ---
+# docs.yml builds on every PR and deploys only off pull_request; the build is the link check,
+# so --warningsAsErrors must stay on; the deploy is the official Pages action.
+docs_path = w / "docs.yml"
+if not docs_path.is_file():
+    problems.append("docs.yml is missing")
+else:
+    docs_text = docs_path.read_text(encoding="utf-8")
+    docs = yaml.safe_load(docs_text)
+    docs_on = docs.get("on", docs.get(True)) or {}
+    if "pull_request" not in docs_on or "push" not in docs_on:
+        problems.append("docs.yml must run on pull_request and on push")
+    deploy = docs.get("jobs", {}).get("deploy", {})
+    if "pull_request" not in str(deploy.get("if", "")):
+        problems.append("docs.yml deploy job must be guarded off pull_request")
+    if "--warningsAsErrors" not in docs_text:
+        problems.append("docs.yml must build the site with --warningsAsErrors")
+    if "actions/deploy-pages" not in docs_text or "actions/upload-pages-artifact" not in docs_text:
+        problems.append("docs.yml must upload with upload-pages-artifact and deploy with deploy-pages")
+    if "maui-android" not in docs_text:
+        problems.append("docs.yml must install maui-android for the Qavren.Edge.Maui metadata build")
+    maui_cmd = "dotnet docfx metadata docs/site/docfx.maui.json"
+    gated_cmd = "dotnet docfx docs/site/docfx.json --warningsAsErrors"
+    if maui_cmd not in docs_text or gated_cmd not in docs_text or docs_text.index(maui_cmd) > docs_text.index(gated_cmd):
+        problems.append("docs.yml must run the ungated Qavren.Edge.Maui metadata (docfx.maui.json) before the gated build")
+
 win = ci["jobs"]["device-tests-windows"]["runs-on"]
 print("\n".join(problems) if problems else "OK: gates, 4 device lanes, JUnit, win-arm64, native artifact cache + reuse, SBOM and native release assets all present (windows lane on %s)" % win)
 sys.exit(1 if problems else 0)

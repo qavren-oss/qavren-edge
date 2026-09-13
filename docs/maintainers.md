@@ -101,6 +101,27 @@ dotnet format QavrenEdge.slnx --verify-no-changes --no-restore
 projects it references for that single TFM; run `dotnet restore` on the
 solution again before `dotnet format`, or it reports `IDE0005` on every file.
 
+## Docs site
+
+`https://edge.qavrensolutions.com` is a DocFX site (`docs/site/`), built by
+`docs.yml` on every PR and deployed to GitHub Pages on every push to `main`.
+Repository markdown is pulled in from where it lives and mirrored under
+`repo/`; the API reference is generated from the packages' XML documentation
+(`Qavren.Edge.Maui` as `net10.0-android` from `docs/site/docfx.maui.json`, run
+first and ungated because DocFX warns about its `net10.0`-only project reference;
+everything else as `net10.0` from `docs/site/docfx.json`). The gated build runs with
+`--warningsAsErrors`, so an unresolved link in any README that
+is part of the site fails the PR: link to documentation files by relative path
+and to source or samples by absolute GitHub URL.
+
+Local build: `dotnet tool restore` once, then
+`dotnet docfx docs/site/docfx.json --serve` and open the printed URL.
+
+GitHub Pages is configured with `build_type: workflow` and the custom domain;
+DNS is a `CNAME edge -> qavren-oss.github.io` record on Cloudflare, not
+proxied. If the certificate ever lapses, GitHub reissues it once the record
+resolves; nothing in the repo holds it.
+
 ## Verification evidence
 
 - The tier-0 GenAI smoke (`tier0-genai-smoke.yml`, manual) links ONNX Runtime

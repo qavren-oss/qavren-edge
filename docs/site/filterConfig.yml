@@ -1,0 +1,9 @@
+apiRules:
+  # These namespaces hold types that must be `public` for framework interop (DI registration,
+  # source-generator interop, etc.) but are not part of the supported public API surface.
+  - exclude:
+      uidRegex: ^Qavren\.Edge\..*\.Internal$
+      type: Namespace
+  - exclude:
+      uidRegex: ^Qavren\.Edge\..*\.Internal\..+
+      type: Type
