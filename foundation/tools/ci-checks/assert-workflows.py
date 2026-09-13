@@ -186,8 +186,15 @@ if not (root / "foundation" / "tools" / "ci-checks" / "assert-packages.ps1").is_
 # release.yml: workflow_dispatch is a dry run. Exactly the two publishing steps are guarded on a
 # v* tag, the dry run uploads the would-be assets, prereleases are flagged from the tag name, and
 # the release job proves package metadata before anything is pushed.
-if rel_text.count("if: startsWith(github.ref, 'refs/tags/v')") != 2:
-    problems.append("release.yml must guard exactly two steps (NuGet push, GitHub release) on startsWith(github.ref, 'refs/tags/v')")
+if rel_text.count("if: startsWith(github.ref, 'refs/tags/v')") != 3:
+    problems.append("release.yml must guard exactly three steps (NuGet login, NuGet push, GitHub release) on startsWith(github.ref, 'refs/tags/v')")
+# Trusted publishing: the login step mints the key from the GitHub OIDC token, which needs
+# id-token: write on the release job; no NUGET_API_KEY secret may survive in the workflow.
+for token in ("uses: NuGet/login@v1", "id-token: write", "steps.login.outputs.NUGET_API_KEY"):
+    if token not in rel_text:
+        problems.append("release.yml missing " + token)
+if "secrets.NUGET_API_KEY" in rel_text:
+    problems.append("release.yml still reads secrets.NUGET_API_KEY; publishing is OIDC trusted publishing")
 for token in ("name: release-dry-run", "prerelease: ${{ contains(github.ref_name, '-') }}",
               "assert-packages.ps1", "expected 17 .nupkg"):
     if token not in rel_text:
