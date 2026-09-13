@@ -24,7 +24,7 @@ namespace Qavren.Edge.Ingestion;
 /// <item>Tables split row-wise with the header row re-emitted on every piece when
 /// <c>RepeatTableHeaderRow</c>.</item>
 /// <item>A breadcrumb over <c>HeadingPathTokenBudget</c> is truncated from the LEFT and logged as
-/// event 910 - in <see cref="Internal.ChunkAssembly"/>, which owns that rule for every chunker.</item>
+/// event 910 - in <c>ChunkAssembly</c>, which owns that rule for every chunker.</item>
 /// </list>
 /// <para>
 /// Two behaviours the spec leaves implicit and this implementation fixes, recorded here because a

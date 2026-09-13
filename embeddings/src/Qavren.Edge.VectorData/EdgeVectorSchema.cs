@@ -20,7 +20,7 @@ public sealed class EdgeVectorSchema
     /// <summary>
     /// The token <see cref="BuildKnnSql"/> and <see cref="BuildHybridRrfSql"/> leave where the
     /// translated filter predicate goes. The caller substitutes the SQL that
-    /// <see cref="EdgeFilterTranslator"/> produced; the surrounding
+    /// <c>EdgeFilterTranslator</c> produced; the surrounding
     /// <c>rowid IN (SELECT "_rowid" FROM &lt;data table&gt; WHERE ...)</c> is already in place,
     /// which is what makes an arbitrary MEVD filter a true vec0 pre-filter.
     /// </summary>

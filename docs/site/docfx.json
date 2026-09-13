@@ -34,9 +34,7 @@
           "getting-started.md",
           "toc.yml",
           "api/**.yml",
-          "api/index.md",
-          "api-maui/**.yml",
-          "api-maui/index.md"
+          "api-maui/**.yml"
         ]
       },
       {
@@ -78,6 +76,11 @@
         "files": [
           "icon.svg",
           "icon.png"
+        ]
+      },
+      {
+        "files": [
+          "public/**"
         ]
       }
     ],

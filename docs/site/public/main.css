@@ -1,0 +1,10 @@
+/* Site overrides for the DocFX modern template. Loaded after docfx.min.css on every page. */
+
+/* The template sizes the navbar logo by its own rules and the brand mark came out at ~7rem,
+   covering the brand text and the first nav item. Keep it at the height of the brand text. */
+.navbar-brand > #logo,
+#logo {
+  height: 2rem;
+  width: 2rem;
+  margin-right: 0.5rem;
+}
