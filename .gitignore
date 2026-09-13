@@ -57,3 +57,9 @@ chat/tests/fixtures/_scratch/
 # Sub-project 4 preset-hash toolchain. Same shape: ChatPresets.g.cs is committed, the venv is not.
 # The script is run by hand and never by a build or by CI.
 chat/tools/model-hashes/.venv/
+
+# DocFX (docs/site): generated metadata and the built site
+docs/site/_site/
+docs/site/api/
+docs/site/api-maui/
+docs/site/obj/
