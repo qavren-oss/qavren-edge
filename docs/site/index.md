@@ -1,9 +1,9 @@
 ---
 _layout: landing
-title: Qavren.Edge
+title: On-device data and AI for .NET
 ---
 
-# Qavren.Edge
+# On-device data and AI for .NET MAUI and .NET 10
 
 On-device data and AI for .NET MAUI and .NET 10: SQLite with `sqlite-vec`,
 ONNX Runtime embeddings, a `Microsoft.Extensions.VectorData` store, document
