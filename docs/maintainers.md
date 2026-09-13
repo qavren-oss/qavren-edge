@@ -114,6 +114,12 @@ everything else as `net10.0` from `docs/site/docfx.json`). The gated build runs 
 is part of the site fails the PR: link to documentation files by relative path
 and to source or samples by absolute GitHub URL.
 
+The navbar nests one level only, so Decisions, API reference and MAUI API are sections with
+their own folder TOC and overview page (`docs/site/decisions/`, `docs/site/api/`,
+`docs/site/api-maui/`); the generated API pages land under `api/reference/` and
+`api-maui/reference/`, which are gitignored. After adding or renaming an ADR run
+`python docs/site/tools/generate-decisions.py` to regenerate the Decisions section.
+
 Local build: `dotnet tool restore` once, then
 `dotnet docfx docs/site/docfx.json --serve` and open the printed URL.
 

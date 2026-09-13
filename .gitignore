@@ -60,6 +60,6 @@ chat/tools/model-hashes/.venv/
 
 # DocFX (docs/site): generated metadata and the built site
 docs/site/_site/
-docs/site/api/
-docs/site/api-maui/
+docs/site/api/reference/
+docs/site/api-maui/reference/
 docs/site/obj/

@@ -5,11 +5,15 @@
       "src": [
         {
           "src": "../..",
-          "files": [ "foundation/src/Qavren.Edge.Maui/Qavren.Edge.Maui.csproj" ]
+          "files": [
+            "foundation/src/Qavren.Edge.Maui/Qavren.Edge.Maui.csproj"
+          ]
         }
       ],
-      "dest": "api-maui",
-      "properties": { "TargetFramework": "net10.0-android" },
+      "dest": "api-maui/reference",
+      "properties": {
+        "TargetFramework": "net10.0-android"
+      },
       "filter": "filterConfig.yml",
       "namespaceLayout": "nested",
       "memberLayout": "separatePages"
