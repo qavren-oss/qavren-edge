@@ -1,0 +1,82 @@
+{
+  "$schema": "https://raw.githubusercontent.com/dotnet/docfx/main/schemas/docfx.schema.json",
+  "metadata": [
+    {
+      "src": [
+        {
+          "src": "../..",
+          "files": [
+            "foundation/src/*/*.csproj",
+            "embeddings/src/*/*.csproj",
+            "ingestion/src/*/*.csproj",
+            "chat/src/*/*.csproj"
+          ],
+          "exclude": [ "foundation/src/Qavren.Edge.Maui/**" ]
+        }
+      ],
+      "dest": "api",
+      "properties": { "TargetFramework": "net10.0" },
+      "filter": "filterConfig.yml",
+      "namespaceLayout": "nested",
+      "memberLayout": "separatePages",
+      "enumSortOrder": "declaringOrder"
+    },
+    {
+      "src": [
+        {
+          "src": "../..",
+          "files": [ "foundation/src/Qavren.Edge.Maui/Qavren.Edge.Maui.csproj" ]
+        }
+      ],
+      "dest": "api-maui",
+      "properties": { "TargetFramework": "net10.0-android" },
+      "filter": "filterConfig.yml",
+      "namespaceLayout": "nested",
+      "memberLayout": "separatePages"
+    }
+  ],
+  "build": {
+    "content": [
+      {
+        "files": [ "index.md", "getting-started.md", "toc.yml", "api/**.yml", "api/index.md", "api-maui/**.yml", "api-maui/index.md" ]
+      },
+      {
+        "src": "../..",
+        "dest": "repo",
+        "files": [
+          "foundation/README.md",
+          "foundation/docs/**/*.md",
+          "foundation/native/README.md",
+          "foundation/src/*/README.md",
+          "embeddings/README.md",
+          "embeddings/docs/adr/*.md",
+          "embeddings/src/*/README.md",
+          "ingestion/README.md",
+          "ingestion/docs/adr/*.md",
+          "ingestion/src/*/README.md",
+          "chat/README.md",
+          "chat/docs/adr/*.md",
+          "chat/src/*/README.md"
+        ],
+        "exclude": [ "**/docs/superpowers/**", "**/bin/**", "**/obj/**" ]
+      }
+    ],
+    "resource": [
+      { "src": "../..", "dest": "repo", "files": [ "LICENSE", "THIRD-PARTY-NOTICES.md" ] },
+      { "src": "../..", "files": [ "icon.svg", "icon.png" ] }
+    ],
+    "output": "_site",
+    "template": [ "default", "modern" ],
+    "globalMetadata": {
+      "_appTitle": "Qavren.Edge",
+      "_appName": "Qavren.Edge",
+      "_appLogoPath": "icon.svg",
+      "_appFaviconPath": "icon.png",
+      "_appFooter": "Qavren.Edge is MIT licensed. A Qavren Solutions LLC project.",
+      "_enableSearch": true,
+      "_gitContribute": { "repo": "https://github.com/qavren-oss/qavren-edge", "branch": "main" }
+    },
+    "sitemap": { "baseUrl": "https://edge.qavrensolutions.com/" },
+    "xref": [ "https://learn.microsoft.com/en-us/dotnet/.xrefmap.json" ]
+  }
+}
