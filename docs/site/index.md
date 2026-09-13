@@ -32,8 +32,8 @@ depends on PdfPig (Apache-2.0), which is why PDF support is a separate package.
   [ingestion](../../ingestion/README.md), [chat and RAG](../../chat/README.md).
 - [Error codes](../../foundation/docs/errors.md): every `EdgeException` carries
   a numbered code and a remediation.
-- [API reference](xref:Qavren.Edge) for every package, and the
-  [MAUI package](xref:Qavren.Edge.Maui).
+- [API reference](api/index.md) for every package, and the
+  [MAUI package](api-maui/index.md).
 - Decisions: the architecture decision records for each area, in the sidebar.
 
 ## Supported platforms
