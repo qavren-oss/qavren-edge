@@ -1,0 +1,102 @@
+- name: Getting started
+  href: getting-started.md
+- name: Guides
+  items:
+    - name: Hosting core and SQLite
+      href: ../../foundation/README.md
+    - name: Embeddings and the vector store
+      href: ../../embeddings/README.md
+    - name: Ingestion
+      href: ../../ingestion/README.md
+    - name: Chat and RAG
+      href: ../../chat/README.md
+    - name: Building the native library
+      href: ../../foundation/native/README.md
+- name: Packages
+  items:
+    - name: Qavren.Edge
+      href: ../../foundation/src/Qavren.Edge/README.md
+    - name: Qavren.Edge.Core
+      href: ../../foundation/src/Qavren.Edge.Core/README.md
+    - name: Qavren.Edge.Maui
+      href: ../../foundation/src/Qavren.Edge.Maui/README.md
+    - name: Qavren.Edge.Sqlite
+      href: ../../foundation/src/Qavren.Edge.Sqlite/README.md
+    - name: Qavren.Edge.Sqlite.Native
+      href: ../../foundation/src/Qavren.Edge.Sqlite.Native/README.md
+    - name: Qavren.Edge.Sqlite.Native.Cipher
+      href: ../../foundation/src/Qavren.Edge.Sqlite.Native.Cipher/README.md
+    - name: Qavren.Edge.Sqlite.Provider
+      href: ../../foundation/src/Qavren.Edge.Sqlite.Provider/README.md
+    - name: Qavren.Edge.Embeddings.Onnx
+      href: ../../embeddings/src/Qavren.Edge.Embeddings.Onnx/README.md
+    - name: Qavren.Edge.Onnx
+      href: ../../embeddings/src/Qavren.Edge.Onnx/README.md
+    - name: Qavren.Edge.VectorData
+      href: ../../embeddings/src/Qavren.Edge.VectorData/README.md
+    - name: Qavren.Edge.Ingestion
+      href: ../../ingestion/src/Qavren.Edge.Ingestion/README.md
+    - name: Qavren.Edge.Ingestion.DataIngestion
+      href: ../../ingestion/src/Qavren.Edge.Ingestion.DataIngestion/README.md
+    - name: Qavren.Edge.Ingestion.Onnx
+      href: ../../ingestion/src/Qavren.Edge.Ingestion.Onnx/README.md
+    - name: Qavren.Edge.Ingestion.OpenXml
+      href: ../../ingestion/src/Qavren.Edge.Ingestion.OpenXml/README.md
+    - name: Qavren.Edge.Ingestion.Pdf
+      href: ../../ingestion/src/Qavren.Edge.Ingestion.Pdf/README.md
+    - name: Qavren.Edge.Chat.Onnx
+      href: ../../chat/src/Qavren.Edge.Chat.Onnx/README.md
+    - name: Qavren.Edge.Rag
+      href: ../../chat/src/Qavren.Edge.Rag/README.md
+- name: Decisions
+  items:
+    - name: Hosting core and SQLite
+      items:
+        - name: 1. Record architecture decisions
+          href: ../../foundation/docs/adr/0001-record-architecture-decisions.md
+        - name: 2. Own the SQLite build and the SQLitePCLRaw provider
+          href: ../../foundation/docs/adr/0002-own-sqlite-build-and-provider.md
+    - name: Embeddings and the vector store
+      items:
+        - name: 3. Pin `Microsoft.ML.OnnxRuntime` at 1.30.0
+          href: ../../embeddings/docs/adr/0003-pin-onnxruntime-1-30-0.md
+        - name: 4. Cut NNAPI from `EdgeExecutionProvider`
+          href: ../../embeddings/docs/adr/0004-cut-nnapi.md
+        - name: 5. `IEdgeModelPaths` lives in `Qavren.Edge.Onnx` for now, absorbed into SP1 at 1.0
+          href: ../../embeddings/docs/adr/0005-absorb-iedgemodelpaths-into-sp1-at-1-0.md
+        - name: 6. Defer multilingual presets to `Microsoft.ML.Tokenizers` 3.x
+          href: ../../embeddings/docs/adr/0006-defer-multilingual-to-tokenizers-3x.md
+        - name: 7. Accept the `MEVD9001` experimental surface in `Qavren.Edge.VectorData`
+          href: ../../embeddings/docs/adr/0007-mevd9001-experimental-surface.md
+        - name: 8. Raise SP2's platform floors above SP1's — android 24.0, Apple 15.1
+          href: ../../embeddings/docs/adr/0008-raised-platform-floors.md
+    - name: Ingestion
+      items:
+        - name: 9. PdfPig and the Apache-2.0 split
+          href: ../../ingestion/docs/adr/0009-pdfpig-and-the-apache-2-0-split.md
+        - name: 10. Content-addressed chunk keys
+          href: ../../ingestion/docs/adr/0010-content-addressed-chunk-keys.md
+        - name: 11. Mirror MEDI's shape rather than depend on it
+          href: ../../ingestion/docs/adr/0011-mirror-medi-rather-than-depend-on-it.md
+        - name: 12. Two migration versions, and what SP2's registry buys
+          href: ../../ingestion/docs/adr/0012-two-migration-versions-and-sp2s-registry.md
+        - name: 13. One token-index search for both tokenizers
+          href: ../../ingestion/docs/adr/0013-one-token-index-search-for-both-tokenizers.md
+    - name: Chat and RAG
+      items:
+        - name: 9. Execution providers cut
+          href: ../../chat/docs/adr/0009-execution-providers-cut.md
+        - name: 10. The upstream `IChatClient` is not shipped
+          href: ../../chat/docs/adr/0010-upstream-ichatclient-not-shipped.md
+        - name: 11. Guidance is unverified, not unavailable
+          href: ../../chat/docs/adr/0011-guidance-unverified-not-unavailable.md
+        - name: 12. No tool calling in v1
+          href: ../../chat/docs/adr/0012-no-tool-calling-in-v1.md
+        - name: 13. Apple platform floor rises to 15.4
+          href: ../../chat/docs/adr/0013-apple-platform-floor-15-4.md
+- name: Errors
+  href: ../../foundation/docs/errors.md
+- name: API reference
+  href: xref:Qavren.Edge
+- name: MAUI API
+  href: xref:Qavren.Edge.Maui
