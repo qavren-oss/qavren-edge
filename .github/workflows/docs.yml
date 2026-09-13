@@ -34,8 +34,14 @@ jobs:
       # the one MAUI target a Linux runner can restore.
       - run: dotnet workload install maui-android --version 10.0.201
       - run: dotnet tool restore
+      # Qavren.Edge.Maui's metadata runs from its own config, ungated: forcing net10.0-android on a
+      # project whose reference (Qavren.Edge.Core) is net10.0-only makes DocFX warn that the
+      # reference has no matching metadata, and that warning is structural, not a defect. The
+      # main build still links Maui's pages by uid and stays under --warningsAsErrors.
       - name: Build the site
-        run: dotnet docfx docs/site/docfx.json --warningsAsErrors
+        run: |
+          dotnet docfx metadata docs/site/docfx.maui.json
+          dotnet docfx docs/site/docfx.json --warningsAsErrors
       - uses: actions/upload-pages-artifact@v4
         with:
           path: docs/site/_site

@@ -228,6 +228,10 @@ else:
         problems.append("docs.yml must upload with upload-pages-artifact and deploy with deploy-pages")
     if "maui-android" not in docs_text:
         problems.append("docs.yml must install maui-android for the Qavren.Edge.Maui metadata build")
+    maui_cmd = "dotnet docfx metadata docs/site/docfx.maui.json"
+    gated_cmd = "dotnet docfx docs/site/docfx.json --warningsAsErrors"
+    if maui_cmd not in docs_text or gated_cmd not in docs_text or docs_text.index(maui_cmd) > docs_text.index(gated_cmd):
+        problems.append("docs.yml must run the ungated Qavren.Edge.Maui metadata (docfx.maui.json) before the gated build")
 
 win = ci["jobs"]["device-tests-windows"]["runs-on"]
 print("\n".join(problems) if problems else "OK: gates, 4 device lanes, JUnit, win-arm64, native artifact cache + reuse, SBOM and native release assets all present (windows lane on %s)" % win)

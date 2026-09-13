@@ -107,8 +107,10 @@ solution again before `dotnet format`, or it reports `IDE0005` on every file.
 `docs.yml` on every PR and deployed to GitHub Pages on every push to `main`.
 Repository markdown is pulled in from where it lives and mirrored under
 `repo/`; the API reference is generated from the packages' XML documentation
-(`Qavren.Edge.Maui` as `net10.0-android`, everything else as `net10.0`). The
-build runs with `--warningsAsErrors`, so an unresolved link in any README that
+(`Qavren.Edge.Maui` as `net10.0-android` from `docs/site/docfx.maui.json`, run
+first and ungated because DocFX warns about its `net10.0`-only project reference;
+everything else as `net10.0` from `docs/site/docfx.json`). The gated build runs with
+`--warningsAsErrors`, so an unresolved link in any README that
 is part of the site fails the PR: link to documentation files by relative path
 and to source or samples by absolute GitHub URL.
 
