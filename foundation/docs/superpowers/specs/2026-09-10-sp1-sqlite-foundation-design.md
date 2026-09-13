@@ -10,7 +10,7 @@ Owner: Steve Ackley (Qavren Solutions LLC)
 
 Qavren.Edge is a free, MIT-licensed, open-source NuGet suite that makes the
 **SQLite + sqlite-vec + ONNX Runtime** stack a first-class citizen in .NET MAUI
-and plain .NET 10. It borrows Shiny.NET's hosting ergonomics (one builder call,
+and plain .NET 10. It offers builder-style hosting ergonomics (one builder call,
 DI-first, lifecycle-aware, platform-split packages) without becoming a
 framework: every package is plain `Microsoft.Extensions.*` wiring, MAUI is
 sugar on top, and everything runs and tests on a bare `ServiceCollection`.
@@ -26,7 +26,7 @@ native build.
 
 | # | Decision | Choice |
 |---|---|---|
-| 1 | What "on par with Shiny" means | Hosting model + DX only. No BLE/GPS/Push/Jobs. |
+| 1 | What "hosting ergonomics" means | Hosting model + DX only. No BLE/GPS/Push/Jobs. |
 | 2 | API layering | L0 primitives (Sqlite, Onnx) → L1 Microsoft abstractions (MEAI `IEmbeddingGenerator`/`IChatClient`, MEVD `VectorStore`) → L2 recipes (ingestion, RAG). Each layer independently usable and testable. |
 | 3 | Native SQLite | Own build: amalgamation + sqlite-vec compiled in, shipped as a SQLitePCLRaw provider. |
 | 4 | Native binding | Own generated `ISQLite3Provider` (checked-in code), not `dynamic_cdecl`, not an `e_sqlite3` drop-in. |

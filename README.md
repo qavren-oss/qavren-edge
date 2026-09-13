@@ -1,87 +1,96 @@
 # Qavren.Edge
 
-Free, MIT-licensed .NET packages that make **SQLite + sqlite-vec + ONNX Runtime**
-a first-class citizen in .NET MAUI and plain .NET 10.
+[![NuGet](https://img.shields.io/nuget/vpre/Qavren.Edge?label=Qavren.Edge)](https://www.nuget.org/packages/Qavren.Edge)
+[![CI](https://github.com/qavren-oss/qavren-edge/actions/workflows/ci.yml/badge.svg)](https://github.com/qavren-oss/qavren-edge/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-Four sub-projects ship today: the hosting core and the SQLite provider
-(`foundation/`), embeddings and the vector store (`embeddings/`),
-file-to-collection ingestion (`ingestion/`), and on-device chat with a
-retrieval-augmented recipe (`chat/`). Everything runs in-process, on the
-device, with no service to call.
+On-device data and AI for .NET MAUI and .NET 10: **SQLite with `sqlite-vec`**,
+**ONNX Runtime embeddings**, a **`Microsoft.Extensions.VectorData` store**,
+**document ingestion**, and **local chat with retrieval-augmented generation**.
+Everything runs in-process on the device. There is no service to call, nothing
+leaves the phone, and nothing is downloaded without the user's consent.
 
-## Layout
+Wired the way the rest of your app already is: `Microsoft.Extensions.*`
+dependency injection, options, logging and hosting abstractions, plus the
+`Microsoft.Extensions.AI` and `Microsoft.Extensions.VectorData` abstractions
+where a standard one exists. No framework, no base classes.
 
-| Folder | Sub-project | README | ADRs |
-|---|---|---|---|
-| `foundation/` | 1: Core, Maui, Sqlite, Sqlite.Provider, Sqlite.Native(.Cipher), meta | [`foundation/README.md`](foundation/README.md) | [`foundation/docs/adr/`](foundation/docs/adr/) |
-| `embeddings/` | 2: Onnx, Embeddings.Onnx, VectorData | [`embeddings/README.md`](embeddings/README.md) | [`embeddings/docs/adr/`](embeddings/docs/adr/) |
-| `ingestion/` | 3: Ingestion and its four satellites | [`ingestion/README.md`](ingestion/README.md) | [`ingestion/docs/adr/`](ingestion/docs/adr/) |
-| `chat/` | 4: Chat.Onnx, Rag | [`chat/README.md`](chat/README.md) | [`chat/docs/adr/`](chat/docs/adr/) |
-| `docs/` | 5: docs site + 1.0 (not started) | | |
+## What you get
 
-## Packages
+- **SQLite, batteries included.** The suite's own native build of SQLite with
+  `sqlite-vec` compiled in (plain, or SQLCipher for encryption at rest),
+  pragma-tuned connections, versioned migrations, and helpers for KNN and FTS5.
+  Microsoft.Data.Sqlite, EF Core Sqlite, sqlite-net-pcl and Dapper work
+  unchanged on top of it.
+- **Embeddings on the device.** A `Microsoft.Extensions.AI`
+  `IEmbeddingGenerator` over ONNX Runtime with presets that pin model hashes.
+- **A vector store you can query like any other.** A
+  `Microsoft.Extensions.VectorData` `VectorStore` over `vec0` and FTS5, with
+  hybrid search fused by reciprocal rank fusion and LINQ filters pushed into SQL.
+- **Ingestion that re-runs cheaply.** Plain text, Markdown, PDF and DOCX
+  extractors, heading-aware and token-window chunkers, content hashing so an
+  unchanged corpus costs one read per file, and a cancellable, checkpointed
+  runner that yields under memory or thermal pressure.
+- **Chat with citations.** A `Microsoft.Extensions.AI` `IChatClient` over ONNX
+  Runtime GenAI with a memory budget sized from the KV cache, thermally paced
+  streaming, and a RAG recipe that returns `[n]` citations as
+  `CitationAnnotation` spans over the answer.
+- **Failures you can act on.** Every exception carries a numbered code with a
+  documented remediation, detected at startup rather than as a
+  `DllNotFoundException` later.
 
-Layers are the suite's dependency rule, not decoration. **L0** owns a native
-library or a host seam, **L1** is the managed surface over one of those, and
-**L2** is a recipe that composes L1 public surface only. Dependencies point
-strictly downward. The four ingestion satellites are part of one L2 recipe and
-do reference its core package, `Qavren.Edge.Ingestion`; nothing else crosses
-sideways.
+## Install
 
-| Package | Layer | TFMs | Purpose | Third-party it pulls in |
-|---|---|---|---|---|
-| `Qavren.Edge.Core` | L0 | `net10.0` | `AddQavrenEdge()`, host, lifecycle hub, paths, diagnostics, exceptions | `Microsoft.Extensions.*` DI/Logging/Hosting abstractions plus Options |
-| `Qavren.Edge.Maui` | L0 | `net10.0-android`, `-ios`, `-maccatalyst`, `-windows10.0.19041.0` | `UseQavrenEdge()`, platform lifecycle bridge, `FileSystem`-backed paths | `Microsoft.Maui.Controls` |
-| `Qavren.Edge.Sqlite` | L0 | `net10.0` | `AddSqlite()`, `IEdgeDatabase`, migrations, vec/FTS helpers | `Microsoft.Data.Sqlite.Core` |
-| `Qavren.Edge.Sqlite.Provider` | L0 | `net10.0`, `net10.0-ios` | Generated `SQLite3Provider_qedge : ISQLite3Provider` | `SQLitePCLRaw.core` |
-| `Qavren.Edge.Sqlite.Native` | L0 | `net10.0`, `net10.0-ios` | `UseSqliteNative()`, one native per RID with sqlite-vec compiled in | none; the natives are built in this repo |
-| `Qavren.Edge.Sqlite.Native.Cipher` | L0 | `net10.0`, `net10.0-ios` | `UseSqliteNativeCipher()`, SQLCipher + libtomcrypt | none; built in this repo |
-| `Qavren.Edge` | meta | `net10.0`, `net10.0-ios` | One-line install for the common case | |
-| `Qavren.Edge.Onnx` | L0 | `net10.0`, `net10.0-android`, `net10.0-ios`, `net10.0-maccatalyst` | ORT hosting: session factory, EP policy, model provisioning, `AddOnnx()` | `Microsoft.ML.OnnxRuntime` 1.30.0 |
-| `Qavren.Edge.Embeddings.Onnx` | L1 | same four | `AddOnnxEmbeddings()`, a `Microsoft.Extensions.AI` `IEmbeddingGenerator`, `EmbeddingPresets`, `IEdgeTokenizer` | `Microsoft.ML.Tokenizers` 2.0.0, `Microsoft.Extensions.AI` 10.10.0 |
-| `Qavren.Edge.VectorData` | L1 | `net10.0` | `AddVectorStore()`, a clean-room MEVD `VectorStore` over `vec0` + FTS5 with reciprocal rank fusion | `Microsoft.Extensions.VectorData.Abstractions` 10.10.0 |
-| `Qavren.Edge.Ingestion` | L2 | `net10.0` | `AddIngestion()`, the document model, the plain-text and Markdown extractors, three chunkers, the token budget, xxHash128 content hashing, the incremental diff, the runner, the state migration | `Markdig` 1.3.2, `System.IO.Hashing`, `Microsoft.ML.Tokenizers` 2.0.0 |
-| `Qavren.Edge.Ingestion.Pdf` | L2 | `net10.0` | `AddPdfExtractor()`, `PdfTextExtractor`, page-at-a-time and stream-only | `PdfPig` 0.1.16, **Apache-2.0** rather than MIT, which is why it is opt-in (ADR 0009) |
-| `Qavren.Edge.Ingestion.OpenXml` | L2 | `net10.0` | `AddDocxExtractor()`, `DocxTextExtractor` | `DocumentFormat.OpenXml` 3.5.1; MIT, so the split is size, the nupkg is 14.66 MB |
-| `Qavren.Edge.Ingestion.Onnx` | L2 | `net10.0` | `AddOnnxIngestion()`, `EdgeChunkTokenizer`, `ResourceMonitorThrottle`, the chunk budget derived from the resolved `EmbeddingPreset` | none new; it bridges to `Qavren.Edge.Embeddings.Onnx` |
-| `Qavren.Edge.Ingestion.DataIngestion` | L2 | `net10.0` | The `Microsoft.Extensions.DataIngestion` shim, both directions (ADR 0011). Prerelease only | `Microsoft.Extensions.DataIngestion.Abstractions` 10.10.0-preview.1.26459.2 |
-| `Qavren.Edge.Chat.Onnx` | L1 | `net10.0`, `net10.0-android`, `net10.0-ios`, `net10.0-maccatalyst` | `AddOnnxChat()`, an `IChatClient` over ONNX Runtime GenAI, a KV-cache-aware memory budget, consent-gated provisioning, thermal-paced streaming | `Microsoft.ML.OnnxRuntimeGenAI` 0.15.2, `Microsoft.Extensions.AI` 10.10.0 |
-| `Qavren.Edge.Rag` | L2 | `net10.0` | `UseRag()`, `AddVectorStoreRetriever()`, `RagChatClient : DelegatingChatClient`, numbered context under a token budget, `[n]` resolved into `CitationAnnotation`, `ExtractiveChatClient` | `Microsoft.Extensions.AI` 10.10.0, `Microsoft.Extensions.VectorData.Abstractions` 10.10.0 |
+```
+dotnet add package Qavren.Edge          # hosting core + SQLite + the native library
+dotnet add package Qavren.Edge.Maui     # MAUI lifecycle bridge and app paths
+```
 
-**There is no Windows platform TFM for `Qavren.Edge.Chat.Onnx`**, and that is
-not an omission: GenAI ships no Windows platform managed asset, so a Windows
-consumer binds its `lib/net8.0` asset and takes `runtimes/win-x64` or
-`win-arm64` by RID, exactly as `Qavren.Edge.Sqlite` is already consumed. On a
-Linux build host the four-TFM projects restore as `net10.0;net10.0-android`
-only, because the iOS and Mac Catalyst SDK packs do not exist there.
+Add what you use:
 
-## Getting started
+```
+dotnet add package Qavren.Edge.Embeddings.Onnx    # embeddings (pulls Qavren.Edge.Onnx)
+dotnet add package Qavren.Edge.VectorData         # the vector store
+dotnet add package Qavren.Edge.Ingestion          # ingestion core
+dotnet add package Qavren.Edge.Ingestion.Onnx     # real tokenizer + resource-aware throttle
+dotnet add package Qavren.Edge.Ingestion.Pdf      # PDF (PdfPig, Apache-2.0, opt-in)
+dotnet add package Qavren.Edge.Ingestion.OpenXml  # DOCX
+dotnet add package Qavren.Edge.Chat.Onnx          # local chat over ONNX Runtime GenAI
+dotnet add package Qavren.Edge.Rag                # retrieval-augmented generation recipe
+```
 
-The whole stack, composed once. Each line names the sub-project that owns it;
-nothing below is optional except where it says so.
+Encryption at rest: replace `Qavren.Edge.Sqlite.Native` with
+`Qavren.Edge.Sqlite.Native.Cipher` and call `UseSqliteNativeCipher()`.
+Referencing both native packages is a configuration error reported at startup.
+
+Releases before 1.0 are prereleases; pass `--prerelease` to `dotnet add package`.
+
+## Quick start
+
+The whole stack, composed once in `MauiProgram.cs`. Outside MAUI the same
+chain hangs off `services.AddQavrenEdge(edge => ...)`.
 
 ```csharp
 builder.UseQavrenEdge(edge => edge
-    .UseSqliteNative()                                                  // SP1
-    .AddSqlite(o => o.DatabaseName = "notes.db")                        // SP1
-    .AddOnnxEmbeddings(o => o.Preset = EmbeddingPresets.MiniLmL6V2Int8) // SP2
-    .AddVectorStore()                                                   // SP2
-    .AddIngestion(migrationVersion: 10)                                 // SP3, claims 10 AND 11
-    .AddOnnxIngestion()                                                 // SP3, tokenizer + throttle
-    .AddPdfExtractor()                                                  // SP3, optional
-    .AddOnnxChat(ChatPresets.Qwen3_600MInt4,                            // SP4, no default preset
+    .UseSqliteNative()
+    .AddSqlite(o => o.DatabaseName = "notes.db")
+    .AddOnnxEmbeddings(o => o.Preset = EmbeddingPresets.MiniLmL6V2Int8)
+    .AddVectorStore()
+    .AddIngestion(migrationVersion: 10)          // claims versions 10 and 11
+    .AddOnnxIngestion()                          // tokenizer + throttle
+    .AddPdfExtractor()                           // optional
+    .AddOnnxChat(ChatPresets.Qwen3_600MInt4,     // there is no default preset
                  pipeline: chat => chat.UseRag())
-    .AddRetriever(ChunkRetriever));                                     // SP4 over SP3's collection
+    .AddRetriever(ChunkRetriever));
 ```
 
-`AddIngestion` claims **two consecutive migration versions**, `N` for the
-collection and `N + 1` for the three state tables it owns (ADR 0012). Outside
-MAUI the same chain hangs off `services.AddQavrenEdge(edge => ...)`.
+`AddIngestion` claims two consecutive migration versions, `N` for the
+collection and `N + 1` for the state tables it owns.
 
 `Qavren.Edge.Rag` retrieves through any `Microsoft.Extensions.VectorData`
 collection. `AddVectorStoreRetriever<TKey, TRecord>(collectionName, project)`
-is the one-liner for a typed record; the ingestion collection is **dynamic**,
-so the seam here is `DelegateRetriever`:
+is the one-liner for a typed record; the ingestion collection is dynamic, so it
+goes through `DelegateRetriever`:
 
 ```csharp
 static IEdgeRetriever ChunkRetriever(IServiceProvider services)
@@ -113,8 +122,7 @@ static IEdgeRetriever ChunkRetriever(IServiceProvider services)
 ```
 
 Index the corpus once, then again whenever it changes. A re-run over an
-unchanged corpus costs one sequential 64 KiB-buffered read per document and
-nothing else:
+unchanged corpus costs one sequential read per document and nothing else:
 
 ```csharp
 var pipeline = services.GetRequiredService<IIngestionPipeline>();
@@ -126,9 +134,9 @@ var run = await pipeline.RunAsync(
 Console.WriteLine($"{run.Outcome}: +{run.ChunksAdded} -{run.ChunksRemoved} ({run.DocumentsSkipped} skipped)");
 ```
 
-Then one ask, streamed, with citations. Citations arrive **once**, on the
-final metadata update, and their spans index the accumulated answer rather
-than any single update, so accumulate first and index your own buffer:
+Then ask, streamed, with citations. Citations arrive once, on the final
+metadata update, and their spans index the accumulated answer rather than any
+single update, so accumulate first and slice your own buffer:
 
 ```csharp
 var chat = services.GetRequiredService<IChatClient>();
@@ -150,120 +158,137 @@ await foreach (var update in chat.GetStreamingResponseAsync("what does the warra
 }
 ```
 
-Search with no model in the loop stays plain sub-project 2:
+Search with no model in the loop is the vector store on its own:
 `GetCollection<TKey, TRecord>` or `GetDynamicCollection`, then `SearchAsync`
 (a `vec0` distance, lower is better) or `HybridSearchAsync` (an RRF score,
 higher is better).
 
-## Supported minimums
+## Packages
 
-Each layer raises the floor, and every number below is the native
-dependency's own rather than one this suite picked:
+Dependencies point strictly downward: a native library or host seam at the
+bottom, a managed surface over it, and recipes that compose public surface
+only. The ingestion satellites reference their core package and nothing else
+crosses sideways.
 
-| Adopting | Android | iOS / Mac Catalyst | Where it comes from |
+| Package | TFMs | Purpose | Third-party dependencies |
 |---|---|---|---|
-| foundation only | 21 | 15.0 | The MAUI SDK defaults; no foundation csproj pins `SupportedOSPlatformVersion`. Recorded in `embeddings/README.md` |
-| + embeddings, vector store, ingestion | **24** | **15.1** | ONNX Runtime 1.30.0's own floors, ADR 0008 in `embeddings/`. Sub-project 3 adds no floor of its own: every ingestion package is `net10.0` |
-| + chat | **24** | **15.4** | GenAI's managed asset ships at `lib/net9.0-ios15.4` and Mac Catalyst inherits the iOS slice through the RID graph, ADR 0013 in `chat/` |
+| `Qavren.Edge` | `net10.0`, `net10.0-ios` | One-line install: Core + Sqlite + the plain native library | |
+| `Qavren.Edge.Core` | `net10.0` | `AddQavrenEdge()`, host, lifecycle hub, paths, diagnostics, exceptions | `Microsoft.Extensions.*` DI, Logging, Hosting abstractions, Options |
+| `Qavren.Edge.Maui` | `net10.0-android`, `-ios`, `-maccatalyst`, `-windows10.0.19041.0` | `UseQavrenEdge()`, platform lifecycle bridge, `FileSystem`-backed paths | `Microsoft.Maui.Controls` |
+| `Qavren.Edge.Sqlite` | `net10.0` | `AddSqlite()`, `IEdgeDatabase`, migrations, vec and FTS helpers | `Microsoft.Data.Sqlite.Core` |
+| `Qavren.Edge.Sqlite.Provider` | `net10.0`, `net10.0-ios` | The generated SQLitePCLRaw provider for the suite's native library | `SQLitePCLRaw.core` |
+| `Qavren.Edge.Sqlite.Native` | `net10.0`, `net10.0-ios` | `UseSqliteNative()`; one native per RID with `sqlite-vec` compiled in | none; built in this repository |
+| `Qavren.Edge.Sqlite.Native.Cipher` | `net10.0`, `net10.0-ios` | `UseSqliteNativeCipher()`; SQLCipher + libtomcrypt | none; built in this repository |
+| `Qavren.Edge.Onnx` | `net10.0`, `net10.0-android`, `-ios`, `-maccatalyst` | `AddOnnx()`: session factory, execution-provider policy, consent-gated model provisioning, resource monitor | `Microsoft.ML.OnnxRuntime` 1.30.0 |
+| `Qavren.Edge.Embeddings.Onnx` | same four | `AddOnnxEmbeddings()`, `IEmbeddingGenerator`, `EmbeddingPresets`, `IEdgeTokenizer` | `Microsoft.ML.Tokenizers` 2.0.0, `Microsoft.Extensions.AI` 10.10.0 |
+| `Qavren.Edge.VectorData` | `net10.0` | `AddVectorStore()`; a `VectorStore` over `vec0` + FTS5 with reciprocal rank fusion | `Microsoft.Extensions.VectorData.Abstractions` 10.10.0 |
+| `Qavren.Edge.Ingestion` | `net10.0` | `AddIngestion()`: document model, text and Markdown extractors, three chunkers, token budget, content hashing, incremental diff, runner | `Markdig` 1.3.2, `System.IO.Hashing`, `Microsoft.ML.Tokenizers` 2.0.0 |
+| `Qavren.Edge.Ingestion.Pdf` | `net10.0` | `AddPdfExtractor()`; page-at-a-time, stream-only | `PdfPig` 0.1.16 (**Apache-2.0**, which is why this is opt-in) |
+| `Qavren.Edge.Ingestion.OpenXml` | `net10.0` | `AddDocxExtractor()` | `DocumentFormat.OpenXml` 3.5.1 (MIT; separate for size) |
+| `Qavren.Edge.Ingestion.Onnx` | `net10.0` | `AddOnnxIngestion()`: the embedding preset's tokenizer as the chunk tokenizer, a throttle over the resource monitor | none new |
+| `Qavren.Edge.Ingestion.DataIngestion` | `net10.0` | The `Microsoft.Extensions.DataIngestion` shim, both directions. Prerelease only | `Microsoft.Extensions.DataIngestion.Abstractions` 10.10.0-preview |
+| `Qavren.Edge.Chat.Onnx` | `net10.0`, `net10.0-android`, `-ios`, `-maccatalyst` | `AddOnnxChat()`: an `IChatClient` over ONNX Runtime GenAI, KV-cache-aware memory budget, consent-gated provisioning, thermally paced streaming | `Microsoft.ML.OnnxRuntimeGenAI` 0.15.2, `Microsoft.Extensions.AI` 10.10.0 |
+| `Qavren.Edge.Rag` | `net10.0` | `UseRag()`, `AddVectorStoreRetriever()`, numbered context under a token budget, `[n]` citations, `ExtractiveChatClient` | `Microsoft.Extensions.AI` 10.10.0, `Microsoft.Extensions.VectorData.Abstractions` 10.10.0 |
 
-An app that must stay on iOS 15.1 keeps the database, the embeddings and
-ingestion, and cannot add chat. `osx-x64` is unsupported outright rather than
-merely untested: ORT 1.30.0 ships no `osx-x64` native at all, and
-`Qavren.Edge.Onnx` raises `OnnxUnsupportedRuntime` (5006) at startup instead
-of failing later with a `DllNotFoundException`. Chat additionally ships only
-`arm64-v8a` and `x86_64`, so an `armeabi-v7a` device gets everything except
-chat and is told so at startup with `ChatUnsupportedRuntime` (7004).
+`Qavren.Edge.Chat.Onnx` has no Windows platform TFM on purpose: ONNX Runtime
+GenAI ships no Windows platform managed asset, so a Windows app binds the
+`net10.0` build and takes `runtimes/win-x64` or `win-arm64` by RID, exactly as
+`Qavren.Edge.Sqlite` is consumed.
+
+## Supported platforms
+
+Every minimum below is the native dependency's own floor, not one this suite
+chose.
+
+| Adopting | Android | iOS / Mac Catalyst | Why |
+|---|---|---|---|
+| SQLite and hosting only | 21 | 15.0 | The MAUI SDK defaults |
+| + embeddings, vector store, ingestion | **24** | **15.1** | ONNX Runtime 1.30.0's floors |
+| + chat | **24** | **15.4** | ONNX Runtime GenAI's managed asset targets iOS 15.4; Mac Catalyst inherits it |
+
+Windows x64 and arm64, Linux x64 and arm64, and macOS arm64 are supported for
+plain .NET 10. `osx-x64` is unsupported for anything that loads ONNX Runtime,
+which ships no `osx-x64` native; `Qavren.Edge.Onnx` reports
+`OnnxUnsupportedRuntime` (5006) at startup instead of failing later. Chat ships
+only `arm64-v8a` and `x86_64` on Android, so an `armeabi-v7a` device gets
+everything except chat and is told so at startup with `ChatUnsupportedRuntime`
+(7004).
+
+## On-device chat: what to expect
+
+- **Nothing downloads implicitly.** `IChatModelProvisioner.Plan()` reports the
+  byte count and the SPDX licence of a preset so you can show a consent screen;
+  only `ProvisionAsync` moves bytes. Model files are verified against pinned
+  SHA-256 digests.
+- **Memory is the constraint, not throughput.** The context window is sized
+  from a KV-cache-aware budget and steps down on small devices. The smaller
+  download is not the cheaper resident model: `Qwen3_600MInt4` is 495 MB on
+  disk but costs 112 KiB of KV cache per token; `Llama32_1BInstructInt4` is
+  1.24 GB but 32 KiB per token.
+- **Turns serialise.** The GenAI C API is not thread safe, so one gate per
+  model orders turns; a fifth queued turn is refused with `ChatBusy` (7105).
+  Streaming is thermally paced and terminates cooperatively under memory
+  pressure or app suspension.
+- **iOS needs two entitlements in your app** for a multi-gigabyte model:
+  `com.apple.developer.kernel.increased-memory-limit` and
+  `com.apple.developer.kernel.extended-virtual-addressing`. They are plist
+  lines in the consuming app, not code in these packages. The sample app shows
+  the wiring.
+- **Android cost.** Adding chat adds a 21.5 MB AAR whose `libmat.so` is
+  32.7 MB per ABI. ONNX Runtime GenAI 0.15.2 emits `warning XA0141` (16 KB page
+  alignment for Android 16) on that library; it does not fail the build and
+  chat runs on Android 16 devices. The fix is an upstream re-link.
 
 ## Error codes
 
 Every `EdgeException` sets `HelpLink` into
-[`foundation/docs/errors.md`](foundation/docs/errors.md), keyed on the bare
-numeric code. The ranges never overlap and are never reused:
+[`foundation/docs/errors.md`](foundation/docs/errors.md), keyed on the numeric
+code. Ranges never overlap and are never reused:
 
-- **1001-4999** sub-project 1 (`Core`, `Sqlite`); 1001-4001 allocated.
-- **5000-5299** sub-project 2 (`Onnx`, `Embeddings.Onnx`, `VectorData`).
-- **6000-6299** sub-project 3 (`Ingestion` and its four satellites).
-- **7000-7299** sub-project 4 (`Chat.Onnx`, `Rag`).
+| Range | Packages |
+|---|---|
+| 1001-4999 | `Core`, `Sqlite` |
+| 5000-5299 | `Onnx`, `Embeddings.Onnx`, `VectorData` |
+| 6000-6299 | `Ingestion` and its satellites |
+| 7000-7299 | `Chat.Onnx`, `Rag` |
 
-## Status
+## Documentation
 
-| # | Sub-project | Packages | State |
-|---|---|---|---|
-| 1 | SQLite foundation + hosting core | `Core`, `Maui`, `Sqlite`, `Sqlite.Provider`, `Sqlite.Native(.Cipher)`, meta | **Shipped** |
-| 2 | Embeddings + vector store | `Onnx`, `Embeddings.Onnx`, `VectorData` | **Shipped** |
-| 3 | Ingestion | `Ingestion`, `.Pdf`, `.OpenXml`, `.Onnx`, `.DataIngestion` | **Shipped** |
-| 4 | Chat + RAG | `Chat.Onnx`, `Rag` | **Shipped** |
-| 5 | Docs + 1.0 | docs site, benchmarks, NuGet 1.0 | **Next** |
+| Area | README | Design records |
+|---|---|---|
+| Hosting core and SQLite | [`foundation/README.md`](foundation/README.md) | [`foundation/docs/adr/`](foundation/docs/adr/) |
+| Embeddings and the vector store | [`embeddings/README.md`](embeddings/README.md) | [`embeddings/docs/adr/`](embeddings/docs/adr/) |
+| Ingestion | [`ingestion/README.md`](ingestion/README.md) | [`ingestion/docs/adr/`](ingestion/docs/adr/) |
+| Chat and RAG | [`chat/README.md`](chat/README.md) | [`chat/docs/adr/`](chat/docs/adr/) |
 
-## What has been measured
+Every package also carries its own README, shown on nuget.org. A sample MAUI
+app with search, ingest, chat and ask pages lives in
+[`foundation/samples/`](foundation/samples/).
 
-**The tier-0 GenAI smoke passes on all six legs.** Tier 0 links ORT GenAI and
-generates one token over the committed tiny fixture on `tier0-windows`,
-`tier0-linux`, `tier0-winui`, `tier0-android`, `tier0-ios` and
-`tier0-maccatalyst`, and every leg is PASS as of workflow run
-[`34637304766`](https://github.com/qavren-oss/qavren-edge/actions/runs/34637304766)
-on `feat/sp4-chat` commit `58dde19`. The two console legs print the
-`key=value` block (`ichatClientAssignable=True`, `firstTokenId=33`); the four
-device legs run the same body as the xUnit fact
-`Tier0SmokeFacts.LoadsAndGeneratesOneToken`. What tier 0 does not close is the
-packaged (MSIX) WinUI path: this repo has no signing identity, so that leg ran
-unpackaged. Tier 3 is nightly and `workflow_dispatch` only, on two lanes that
-each fetch a pinned model and verify its SHA-256 on every run including cache
-hits: `model-tests` (the real MiniLM weights) and `chat-model-tests` (Qwen3
-0.6B int4). The trim-smoke evidence for ingestion is in `ingestion/README.md`.
+## Building from source
 
-**The mobile posture is memory and thermals, not throughput.** Chat sizes its
-context from a KV-cache-aware budget rather than a fixed number, and the
-smaller download is not the cheaper resident model: `Qwen3_600MInt4` is 495 MB
-against `Llama32_1BInstructInt4`'s 1.241 GB, but costs 112 KiB of KV per token
-against Llama's 32 KiB, so the ladder down to a 1024-token context buys Qwen
-26% and Llama 6%. Turns serialise behind one gate per model, because the GenAI
-C API is not thread safe, and a fifth queued turn is refused with `ChatBusy`
-(7105); streaming is thermally paced and terminates cooperatively. Two iOS
-entitlements, `com.apple.developer.kernel.increased-memory-limit` and
-`com.apple.developer.kernel.extended-virtual-addressing`, are the only real
-lever on a nominal-6 GB phone, and both are plist lines in the **consuming
-app**, not code in these packages. Nothing downloads implicitly:
-`IChatModelProvisioner.Plan()` feeds a consent screen carrying the byte count
-and the SPDX licence, and only then does `ProvisionAsync` move a byte. On
-Android, adding chat costs a 21.5 MB AAR whose `libmat.so` is 32.7 MB per ABI
-and emits `warning XA0141` (Android 16 will require 16 KB page sizes) on every
-device-lane build. That warning is upstream in
-`microsoft.ml.onnxruntimegenai` 0.15.2, does not fail the build, and chat
-still runs on the Android 16 tier-0 device; the fix is a re-linked upstream
-binary, never a suppression here.
-
-## Build
-
-```powershell
+```
 dotnet build QavrenEdge.slnx -c Release
 ```
 
-The managed build needs no native artifacts. To run the SQLite tests you must
-first build the native library for your host, see `foundation/native/README.md`.
+The managed build needs no native artifacts. Running the SQLite tests needs the
+native library for your host; see
+[`foundation/native/README.md`](foundation/native/README.md). Maintainer
+notes, including how releases are cut, are in
+[`docs/maintainers.md`](docs/maintainers.md).
 
-## Bootstrap checklist (owner actions, not automatable)
+## Versioning
 
-The GitHub organisation is `qavren-oss` and the repo is `qavren-oss/qavren-edge`
-(both created 2026-09-10). The bare name `qavren` is a squatted **user** account,
-never use it in a remote URL, a workflow, or a tool argument.
-
-- [x] **`main` exists and CI reports on it.** Sub-projects 1 and 2 merged through PRs #1 and #15.
-- [x] **Apply branch protection** (applied 2026-09-12; required contexts `ci-gate` and
-      `natives / native-gate`, linear history, conversation resolution).
-- [x] **`Qavren.` NuGet ID prefix reserved.** Requested by email to `account@nuget.org` on
-      2026-09-10 (owner display name `Qavren`, admin `stevenfackley`; there is no web form) and
-      confirmed by nuget.org support on 2026-09-11.
-- [x] Added to the workspace CI audit roster (2026-09-12).
-- [x] **`release.yml` dry run green** (2026-09-12, run 34716740504): natives, pack, the package
-      metadata assertion, zips, SBOM, checksums and the `release-dry-run` artifact, with the
-      NuGet push and the GitHub release skipped as designed.
-- [ ] Add the `NUGET_API_KEY` repository secret (scope: push new packages and versions, glob
-      `Qavren.*`), then push `v0.1.0-preview.1` on `main`. Design:
-      `docs/superpowers/specs/2026-09-12-sp5-release-path-design.md`.
+Versions come from git tags. Releases before 1.0 are prereleases and the
+public API may still change between them; 1.0 follows the documentation site
+and the benchmark suite. Every GitHub release ships the packages, the native
+library archives, an SPDX SBOM and SHA-256 checksums.
 
 ## Licence
 
-MIT. See `LICENSE`. `Qavren.Edge.Ingestion.Pdf` is the one package whose
-dependency is not MIT: PdfPig is Apache-2.0, which is why that extractor is a
-separate, opt-in package. See `THIRD-PARTY-NOTICES.md`.
+MIT. See [`LICENSE`](LICENSE). `Qavren.Edge.Ingestion.Pdf` is the one package
+whose dependency is not MIT: PdfPig is Apache-2.0, which is why that extractor
+is a separate, opt-in package. See
+[`THIRD-PARTY-NOTICES.md`](THIRD-PARTY-NOTICES.md).
+
+Qavren.Edge is a Qavren Solutions LLC project.
