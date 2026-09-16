@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 using System.Text.Json;
 using Qavren.Edge.Embeddings.Onnx;
 
@@ -139,6 +140,12 @@ internal static class ReferenceVectors
         writer.WriteString(
             "generatedUtc",
             DateTimeOffset.UtcNow.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture));
+
+        // The kernel class the vectors came from. RealModelFacts.CosineTolerance is calibrated
+        // against it; a baseline regenerated on another class moves which machines match exactly.
+        writer.WriteString(
+            "generatedOn",
+            $"{RuntimeInformation.ProcessArchitecture} / {RuntimeInformation.OSDescription}");
 
         writer.WriteStartArray("vectors");
         foreach (var vector in vectors)

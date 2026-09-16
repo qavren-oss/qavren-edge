@@ -644,6 +644,15 @@ jobs:
           echo "$QAVREN_EDGE_MODEL_SHA256  $QAVREN_EDGE_MODEL_DIR/onnx/model_qint8_arm64.onnx" | sha256sum -c -
           echo "$QAVREN_EDGE_VOCAB_SHA256  $QAVREN_EDGE_MODEL_DIR/vocab.txt" | sha256sum -c -
 
+      # The int8 graph's numerics depend on the CPU's integer kernels: the AVX2 u8s8 path
+      # saturates where AVX-512 VNNI and NEON do not, and hosted ubuntu runners are a mix of both
+      # classes. Print which one this run drew, so a reference-vector deviation is attributable
+      # (nightly 35096205710 was the first non-AVX2 draw in seven runs, and the only red one).
+      - name: Runner CPU
+        run: |
+          lscpu | grep -E '^Model name'
+          echo "int8 kernel flags: $(grep -m1 '^flags' /proc/cpuinfo | grep -oE '\b(avx2|avx512_vnni|avx_vnni|amx_int8)\b' | sort -u | tr '\n' ' ')"
+
       # QAVREN_EDGE_MODEL_DIR is what SkipUnless reads. It is set for the whole job, so the tier-3
       # facts run; on every other lane it is unset and they skip at RUNTIME, after the class
       # constructor, which is why the session is built inside the test body (spec 16.3).
