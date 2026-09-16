@@ -596,6 +596,12 @@ jobs:
   # nightly. Never on a PR: schedule and workflow_dispatch only. NOT in ci-gate's needs.
   model-tests:
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    # Ingestion.Tests loads qedge_sqlite3 (vec0, FTS5), and the only way that library reaches
+    # this runner is the native-* artifacts `natives` uploads. Without this edge the job started
+    # alongside `natives`, the download below found 0 artifacts, and 120 SQLite-backed tests
+    # failed on load - every nightly from the SP3 merge (9aed0e0) to run 34969457254. The `if`
+    # above carries an implicit success(), so a red `natives` skips this job rather than running it.
+    needs: natives
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     env:

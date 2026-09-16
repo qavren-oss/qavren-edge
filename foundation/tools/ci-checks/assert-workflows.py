@@ -116,6 +116,15 @@ else:
         problems.append("model-tests does not pin the model sha256; the cache key must be the content hash")
     if "actions/cache@v6.1.0" not in ci_text:
         problems.append("model-tests does not cache the model with actions/cache@v6.1.0")
+    # Ingestion.Tests loads qedge_sqlite3 (vec0, FTS5), which reaches the job only through the
+    # native-* artifacts that `natives` uploads. Without the edge the job starts alongside
+    # `natives`, download-artifact finds 0 artifacts, and every SQLite-backed test fails on load:
+    # every nightly from the SP3 merge (9aed0e0) to run 34969457254 failed exactly that way.
+    needs = mt.get("needs") or []
+    if isinstance(needs, str):
+        needs = [needs]
+    if "natives" not in needs:
+        problems.append("model-tests must `needs: natives`; it downloads native-* and runs Ingestion.Tests, which loads qedge_sqlite3")
 
 # --- Sub-project 4 ---
 # Every test project under chat/tests/ must appear as an explicit ci.yml step, so a new test
