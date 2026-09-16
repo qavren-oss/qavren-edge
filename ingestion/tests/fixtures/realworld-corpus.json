@@ -7,5 +7,34 @@
     "sha256": "lower-case hex, 64 chars",
     "phrase": "a short phrase the extracted text must contain, chosen by whoever added the entry"
   },
-  "documents": []
+  "documents": [
+    {
+      "id": "word-mac14-python-docx-test.docx",
+      "producer": "word",
+      "url": "https://raw.githubusercontent.com/python-openxml/python-docx/e45454602b53e8e572b179ccf1c91093ec9f4ed7/tests/test_files/test.docx",
+      "sha256": "fba1c76b66ff30982e5281941ca1111eaeaeb092abb6dfbe1730bed3774f40b6",
+      "phrase": "python-docx was here!"
+    },
+    {
+      "id": "libreoffice-5.4-writer-apache-license.pdf",
+      "producer": "libreoffice",
+      "url": "https://raw.githubusercontent.com/UglyToad/PdfPig/0d1d61b1e7d1bd6caf01d91a42a89f48d944aa69/src/UglyToad.PdfPig.Tests/Integration/Documents/Two%20Page%20Text%20Only%20-%20from%20libre%20office.pdf",
+      "sha256": "151f071cb08feef57c1653a6fbc4c9f51358062fafd57c3015d2ad9dcfc9e36d",
+      "phrase": "TERMS AND CONDITIONS FOR USE, REPRODUCTION, AND DISTRIBUTION"
+    },
+    {
+      "id": "acrobat-distiller-11-transport-sector-bids.pdf",
+      "producer": "acrobat",
+      "url": "https://raw.githubusercontent.com/UglyToad/PdfPig/0d1d61b1e7d1bd6caf01d91a42a89f48d944aa69/src/UglyToad.PdfPig.Tests/Integration/Documents/Publication_of_award_of_Bids_for_Transport_Sector__August_2016.pdf",
+      "sha256": "038126d57e3d9aadfee6c3ac44acc66d4fbdc13598dad8deadd7ec76a2a7d2ab",
+      "phrase": "(P102000)"
+    },
+    {
+      "id": "acrobat-distiller-2.1-mac-ssm2163-datasheet.pdf",
+      "producer": "acrobat",
+      "url": "https://raw.githubusercontent.com/UglyToad/PdfPig/0d1d61b1e7d1bd6caf01d91a42a89f48d944aa69/src/UglyToad.PdfPig.Tests/Integration/Documents/ssm2163.pdf",
+      "sha256": "1765dbf8e54d17b59f02901c8c022ecb351aa755278674ed2f89b459d2f4d9ac",
+      "phrase": "Information furnished by Analog Devices is believed to be accurate"
+    }
+  ]
 }
