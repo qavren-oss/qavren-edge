@@ -1,3 +1,4 @@
+using System.Runtime.InteropServices;
 using Microsoft.Extensions.AI;
 using Qavren.Edge.Embeddings.Onnx;
 using Xunit;
@@ -16,6 +17,19 @@ public sealed class RealModelFacts
     /// <summary>The digest the generated manifest pins for <c>onnx/model_qint8_arm64.onnx</c>.</summary>
     private const string GraphSha256 =
         "4278337fd0ff3c68bfb6291042cad8ab363e1d9fbc43dcb499fe91c871902474";
+
+    /// <summary>
+    /// The pinned-vector tolerance, measured rather than assumed. The committed baseline was
+    /// generated on an AMD Ryzen 7 5825U (Zen 3: AVX2, no VNNI), and on that kernel class the graph
+    /// reproduces it to 1e-16. Every other class runs the int8 MatMuls through non-saturating
+    /// dot-product kernels and lands 6e-3 to 1.1e-2 away: Apple M4 (NEON) 6.1e-3 to 1.04e-2 across
+    /// all twelve sentences, and the hosted Intel draw of nightly 35096205710 8.3e-3 on the first.
+    /// Hosted ubuntu runners are a mix of AMD (bit-exact) and Intel (VNNI) machines, so 1e-3 was a
+    /// coin flip, not a regression detector. 2e-2 is twice the worst measured cross-class deviation
+    /// and an order of magnitude below what a wrong tokenizer, pooling or normalisation produces;
+    /// <see cref="TheRoofPairStaysNearestNeighboursOnEveryCpu"/> covers that end without a baseline.
+    /// </summary>
+    private const double CosineTolerance = 2e-2;
 
     private static CancellationToken Token => TestContext.Current.CancellationToken;
 
@@ -39,17 +53,61 @@ public sealed class RealModelFacts
         var produced = await generator.GenerateAsync(reference.Select(r => r.Text), cancellationToken: Token);
 
         Assert.Equal(reference.Count, produced.Count);
+
+        // Every sentence is measured before anything is asserted, so one failure reports the whole
+        // profile: a kernel-class draw moves all twelve by about the same amount, a regression does not.
+        var lines = new List<string>(reference.Count);
+        var worst = 1.0;
         for (var i = 0; i < reference.Count; i++)
         {
             var cosine = Cosine(reference[i].Vector, produced[i].Vector.Span);
-
-            // 1e-3, and NOT exact equality. ORT CPU bit-determinism across windows-2025 /
-            // ubuntu-24.04 / macos-15 and across x64/arm64 is not established, so an exact
-            // comparison would be a flake generator rather than a regression detector.
-            Assert.True(
-                1.0 - cosine < 1e-3,
-                $"'{reference[i].Text}': cosine {cosine:F6} against the pinned reference");
+            worst = Math.Min(worst, cosine);
+            lines.Add($"  {cosine:F6}  {1.0 - cosine:E2}  {reference[i].Text}");
         }
+
+        var profile = $"{RuntimeInformation.ProcessArchitecture} / {RuntimeInformation.OSDescription}\n{string.Join("\n", lines)}";
+        TestContext.Current.TestOutputHelper?.WriteLine(profile);
+
+        Assert.True(
+            1.0 - worst < CosineTolerance,
+            $"worst cosine {worst:F6} against the pinned reference is outside the {CosineTolerance:E0} tolerance on\n{profile}");
+    }
+
+    [Fact(
+        Skip = "QAVREN_EDGE_MODEL_DIR not set",
+        SkipUnless = nameof(ModelAvailable.Yes),
+        SkipType = typeof(ModelAvailable))]
+    public async Task TheRoofPairStaysNearestNeighboursOnEveryCpu()
+    {
+        await using var host = Tier3Host.Build();
+        var generator = host.Generator();
+
+        var texts = ReferenceVectors.Texts;
+        Assert.Equal("water is coming through the roof", texts[0]);
+        Assert.Equal("a roof leak after the storm", texts[1]);
+
+        var produced = await generator.GenerateAsync(texts, cancellationToken: Token);
+
+        // The two roof sentences sit at cosine 0.69 with the next candidate at 0.33 on every kernel
+        // class measured (0.691 AVX2, 0.688 NEON): a 0.36 margin against a 0.02 tolerance. This is
+        // the invariant a wrong tokenizer, pooling or normalisation breaks first, and it needs no
+        // baseline to break.
+        var nearest = -1;
+        var best = -1.0;
+        for (var k = 1; k < texts.Count; k++)
+        {
+            var cosine = Cosine(produced[0].Vector.Span, produced[k].Vector.Span);
+            if (cosine > best)
+            {
+                best = cosine;
+                nearest = k;
+            }
+        }
+
+        Assert.True(
+            nearest == 1,
+            $"the nearest neighbour of '{texts[0]}' is '{texts[nearest]}' at {best:F3}, not '{texts[1]}'");
+        Assert.True(best > 0.5, $"the roof pair sits at cosine {best:F3}; the baseline puts it at 0.69");
     }
 
     [Fact(
