@@ -74,3 +74,18 @@ compatibility matrix, not a config change.
 `OgaRegisterExecutionProviderLibrary` gets a C# binding on the managed
 surface. Until then, adding a mobile GPU/NPU path would require native
 interop this package does not currently carry.
+
+## Re-evaluation at 1.0 (2026-09-23)
+
+Checked against nuget.org: `Microsoft.ML.OnnxRuntimeGenAI` 0.16.0 is now
+published, past the 0.15.2 this ADR's Context records as the pin. 1.0 ships
+on 0.15.2 anyway. 0.16.0 is untested against two things this repo depends on
+at the pinned version: the cross-thread terminate fix landed at `1f5576b`
+("Session in Terminated state") that the chat decode loop relies on for
+prefill cancellation, and the `XA0141` 16 KB-page-size alignment note the
+root README carries for the Android native asset. Neither has been measured
+against 0.16.0.
+
+Bumping to 0.16.0 is a post-1.0 minor release, not a 1.0-blocking change: the
+soak is the tier-0 GenAI smoke plus the nightly chat lane, the same evidence
+bar ADR 0003 sets for the ORT pin, not a Dependabot bump taken on its own.
