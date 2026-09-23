@@ -5,7 +5,9 @@ import sys
 
 import yaml
 
-root = pathlib.Path(sys.argv[1] if len(sys.argv) > 1 else r"C:\Users\steve\projects\qavren-edge")
+# Default to the checkout this script lives in (foundation/tools/ci-checks/ -> repo root), so a
+# worktree or a CI clone is checked rather than a hard-coded path on one machine.
+root = pathlib.Path(sys.argv[1]) if len(sys.argv) > 1 else pathlib.Path(__file__).resolve().parents[3]
 w = root / ".github" / "workflows"
 ci = yaml.safe_load((w / "ci.yml").read_text(encoding="utf-8"))
 nat = yaml.safe_load((w / "native.yml").read_text(encoding="utf-8"))
@@ -187,10 +189,17 @@ for job, tfm in (("device-tests-ios", "net10.0-ios"), ("device-tests-maccatalyst
 # --- Sub-project 5 (release path) ---
 # Every nupkg must carry the icon, a README and its sub-project tags; the Windows pack lane runs
 # the script that proves it, so a package that loses its README fails the PR, not the release.
-if ci_text.count("assert-packages.ps1") != 1:
-    problems.append("ci.yml Windows pack lane must run foundation/tools/ci-checks/assert-packages.ps1 exactly once")
+if ci_text.count("assert-packages.ps1") != 2:
+    problems.append("ci.yml Windows pack lane must run foundation/tools/ci-checks/assert-packages.ps1 exactly twice (metadata, then the stable-override guard)")
 if not (root / "foundation" / "tools" / "ci-checks" / "assert-packages.ps1").is_file():
     problems.append("foundation/tools/ci-checks/assert-packages.ps1 is missing")
+# A stable release tag (v1.0.0, no `-`) must not be able to reach release.yml's pack step and fail
+# NU5104 there: ci.yml proves it on every PR by re-packing under a stable MinVerVersionOverride and
+# asserting the result with assert-packages.ps1 -StableOverride.
+if "-p:MinVerVersionOverride=9.9.9" not in ci_text:
+    problems.append("ci.yml must pack the solution again with -p:MinVerVersionOverride=9.9.9 (the stable-tag guard)")
+if "-StableOverride" not in ci_text:
+    problems.append("ci.yml must run assert-packages.ps1 -StableOverride against the stable-override pack")
 
 # release.yml: workflow_dispatch is a dry run. Exactly the two publishing steps are guarded on a
 # v* tag, the dry run uploads the would-be assets, prereleases are flagged from the tag name, and

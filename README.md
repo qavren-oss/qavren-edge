@@ -1,8 +1,9 @@
 # Qavren.Edge
 
-[![NuGet](https://img.shields.io/nuget/vpre/Qavren.Edge?label=Qavren.Edge)](https://www.nuget.org/packages/Qavren.Edge)
+[![NuGet](https://img.shields.io/nuget/v/Qavren.Edge?label=Qavren.Edge)](https://www.nuget.org/packages/Qavren.Edge)
 [![CI](https://github.com/qavren-oss/qavren-edge/actions/workflows/ci.yml/badge.svg)](https://github.com/qavren-oss/qavren-edge/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Docs](https://img.shields.io/badge/docs-edge.qavrensolutions.com-blue)](https://edge.qavrensolutions.com)
 
 On-device data and AI for .NET MAUI and .NET 10: **SQLite with `sqlite-vec`**,
 **ONNX Runtime embeddings**, a **`Microsoft.Extensions.VectorData` store**,
@@ -63,7 +64,9 @@ Encryption at rest: replace `Qavren.Edge.Sqlite.Native` with
 `Qavren.Edge.Sqlite.Native.Cipher` and call `UseSqliteNativeCipher()`.
 Referencing both native packages is a configuration error reported at startup.
 
-Releases before 1.0 are prereleases; pass `--prerelease` to `dotnet add package`.
+`Qavren.Edge.Ingestion.DataIngestion` is the one package that stays prerelease
+regardless of the suite's own version (it shims a prerelease Microsoft
+package); pass `--prerelease` to `dotnet add package` for it alone.
 
 ## Quick start
 
@@ -254,6 +257,9 @@ code. Ranges never overlap and are never reused:
 
 ## Documentation
 
+The full documentation site, including the API reference, is at
+[edge.qavrensolutions.com](https://edge.qavrensolutions.com).
+
 | Area | README | Design records |
 |---|---|---|
 | Hosting core and SQLite | [`foundation/README.md`](foundation/README.md) | [`foundation/docs/adr/`](foundation/docs/adr/) |
@@ -279,10 +285,13 @@ notes, including how releases are cut, are in
 
 ## Versioning
 
-Versions come from git tags. Releases before 1.0 are prereleases and the
-public API may still change between them; 1.0 follows the documentation site
-and the benchmark suite. Every GitHub release ships the packages, the native
-library archives, an SPDX SBOM and SHA-256 checksums.
+Versions come from git tags; there is no version in any project file. From
+1.0, the suite follows semantic versioning: a breaking change to the public
+API waits for the next major version, and a NuGet package-validation baseline
+is set once 1.0 ships. Every GitHub release ships the packages, the native
+library archives, an SPDX SBOM and SHA-256 checksums. See the
+[documentation site](https://edge.qavrensolutions.com) and the
+[benchmark suite](https://edge.qavrensolutions.com/benchmarks.html).
 
 ## Licence
 

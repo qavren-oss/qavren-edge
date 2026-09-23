@@ -42,30 +42,76 @@ and composes the tags. Error-code ranges are allocated per area and listed in
 ## Cutting a release
 
 Versions are computed by MinVer from `v*` tags; there is no version in any
-project file.
+project file. A tag containing `-` (e.g. `v1.0.0-rc.1`) produces a prerelease
+on nuget.org and a GitHub release marked prerelease; a bare `vX.Y.Z` tag
+produces a stable release. `Qavren.Edge.Ingestion.DataIngestion` is the one
+exception: its own suffix target (see its `.csproj`) keeps it on
+`X.Y.Z-preview` even on a stable tag, because it references a prerelease-only
+Microsoft package and NuGet's `NU5104` rule forbids a stable package
+depending on a prerelease one — see "DataIngestion stays prerelease" below.
 
 1. Everything to ship is on `main` and `ci-gate` is green.
-2. Optional dry run: `gh workflow run release.yml --ref main`. On
-   `workflow_dispatch` the workflow builds the natives, packs, asserts the
-   package metadata, zips, generates the SBOM and checksums, and uploads a
-   `release-dry-run` artifact; the NuGet push and the GitHub release are
-   skipped.
-3. Tag on `main` and push the tag:
+2. Dry run: `gh workflow run release.yml --ref main`. On `workflow_dispatch`
+   the workflow builds the natives, packs, asserts the package metadata,
+   zips, generates the SBOM and checksums, and uploads a `release-dry-run`
+   artifact; the NuGet push and the GitHub release are skipped. This proves
+   the workflow shape but never touches nuget.org.
+3. Rehearsal, required for a stable cut: tag `v1.0.0-rc.1` on `main` and push
+   it.
    ```
-   git tag -a v0.1.0-preview.1 <sha> -m "Qavren.Edge 0.1.0-preview.1"
-   git push origin v0.1.0-preview.1
+   git tag -a v1.0.0-rc.1 <sha> -m "Qavren.Edge 1.0.0-rc.1"
+   git push origin v1.0.0-rc.1
    ```
-   A tag containing `-` produces a prerelease on nuget.org and a GitHub
-   release marked prerelease.
-4. `release.yml` runs on the tag: natives on three legs, pack, the
-   `assert-packages.ps1` metadata check, zips, SBOM, checksums, OIDC login,
-   one push per package with `--skip-duplicate`, then the GitHub release with
-   the packages, symbol packages, native archives, SBOM and `SHA256SUMS.txt`.
+   `release.yml` runs for real — this is a genuine OIDC push of a prerelease,
+   the only end-to-end proof of the publish path and of the DataIngestion
+   suffix logic short of the stable tag itself. On a `-` tag the suffix target
+   doesn't fire, so every package, `Qavren.Edge.Ingestion.DataIngestion`
+   included, packs untouched as `1.0.0-rc.1`.
+4. Verify the rehearsal before cutting the stable tag: all 17 packages listed
+   on nuget.org, the GitHub release marked prerelease, and
+   `dotnet add package Qavren.Edge --prerelease` resolving `1.0.0-rc.1` in a
+   scratch project.
+5. Tag `v1.0.0` on the same commit and push it:
+   ```
+   git tag -a v1.0.0 <sha> -m "Qavren.Edge 1.0.0"
+   git push origin v1.0.0
+   ```
+   `release.yml` runs again, this time stable:
+   `Qavren.Edge.Ingestion.DataIngestion` packs as `1.0.0-preview` (its suffix
+   target fires because the tag carries no `-`), every other package as
+   `1.0.0`.
+6. Confirm the stable release: packages, symbol packages, native archives,
+   SBOM and `SHA256SUMS.txt` all present, GitHub release not marked
+   prerelease. Unlist the `1.0.0-rc.1` packages only if the rehearsal turned
+   up something wrong with them; leaving them listed is fine.
 
-A published version cannot be replaced, only unlisted. If a tagged run fails
-before the push, nothing is published: fix on `main`, delete and re-point the
-tag, push it again. Re-running the failed job replays the workflow file at the
-tagged commit, so it only helps when the fix is not in the workflow.
+A published version cannot be replaced, only unlisted — this applies to the
+rc packages too if step 6 finds a reason to pull them, and applies without
+exception to `1.0.0` itself once it is out. If a tagged run fails before the
+push, nothing is published: fix on `main`, delete and re-point the tag, push
+it again. Re-running the failed job replays the workflow file at the tagged
+commit, so it only helps when the fix is not in the workflow.
+
+### DataIngestion stays prerelease
+
+`ci.yml`'s Windows pack lane re-packs the whole solution under
+`-p:MinVerVersionOverride=9.9.9` and runs
+`assert-packages.ps1 -StableOverride 9.9.9` against it, on every PR, so a
+stable release tag cannot reach `release.yml`'s pack step and fail `NU5104`
+there — proven 2026-09-23: an unguarded `-p:MinVerVersionOverride=1.0.0` pack
+of `Qavren.Edge.Ingestion.DataIngestion` alone fails `NU5104` (a stable
+package must not depend on a prerelease one); with the suffix target it packs
+`1.0.0-preview` instead, depending on `Qavren.Edge.Ingestion 1.0.0`.
+
+### After 1.0
+
+- First follow-up PR: set `PackageValidationBaselineVersion` to `1.0.0` in the
+  packable block of `Directory.Build.targets` (the type-forward of
+  `IEdgeModelPaths` from PR #32 into Core is intended shape to carry forward
+  into that baseline, not a regression to suppress).
+- ADR 0003 and chat ADR 0009 hold the ONNX Runtime / ONNX Runtime GenAI pin
+  re-evaluations. A pin bump is a post-1.0 minor, proved by the tier-0 GenAI
+  smoke plus the nightly model tests as the soak.
 
 ## CI shape
 
@@ -85,6 +131,11 @@ tagged commit, so it only helps when the fix is not in the workflow.
 - `foundation/tools/ci-checks/assert-packages.ps1` opens every packed
   `.nupkg` and checks icon, README, MIT licence and area tags. The Windows
   pack lane runs it on every PR.
+- The Windows pack lane also re-packs the solution under
+  `-p:MinVerVersionOverride=9.9.9` into `artifacts/packages-stable` and runs
+  `assert-packages.ps1 -StableOverride 9.9.9` against it, proving a stable
+  release tag will not fail `NU5104` (see "DataIngestion stays prerelease"
+  above).
 
 Local gate before a PR that touches packaging or workflows:
 
@@ -153,3 +204,7 @@ resolves; nothing in the repo holds it.
 | Added to the workspace CI audit roster | 2026-09-12 |
 | `release.yml` dry run green | 2026-09-12 |
 | Trusted publishing policy created; `release.yml` switched to OIDC | 2026-09-12 |
+| `IEdgeModelPaths` moved to Core (PR #32) | 2026-09-23 |
+| XML-doc gate: `CS1591` an error for every shipped package | 2026-09-23 |
+| Benchmark suite + `benchmarks.yml` | 2026-09-23 |
+| 1.0 wording + DataIngestion stable-tag guard | 2026-09-23 |
