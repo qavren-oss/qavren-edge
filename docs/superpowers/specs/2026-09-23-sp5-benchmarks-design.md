@@ -97,7 +97,8 @@ conversation cache never shortens a prompt. Decode tokens per second is
 `ChatTurnStatus` (time to first token, tokens per second) for one turn.
 
 A custom summary column reports items per second where the item count is known:
-rows for the SQLite and insert rows, documents for ingestion, sentences and
+rows scanned for KNN and rows inserted for the insert benchmark (none for FTS5,
+which does not touch every row), documents for ingestion, sentences and
 tokens for embeddings. The count comes from a benchmark parameter or from a
 public static property on the benchmark class, computed deterministically on the
 host from the same generator the benchmark uses.
@@ -152,9 +153,9 @@ links the benchmarks page.
 "Errors" and "API reference" and listed in `docfx.json`'s first content group.
 It says what each benchmark measures and why, why the numbers belong to a
 kernel class, how to run the suite locally and dispatch the workflow, and gives
-one results table from a real ShortRun on the maintainer's machine (AMD Ryzen 7
-5825U, Zen 3, AVX2 without VNNI, Windows 11). Every row states whether it was
-measured. `docs/maintainers.md` gains the `benchmarks/` layout row, the
+two results tables from real ShortRuns: the maintainer's Windows machine (AMD
+Ryzen 7 5825U, Zen 3, AVX2 without VNNI) and the Mac Mini (Apple M4, macOS, the
+NEON class the product ships on). Every row states whether it was measured. `docs/maintainers.md` gains the `benchmarks/` layout row, the
 workflow in the `.github/` row, and a CI-shape bullet.
 
 ## 4. Verification

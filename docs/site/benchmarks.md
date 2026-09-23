@@ -89,14 +89,19 @@ Each leg writes its tables to the job summary and uploads
 
 ## Results
 
-Measured on AMD Ryzen 7 5825U, Zen 3, AVX2 without VNNI, Windows 11, .NET
-10.0.401, 2026-09-23, ShortRun. The numbers come from one local run of the
-command above with both models staged. The encode row is from a re-run of that
-class alone on the same day, after a fix to the throughput column. Treat them as
-rough. ShortRun keeps three iterations, and the error column (half the 99.9%
-confidence interval) is often as large as the mean. Other builds were running on
-the machine during the run. Rows marked "not yet measured" have not run
-anywhere yet.
+Two ShortRun measurements taken on 2026-09-23, one per int8 kernel class the
+suite runs on locally. Treat both as rough. ShortRun keeps three iterations,
+and the error column BenchmarkDotNet reports (half the 99.9% confidence
+interval) is often as large as the mean. Every row says whether it was
+measured. The hosted-runner legs of `benchmarks.yml` have not run yet.
+
+### AMD Ryzen 7 5825U (x64, AVX2)
+
+AMD Ryzen 7 5825U, Zen 3, AVX2 without VNNI, Windows 11, .NET 10.0.401,
+2026-09-23, ShortRun. One run of the command above with both models staged.
+The encode row comes from a re-run of that one class the same day, after a fix
+to the throughput column. Other builds were running on the machine during the
+run, so this table is noisier than the Apple one.
 
 | Area | Benchmark | Parameters | Mean | Throughput | Measured |
 |---|---|---|---:|---:|---|
@@ -130,29 +135,71 @@ anywhere yet.
 | Embeddings | `GenerateAsync`, int8 MiniLM | batch 32 | 117.1 ms | 273 sentences/s, 3 370 tokens/s | yes |
 | Chat | Qwen3 0.6B int4, 120-token prompt, 1-token answer | | 939 ms | about 130 prompt tokens/s | yes |
 | Chat | Qwen3 0.6B int4, 120-token prompt, 64-token answer | | 2 402 ms | 43 decode tokens/s | yes |
-| All | `ubuntu-24.04` leg of `benchmarks.yml` | | | | not yet measured; run `benchmarks.yml` |
-| All | `macos-15` (arm64, NEON) leg of `benchmarks.yml` | | | | not yet measured; run `benchmarks.yml` |
 
-What this run shows, and what it does not:
+### Apple M4 (arm64, NEON)
 
-- **vec0 chunk size (SP2 item 11).** The shipped 256 and sqlite-vec's 1 024
-  are within each other's error bars at 10 000 and 100 000 rows, and 256 is
-  ahead at 1 000 rows and on insert. Nothing here argues for changing the
-  default. A `--full` run on the NEON class should settle it before 1.0.
-- **KNN cost is linear.** Past 10 000 rows a query scans about 0.8 million
-  384-dimension rows per second on this CPU, so 100 000 rows cost about 0.12 s
-  per query. The 1 000-row figure is dominated by per-query overhead.
-- **The filter makes hybrid search slower.** A LINQ filter makes `SearchAsync`
-  no slower, but it makes `HybridSearchAsync` about 3.5 times slower (104 ms
-  against 29 ms). That is a finding to investigate, not yet a claim.
-- **The token-window chunker costs about six times as much** as the plain and
+Apple M4 (Mac Mini, 16 GB), macOS 27.0, .NET 10.0.401, 2026-09-23, ShortRun.
+This is the NEON int8 class the product ships on. One run of the same command.
+
+| Area | Benchmark | Parameters | Mean | Throughput | Measured |
+|---|---|---|---:|---:|---|
+| SQLite | vec0 KNN, k = 10 | 1 000 rows, chunk 256 | 0.25 ms | 4.0 M rows/s scanned | yes |
+| SQLite | vec0 KNN, k = 10 | 1 000 rows, chunk 1 024 | 0.30 ms | 3.3 M rows/s scanned | yes |
+| SQLite | vec0 KNN, k = 10 | 10 000 rows, chunk 256 | 3.79 ms | 2.6 M rows/s scanned | yes |
+| SQLite | vec0 KNN, k = 10 | 10 000 rows, chunk 1 024 | 3.68 ms | 2.7 M rows/s scanned | yes |
+| SQLite | vec0 KNN, k = 10 | 100 000 rows, chunk 256 | 38.9 ms | 2.6 M rows/s scanned | yes |
+| SQLite | vec0 KNN, k = 10 | 100 000 rows, chunk 1 024 | 38.6 ms | 2.6 M rows/s scanned | yes |
+| SQLite | FTS5 MATCH, top 10 | 1 000 rows | 7.8 µs | | yes |
+| SQLite | FTS5 MATCH, top 10 | 10 000 rows | 21 µs | | yes |
+| SQLite | FTS5 MATCH, top 10 | 100 000 rows | 170 µs | | yes |
+| SQLite | vec0 insert, one transaction | 1 000 rows, chunk 256 | 7.4 ms | 136 000 rows/s | yes |
+| SQLite | vec0 insert, one transaction | 1 000 rows, chunk 1 024 | 10.5 ms | 95 000 rows/s | yes |
+| SQLite | vec0 insert, one transaction | 10 000 rows, chunk 256 | 74.8 ms | 134 000 rows/s | yes |
+| SQLite | vec0 insert, one transaction | 10 000 rows, chunk 1 024 | 106.5 ms | 94 000 rows/s | yes |
+| Vector store | `SearchAsync` | 10 000 records | 3.68 ms | | yes |
+| Vector store | `SearchAsync` + filter | 10 000 records | 2.14 ms | | yes |
+| Vector store | `HybridSearchAsync` | 10 000 records | 4.29 ms | | yes |
+| Vector store | `HybridSearchAsync` + filter | 10 000 records | 14.1 ms | | yes |
+| Ingestion | plain-text extraction | 200 documents | 16.3 ms | 12 300 docs/s | yes |
+| Ingestion | Markdown extraction | 200 documents | 23.3 ms | 8 600 docs/s | yes |
+| Ingestion | plain chunker | 200 documents | 65.3 ms | 3 060 docs/s | yes |
+| Ingestion | Markdown heading chunker | 200 documents | 77.2 ms | 2 590 docs/s | yes |
+| Ingestion | token-window chunker | 200 documents | 285 ms | 702 docs/s | yes |
+| Ingestion | content hash (xxHash128) | 200 documents | 35 µs | 5.7 M docs/s | yes |
+| Ingestion | pipeline re-run, unchanged corpus | 200 documents | 13.1 ms | 15 200 docs/s | yes |
+| Embeddings | WordPiece encode | 32 sentences | 24 µs | 1.35 M sentences/s, 16.6 M tokens/s | yes |
+| Embeddings | `GenerateAsync`, int8 MiniLM | batch 1 | 3.7 ms | 274 sentences/s, 3 560 tokens/s | yes |
+| Embeddings | `GenerateAsync`, int8 MiniLM | batch 8 | 18.9 ms | 424 sentences/s, 5 300 tokens/s | yes |
+| Embeddings | `GenerateAsync`, int8 MiniLM | batch 32 | 92.7 ms | 345 sentences/s, 4 250 tokens/s | yes |
+| Chat | Qwen3 0.6B int4, 120-token prompt, 1-token answer | | 303 ms | about 400 prompt tokens/s | yes |
+| Chat | Qwen3 0.6B int4, 120-token prompt, 64-token answer | | 791 ms | 129 decode tokens/s | yes |
+
+The chat rows come from a second run of the chat class alone, a few minutes after the rest. The model finished staging on the Mini only after the main run had started.
+
+### What the two runs show
+
+- **vec0 chunk size (SP2 item 11).** On both machines the shipped 256 and
+  sqlite-vec's 1 024 give the same query cost within noise at 10 000 and
+  100 000 rows. 256 is ahead at 1 000 rows. On insert 256 is ahead on both
+  machines, and clearly so on the M4 (about 135 000 rows/s against 94 000). The
+  measurements back the shipped default of 256.
+- **KNN cost is linear.** Past 10 000 rows a query scans about 2.6 million
+  384-dimension rows per second on the M4 and about 0.8 million on the Ryzen.
+  At 100 000 rows that is 39 ms and 116 to 122 ms per query.
+- **The filter makes hybrid search slower.** On both machines a LINQ filter
+  leaves `SearchAsync` no slower (on the M4 it is faster), but it makes
+  `HybridSearchAsync` 3.3 to 3.6 times slower: 14.1 ms against 4.3 ms on the
+  M4, and 104 ms against 29 ms on the Ryzen. This needs investigating before
+  anything is claimed about it.
+- **The token-window chunker costs 3.5 to 6 times** as much as the plain and
   heading chunkers on the same documents.
-- **Batching the encoder pays off up to 8.** Batch 1 runs at 150 sentences per
-  second and batch 8 at about 270. Batch 32 is no faster than batch 8 on this
-  CPU.
-- **Chat.** The decode rate is `63 / (2 402 - 939)` ms per token, about 43
-  tokens per second. The client's own `ChatTurnStatus` for the same turn
-  reported 43.9 tokens per second and a 929 ms time to first token. The
-  prompt-processing rate is 120 tokens over roughly 0.9 s.
-- **One read per file** held: the unchanged re-run opened each of the 200 files
-  exactly once and embedded nothing.
+- **Encoder batching.** Throughput peaks at batch 8 on both machines: 424
+  sentences/s on the M4 and 274 on the Ryzen. Batch 32 is no faster than
+  batch 8, and on the M4 it is slower.
+- **Chat.** The decode rate is `63 / (T64 - T1)`. That is about 129 tokens per
+  second on the M4 (`63 / (791 - 303)` ms) and 43 on the Ryzen
+  (`63 / (2 402 - 939)` ms). The client's own `ChatTurnStatus` agreed: 127.9
+  and 43.9 tokens per second, with a time to first token of 370 ms and 929 ms.
+  The M4 decodes about three times as fast as the Ryzen.
+- **One read per file** held on both machines. The unchanged re-run opened each
+  of the 200 files exactly once and embedded nothing.
