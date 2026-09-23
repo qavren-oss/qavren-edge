@@ -251,6 +251,32 @@ else:
     if maui_cmd not in docs_text or gated_cmd not in docs_text or docs_text.index(maui_cmd) > docs_text.index(gated_cmd):
         problems.append("docs.yml must run the ungated Qavren.Edge.Maui metadata (docfx.maui.json) before the gated build")
 
+# --- Sub-project 5 (benchmarks) ---
+# benchmarks.yml is manual: a benchmark on a PR or a schedule spends hosted minutes (and a model
+# download) to measure whichever runner it drew. Its model caches key on the content hash, like
+# model-tests, and ci.yml never calls it. The docs page is in the site's navigation, so it cannot
+# be dropped silently.
+bench_path = w / "benchmarks.yml"
+if not bench_path.is_file():
+    problems.append("benchmarks.yml is missing (SP5 part 3)")
+else:
+    bench_text = bench_path.read_text(encoding="utf-8")
+    bench = yaml.safe_load(bench_text)
+    bench_on = bench.get("on", bench.get(True)) or {}
+    if list(bench_on) != ["workflow_dispatch"]:
+        problems.append("benchmarks.yml must be workflow_dispatch only (found: %s)" % ", ".join(sorted(bench_on)))
+    for token in ("key: qavren-edge-model-${{ env.QAVREN_EDGE_MODEL_SHA256 }}",
+                  "key: qavren-edge-chat-model-${{ env.QAVREN_EDGE_CHAT_MODEL_SHA256 }}"):
+        if token not in bench_text:
+            problems.append("benchmarks.yml model cache key is not the content hash (" + token + ")")
+    if bench.get("jobs", {}).get("natives", {}).get("uses") != "./.github/workflows/native.yml" or "actions: read" not in bench_text:
+        problems.append("benchmarks.yml must call native.yml from a `natives` job granting `actions: read`, as ci.yml does")
+if "benchmarks.yml" in ci_text or "Qavren.Edge.Benchmarks" in ci_text:
+    problems.append("ci.yml references the benchmark suite; benchmarks run from benchmarks.yml on dispatch only")
+toc_text = (root / "docs" / "site" / "toc.yml").read_text(encoding="utf-8")
+if "href: benchmarks.md" not in toc_text:
+    problems.append("docs/site/toc.yml does not link benchmarks.md")
+
 win = ci["jobs"]["device-tests-windows"]["runs-on"]
 print("\n".join(problems) if problems else "OK: gates, 4 device lanes, JUnit, win-arm64, native artifact cache + reuse, SBOM and native release assets all present (windows lane on %s)" % win)
 sys.exit(1 if problems else 0)

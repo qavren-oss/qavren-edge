@@ -60,4 +60,7 @@
     <Project Path="chat/tests/Qavren.Edge.Chat.Tests/Qavren.Edge.Chat.Tests.csproj" />
     <Project Path="chat/tests/Qavren.Edge.Rag.Tests/Qavren.Edge.Rag.Tests.csproj" />
   </Folder>
+  <Folder Name="/benchmarks/">
+    <Project Path="benchmarks/Qavren.Edge.Benchmarks/Qavren.Edge.Benchmarks.csproj" />
+  </Folder>
 </Solution>
