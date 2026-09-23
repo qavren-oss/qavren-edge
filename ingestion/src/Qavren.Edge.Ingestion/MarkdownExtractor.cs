@@ -60,27 +60,37 @@ public sealed class MarkdownExtractor : IDocumentExtractor
 
     private readonly MarkdownExtractorOptions _options;
 
+    /// <summary>Creates the extractor with default <see cref="MarkdownExtractorOptions"/>.</summary>
     public MarkdownExtractor()
         : this(new MarkdownExtractorOptions())
     {
     }
 
+    /// <summary>Creates the extractor with the given <paramref name="options"/>.</summary>
+    /// <exception cref="ArgumentNullException"><paramref name="options"/> is null.</exception>
     public MarkdownExtractor(MarkdownExtractorOptions options)
     {
         ArgumentNullException.ThrowIfNull(options);
         _options = options;
     }
 
+    /// <inheritdoc/>
     public string Id => "markdown";
 
+    /// <inheritdoc/>
     public int Version => 1;
 
+    /// <inheritdoc/>
     public IReadOnlyList<string> Extensions => ExtensionList;
 
+    /// <inheritdoc/>
     public IReadOnlyList<string> MediaTypes => MediaTypeList;
 
+    /// <inheritdoc/>
     public bool CanExtract(DocumentSourceItem item) => item is not null;
 
+    /// <inheritdoc/>
+    /// <exception cref="EdgeExtractionException">Markdig could not parse the document (<see cref="EdgeErrorCode.MarkdownParseFailed"/>).</exception>
     public async ValueTask<ExtractedDocument> ExtractAsync(
         DocumentSourceItem item, ExtractionContext context, CancellationToken cancellationToken)
     {

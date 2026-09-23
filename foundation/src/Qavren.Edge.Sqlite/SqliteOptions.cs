@@ -1,20 +1,40 @@
 namespace Qavren.Edge.Sqlite;
 
+/// <summary>SQLite's <c>journal_mode</c> pragma values, applied once at database creation.</summary>
 public enum SqliteJournalMode
 {
+    /// <summary>The rollback journal is deleted at the end of each transaction (SQLite's historical default).</summary>
     Delete,
+
+    /// <summary>The rollback journal is truncated to zero length instead of deleted.</summary>
     Truncate,
+
+    /// <summary>The rollback journal is left on disk but its header is overwritten, avoiding a filesystem delete.</summary>
     Persist,
+
+    /// <summary>The rollback journal is held in memory instead of on disk. Not crash-safe.</summary>
     Memory,
+
+    /// <summary>Write-ahead logging. Qavren.Edge's default: readers do not block writers.</summary>
     Wal,
+
+    /// <summary>No rollback journal at all. A crash mid-transaction can corrupt the database.</summary>
     Off,
 }
 
+/// <summary>SQLite's <c>synchronous</c> pragma values, issued on every logical open.</summary>
 public enum SqliteSynchronousMode
 {
+    /// <summary>SQLite does not call <c>fsync</c>. Fastest, and unsafe against a power loss or OS crash.</summary>
     Off = 0,
+
+    /// <summary>SQLite syncs at the most critical moments. Qavren.Edge's default; safe with <see cref="SqliteJournalMode.Wal"/>.</summary>
     Normal = 1,
+
+    /// <summary>SQLite syncs the database file on every write.</summary>
     Full = 2,
+
+    /// <summary>Like <see cref="Full"/>, and also syncs the rollback journal before deleting it.</summary>
     Extra = 3,
 }
 

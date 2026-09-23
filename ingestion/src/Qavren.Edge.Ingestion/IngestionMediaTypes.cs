@@ -5,9 +5,16 @@ namespace Qavren.Edge.Ingestion;
 /// </summary>
 public static class IngestionMediaTypes
 {
+    /// <summary>Plain text: <c>.txt</c>, <c>.log</c>, <c>.csv</c>, <c>.text</c>.</summary>
     public const string PlainText = "text/plain";
+
+    /// <summary>Markdown: <c>.md</c>, <c>.markdown</c>.</summary>
     public const string Markdown = "text/markdown";
+
+    /// <summary>PDF: <c>.pdf</c>.</summary>
     public const string Pdf = "application/pdf";
+
+    /// <summary>Word Open XML: <c>.docx</c>.</summary>
     public const string Docx = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
 
     /// <summary>

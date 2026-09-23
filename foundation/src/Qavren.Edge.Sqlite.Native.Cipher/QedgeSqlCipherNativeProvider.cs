@@ -7,11 +7,15 @@ namespace Qavren.Edge.Sqlite.Native.Cipher;
 /// </summary>
 public sealed class QedgeSqlCipherNativeProvider : QedgeSqliteNativeProvider
 {
+    /// <inheritdoc/>
     public override string Name => "Qavren.Edge.Sqlite.Native.Cipher";
 
+    /// <inheritdoc/>
     public override bool SupportsEncryption => true;
 
+    /// <inheritdoc/>
     protected override string ReportedLibraryName => "sqlcipher";
 
+    /// <inheritdoc/>
     protected override string PhysicalLibraryName => "qedge_sqlcipher";
 }

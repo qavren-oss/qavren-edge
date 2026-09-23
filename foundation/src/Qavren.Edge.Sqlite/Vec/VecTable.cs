@@ -5,21 +5,33 @@ using Microsoft.Data.Sqlite;
 
 namespace Qavren.Edge.Sqlite.Vec;
 
+/// <summary>sqlite-vec's <c>distance_metric</c> column option.</summary>
 public enum VecMetric
 {
+    /// <summary>Euclidean (L2) distance.</summary>
     L2,
+
+    /// <summary>Manhattan (L1) distance.</summary>
     L1,
+
+    /// <summary>Cosine distance. The default for a float32/int8 column.</summary>
     Cosine,
 }
 
+/// <summary>sqlite-vec's column element types.</summary>
 [SuppressMessage(
     "Naming",
     "CA1720:Identifier contains type name",
     Justification = "float32/int8/bit are sqlite-vec's own column element-type spellings; renaming them would obscure the mapping to the vec0 DDL.")]
 public enum VecElementType
 {
+    /// <summary>32-bit floating point, sqlite-vec's <c>float</c> column type.</summary>
     Float32,
+
+    /// <summary>8-bit signed integer, sqlite-vec's <c>int8</c> column type.</summary>
     Int8,
+
+    /// <summary>Packed bits, sqlite-vec's <c>bit</c> column type. Hamming distance only; rejects a <see cref="VecMetric"/>.</summary>
     Bit,
 }
 
@@ -41,6 +53,19 @@ public static class VecTable
     private const int MaxAuxColumns = 16;
     private const int MaxPartitionKeys = 4;
 
+    /// <summary>Builds the <c>CREATE VIRTUAL TABLE ... USING vec0(...)</c> statement for the given shape, enforcing sqlite-vec's own caps up front.</summary>
+    /// <param name="name">The table name.</param>
+    /// <param name="dims">The vector column's dimensionality (1 to 8192).</param>
+    /// <param name="metric">The distance metric, or <see langword="null"/> for a <see cref="VecElementType.Bit"/> column, which rejects one.</param>
+    /// <param name="elementType">The vector column's element type.</param>
+    /// <param name="aux">Auxiliary columns, selectable but never filterable in a KNN <c>WHERE</c> clause.</param>
+    /// <param name="metadata">Metadata columns, filterable with comparison operators.</param>
+    /// <param name="partitions">Partition keys, pre-filtered with <c>=</c> constraints.</param>
+    /// <param name="chunkSize">The <c>chunk_size</c> option; must be a positive multiple of 8 up to 4096, or <see langword="null"/> to leave it unset.</param>
+    /// <param name="vectorColumn">The vector column's name.</param>
+    /// <returns>The complete <c>CREATE VIRTUAL TABLE</c> statement.</returns>
+    /// <exception cref="ArgumentException"><paramref name="name"/> or <paramref name="vectorColumn"/> is null, empty, or whitespace; or <paramref name="metric"/> is set on a <see cref="VecElementType.Bit"/> column.</exception>
+    /// <exception cref="ArgumentOutOfRangeException"><paramref name="dims"/>, <paramref name="chunkSize"/>, or the size of <paramref name="aux"/>, <paramref name="metadata"/> or <paramref name="partitions"/> is out of range.</exception>
     public static string BuildCreateSql(
         string name,
         int dims,
@@ -108,6 +133,20 @@ public static class VecTable
         return sb.ToString();
     }
 
+    /// <summary>Builds the table's DDL with <see cref="BuildCreateSql"/> and executes it on <paramref name="connection"/>.</summary>
+    /// <param name="connection">The open connection to create the table on.</param>
+    /// <param name="name">The table name.</param>
+    /// <param name="dims">The vector column's dimensionality (1 to 8192).</param>
+    /// <param name="metric">The distance metric, or <see langword="null"/> for a <see cref="VecElementType.Bit"/> column, which rejects one.</param>
+    /// <param name="elementType">The vector column's element type.</param>
+    /// <param name="aux">Auxiliary columns, selectable but never filterable in a KNN <c>WHERE</c> clause.</param>
+    /// <param name="metadata">Metadata columns, filterable with comparison operators.</param>
+    /// <param name="partitions">Partition keys, pre-filtered with <c>=</c> constraints.</param>
+    /// <param name="chunkSize">The <c>chunk_size</c> option; must be a positive multiple of 8 up to 4096, or <see langword="null"/> to leave it unset.</param>
+    /// <param name="vectorColumn">The vector column's name.</param>
+    /// <param name="cancellationToken">Cancels the command.</param>
+    /// <exception cref="ArgumentException"><paramref name="name"/> or <paramref name="vectorColumn"/> is null, empty, or whitespace; or <paramref name="metric"/> is set on a <see cref="VecElementType.Bit"/> column.</exception>
+    /// <exception cref="ArgumentOutOfRangeException"><paramref name="dims"/>, <paramref name="chunkSize"/>, or the size of <paramref name="aux"/>, <paramref name="metadata"/> or <paramref name="partitions"/> is out of range.</exception>
     public static async Task CreateAsync(
         SqliteConnection connection,
         string name,

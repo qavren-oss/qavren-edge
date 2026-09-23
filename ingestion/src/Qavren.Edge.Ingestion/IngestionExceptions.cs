@@ -7,6 +7,10 @@ namespace Qavren.Edge.Ingestion;
 /// </summary>
 public class EdgeIngestionException : EdgeException
 {
+    /// <summary>Creates the exception with the given <paramref name="code"/> and <paramref name="message"/>.</summary>
+    /// <param name="code">The stable error identity for this fault.</param>
+    /// <param name="message">The exception message.</param>
+    /// <param name="innerException">The underlying cause, if any.</param>
     public EdgeIngestionException(EdgeErrorCode code, string message, Exception? innerException = null)
         : base(code, message, innerException)
     {
@@ -31,6 +35,10 @@ public class EdgeIngestionException : EdgeException
 /// <summary>An extractor failed on one document.</summary>
 public sealed class EdgeExtractionException : EdgeIngestionException
 {
+    /// <summary>Creates the exception with the given <paramref name="code"/> and <paramref name="message"/>.</summary>
+    /// <param name="code">The stable error identity for this fault.</param>
+    /// <param name="message">The exception message.</param>
+    /// <param name="innerException">The underlying cause, if any.</param>
     public EdgeExtractionException(EdgeErrorCode code, string message, Exception? innerException = null)
         : base(code, message, innerException)
     {
@@ -46,6 +54,10 @@ public sealed class EdgeExtractionException : EdgeIngestionException
 /// <summary>A chunker violated or could not satisfy the frozen budget.</summary>
 public sealed class EdgeChunkingException : EdgeIngestionException
 {
+    /// <summary>Creates the exception with the given <paramref name="code"/> and <paramref name="message"/>.</summary>
+    /// <param name="code">The stable error identity for this fault.</param>
+    /// <param name="message">The exception message.</param>
+    /// <param name="innerException">The underlying cause, if any.</param>
     public EdgeChunkingException(EdgeErrorCode code, string message, Exception? innerException = null)
         : base(code, message, innerException)
     {
@@ -64,6 +76,10 @@ public sealed class EdgeChunkingException : EdgeIngestionException
 /// <summary>The persisted ingestion state is missing, corrupt, or of an unsupported version.</summary>
 public sealed class EdgeIngestionStateException : EdgeIngestionException
 {
+    /// <summary>Creates the exception with the given <paramref name="code"/> and <paramref name="message"/>.</summary>
+    /// <param name="code">The stable error identity for this fault.</param>
+    /// <param name="message">The exception message.</param>
+    /// <param name="innerException">The underlying cause, if any.</param>
     public EdgeIngestionStateException(EdgeErrorCode code, string message, Exception? innerException = null)
         : base(code, message, innerException)
     {

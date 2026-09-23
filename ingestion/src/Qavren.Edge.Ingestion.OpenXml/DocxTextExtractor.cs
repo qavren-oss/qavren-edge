@@ -32,27 +32,36 @@ public sealed class DocxTextExtractor : IDocumentExtractor
 
     private readonly DocxExtractorOptions _options;
 
+    /// <summary>Creates the extractor with default <see cref="DocxExtractorOptions"/>.</summary>
     public DocxTextExtractor()
         : this(new DocxExtractorOptions())
     {
     }
 
+    /// <summary>Creates the extractor with the given <paramref name="options"/>.</summary>
+    /// <exception cref="ArgumentNullException"><paramref name="options"/> is null.</exception>
     public DocxTextExtractor(DocxExtractorOptions options)
     {
         ArgumentNullException.ThrowIfNull(options);
         _options = options;
     }
 
+    /// <inheritdoc/>
     public string Id => "docx";
 
+    /// <inheritdoc/>
     public int Version => 1;
 
+    /// <inheritdoc/>
     public IReadOnlyList<string> Extensions => ExtensionList;
 
+    /// <inheritdoc/>
     public IReadOnlyList<string> MediaTypes => MediaTypeList;
 
+    /// <inheritdoc/>
     public bool CanExtract(DocumentSourceItem item) => item is not null;
 
+    /// <inheritdoc/>
     public async ValueTask<ExtractedDocument> ExtractAsync(
         DocumentSourceItem item, ExtractionContext context, CancellationToken cancellationToken)
     {

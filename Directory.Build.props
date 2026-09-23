@@ -9,14 +9,17 @@
     <AnalysisLevel>latest-recommended</AnalysisLevel>
     <Deterministic>true</Deterministic>
     <InvariantGlobalization>true</InvariantGlobalization>
-    <!-- NU5127: native-only packages carry no lib/ assembly.
-         CS1591: XML doc coverage is a 1.0 gate, not a Wave-2 gate. -->
-    <NoWarn>$(NoWarn);NU5127;CS1591</NoWarn>
+    <!-- NU5127: native-only packages carry no lib/ assembly. -->
+    <NoWarn>$(NoWarn);NU5127</NoWarn>
     <!-- Unconditional on purpose. .editorconfig escalates IDE0005 to error, and Roslyn refuses
          to honour that without a documentation file (error EnableGenerateDocumentationFile,
-         roslyn#41640) - which would break every non-packable project in the repo. CS1591 is
-         already suppressed above, so this costs nothing but the .xml file. -->
+         roslyn#41640) - which would break every non-packable project in the repo. -->
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <!-- CS1591 is a real gate as of 1.0: every shipped package's public surface is documented, and
+         a missing XML comment on a publicly visible type or member in a packable project fails the
+         build. Suppressed only for non-packable projects (tests, samples, tools) in
+         Directory.Build.targets, conditioned on $(IsPackable) - see the comment there for why it
+         cannot live here. -->
     <IsPackable>false</IsPackable>
     <NativeArtifactsDir>$(MSBuildThisFileDirectory)foundation\native\artifacts\</NativeArtifactsDir>
   </PropertyGroup>

@@ -14,17 +14,22 @@ public sealed class TokenWindowChunker : IChunker
 {
     private readonly ILogger _logger;
 
+    /// <summary>Creates the chunker with no logger.</summary>
     public TokenWindowChunker()
         : this(null)
     {
     }
 
+    /// <summary>Creates the chunker, logging through <paramref name="logger"/> (or nowhere, when <see langword="null"/>).</summary>
     public TokenWindowChunker(ILogger? logger) => _logger = logger ?? NullLogger.Instance;
 
+    /// <inheritdoc/>
     public string Id => ChunkerIds.TokenWindow;
 
+    /// <inheritdoc/>
     public int Version => 1;
 
+    /// <inheritdoc/>
     public IEnumerable<ChunkDraft> Chunk(
         ExtractedDocument document, ResolvedChunkOptions options, IChunkTokenizer tokenizer)
     {

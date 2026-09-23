@@ -7,13 +7,28 @@ namespace Qavren.Edge.Ingestion;
 /// </summary>
 public enum DocumentBlockKind
 {
+    /// <summary>Ordinary body text.</summary>
     Paragraph,
+
+    /// <summary>A section heading.</summary>
     Heading,
+
+    /// <summary>One item of a bulleted or numbered list.</summary>
     ListItem,
+
+    /// <summary>One row of a table.</summary>
     TableRow,
+
+    /// <summary>A code block.</summary>
     Code,
+
+    /// <summary>A figure or table caption.</summary>
     Caption,
+
+    /// <summary>A block quotation.</summary>
     Quote,
+
+    /// <summary>Page footer text.</summary>
     Footer,
 }
 

@@ -3,11 +3,19 @@ using Microsoft.Data.Sqlite;
 
 namespace Qavren.Edge.Sqlite.Fts;
 
+/// <summary>FTS5's built-in tokenizers.</summary>
 public enum FtsTokenizer
 {
+    /// <summary>FTS5's default Unicode-aware tokenizer.</summary>
     Unicode61,
+
+    /// <summary>Unicode61 with the Porter stemming algorithm layered on top.</summary>
     Porter,
+
+    /// <summary>ASCII-only tokenization.</summary>
     Ascii,
+
+    /// <summary>Trigram tokenization, for substring matching.</summary>
     Trigram,
 }
 
@@ -33,8 +41,17 @@ public sealed record FtsTableOptions
     public string? Prefix { get; init; }
 }
 
+/// <summary>Emits FTS5 DDL and sync-trigger SQL a consumer could have written by hand.</summary>
 public static class FtsTable
 {
+    /// <summary>Builds the <c>CREATE VIRTUAL TABLE ... USING fts5(...)</c> statement for the given columns.</summary>
+    /// <param name="name">The table name.</param>
+    /// <param name="columns">The indexed column names; at least one is required.</param>
+    /// <param name="tokenizer">The tokenizer to use.</param>
+    /// <param name="contentTable">The external-content table name, or <see langword="null"/> to omit <c>content=</c>.</param>
+    /// <returns>The complete <c>CREATE VIRTUAL TABLE</c> statement.</returns>
+    /// <exception cref="ArgumentException"><paramref name="name"/> is null, empty, or whitespace; or <paramref name="columns"/> is empty.</exception>
+    /// <exception cref="ArgumentNullException"><paramref name="columns"/> is null.</exception>
     public static string BuildCreateSql(
         string name,
         IReadOnlyList<string> columns,
@@ -169,6 +186,15 @@ public static class FtsTable
         ];
     }
 
+    /// <summary>Builds the table's DDL with <see cref="BuildCreateSql(string, IReadOnlyList{string}, FtsTokenizer, string?)"/> and executes it on <paramref name="connection"/>.</summary>
+    /// <param name="connection">The open connection to create the table on.</param>
+    /// <param name="name">The table name.</param>
+    /// <param name="columns">The indexed column names; at least one is required.</param>
+    /// <param name="tokenizer">The tokenizer to use.</param>
+    /// <param name="contentTable">The external-content table name, or <see langword="null"/> to omit <c>content=</c>.</param>
+    /// <param name="cancellationToken">Cancels the command.</param>
+    /// <exception cref="ArgumentException"><paramref name="name"/> is null, empty, or whitespace; or <paramref name="columns"/> is empty.</exception>
+    /// <exception cref="ArgumentNullException"><paramref name="columns"/> is null.</exception>
     public static async Task CreateAsync(
         SqliteConnection connection,
         string name,
@@ -196,6 +222,12 @@ public static class FtsTable
             cancellationToken: cancellationToken).ConfigureAwait(false);
     }
 
+    /// <summary>Builds the sync triggers with <see cref="BuildSyncTriggerSql(string, string, IReadOnlyList{string})"/> and executes them on <paramref name="connection"/>.</summary>
+    /// <param name="connection">The open connection to create the triggers on.</param>
+    /// <param name="ftsTable">The FTS5 table to keep in sync.</param>
+    /// <param name="contentTable">The external-content table the triggers observe.</param>
+    /// <param name="columns">The columns mirrored from <paramref name="contentTable"/> into <paramref name="ftsTable"/>.</param>
+    /// <param name="cancellationToken">Cancels each command.</param>
     public static async Task CreateSyncTriggersAsync(
         SqliteConnection connection,
         string ftsTable,

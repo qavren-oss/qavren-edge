@@ -8,6 +8,7 @@ namespace Qavren.Edge.Sqlite.Vec;
 /// </summary>
 public static class VecBlob
 {
+    /// <summary>Encodes a <c>float[N]</c> vector as a little-endian float32 blob, as sqlite-vec expects.</summary>
     public static byte[] From(ReadOnlySpan<float> values)
     {
         var blob = new byte[values.Length * sizeof(float)];
@@ -19,6 +20,8 @@ public static class VecBlob
         return blob;
     }
 
+    /// <summary>Decodes a little-endian float32 blob back into a <c>float[N]</c> vector.</summary>
+    /// <exception cref="ArgumentException"><paramref name="blob"/>'s length is not a multiple of <c>sizeof(float)</c>.</exception>
     public static float[] ToFloats(ReadOnlySpan<byte> blob)
     {
         if (blob.Length % sizeof(float) != 0)
@@ -37,6 +40,7 @@ public static class VecBlob
         return values;
     }
 
+    /// <summary>Encodes an <c>int8[N]</c> vector as a signed-byte blob, as sqlite-vec expects.</summary>
     public static byte[] FromInt8(ReadOnlySpan<sbyte> values)
     {
         var blob = new byte[values.Length];
@@ -48,6 +52,7 @@ public static class VecBlob
         return blob;
     }
 
+    /// <summary>Decodes a signed-byte blob back into an <c>int8[N]</c> vector.</summary>
     public static sbyte[] ToInt8(ReadOnlySpan<byte> blob)
     {
         var values = new sbyte[blob.Length];
@@ -80,6 +85,7 @@ public static class VecBlob
         return blob;
     }
 
+    /// <summary>Decodes a bit-packed blob back into a <c>bit[N]</c> vector, least significant bit first within each byte.</summary>
     public static bool[] ToBits(ReadOnlySpan<byte> blob)
     {
         var values = new bool[blob.Length * 8];

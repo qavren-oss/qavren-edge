@@ -33,8 +33,15 @@ public interface IChunker
 /// <summary>The four chunker ids SP3 ships.</summary>
 public static class ChunkerIds
 {
+    /// <summary>Picks <see cref="MarkdownHeading"/> for Markdown documents and <see cref="Plain"/> otherwise.</summary>
     public const string Auto = "auto";
+
+    /// <summary>Sentence/paragraph-boundary chunking with no structural awareness.</summary>
     public const string Plain = "plain";
+
+    /// <summary>Chunks along Markdown heading boundaries, building the heading-path breadcrumb as it goes.</summary>
     public const string MarkdownHeading = "markdown-heading";
+
+    /// <summary>Fixed-size token windows with configured overlap, for text with no exploitable structure.</summary>
     public const string TokenWindow = "token-window";
 }

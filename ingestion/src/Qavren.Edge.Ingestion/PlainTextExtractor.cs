@@ -34,27 +34,36 @@ public sealed class PlainTextExtractor : IDocumentExtractor
 
     private readonly PlainTextExtractorOptions _options;
 
+    /// <summary>Creates the extractor with default <see cref="PlainTextExtractorOptions"/>.</summary>
     public PlainTextExtractor()
         : this(new PlainTextExtractorOptions())
     {
     }
 
+    /// <summary>Creates the extractor with the given <paramref name="options"/>.</summary>
+    /// <exception cref="ArgumentNullException"><paramref name="options"/> is null.</exception>
     public PlainTextExtractor(PlainTextExtractorOptions options)
     {
         ArgumentNullException.ThrowIfNull(options);
         _options = options;
     }
 
+    /// <inheritdoc/>
     public string Id => "text";
 
+    /// <inheritdoc/>
     public int Version => 1;
 
+    /// <inheritdoc/>
     public IReadOnlyList<string> Extensions => ExtensionList;
 
+    /// <inheritdoc/>
     public IReadOnlyList<string> MediaTypes => MediaTypeList;
 
+    /// <inheritdoc/>
     public bool CanExtract(DocumentSourceItem item) => item is not null;
 
+    /// <inheritdoc/>
     public async ValueTask<ExtractedDocument> ExtractAsync(
         DocumentSourceItem item, ExtractionContext context, CancellationToken cancellationToken)
     {

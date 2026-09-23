@@ -4,6 +4,7 @@ using Qavren.Edge.Hosting;
 
 namespace Qavren.Edge.Sqlite.Native;
 
+/// <summary>Registers <see cref="QedgeSqliteNativeProvider"/> on an <see cref="EdgeBuilder"/>.</summary>
 public static class SqliteNativeBuilderExtensions
 {
     /// <summary>

@@ -25,6 +25,13 @@ public sealed class MlChunkTokenizer : IChunkTokenizer
 {
     private readonly Tokenizer _tokenizer;
 
+    /// <summary>Wraps <paramref name="tokenizer"/> as an <see cref="IChunkTokenizer"/>.</summary>
+    /// <param name="tokenizer">The underlying <c>Microsoft.ML.Tokenizers</c> tokenizer.</param>
+    /// <param name="maxSequenceLength">The model ceiling, special tokens included.</param>
+    /// <param name="specialTokenOverhead">Tokens the encoder adds that <paramref name="tokenizer"/>'s own count does not report.</param>
+    /// <param name="id">A stable identity, or <see langword="null"/> to derive one from the tokenizer's type and <paramref name="maxSequenceLength"/>.</param>
+    /// <exception cref="ArgumentNullException"><paramref name="tokenizer"/> is null.</exception>
+    /// <exception cref="ArgumentOutOfRangeException"><paramref name="maxSequenceLength"/> is not positive, or <paramref name="specialTokenOverhead"/> is negative.</exception>
     public MlChunkTokenizer(
         Tokenizer tokenizer, int maxSequenceLength, int specialTokenOverhead, string? id = null)
     {
@@ -42,14 +49,19 @@ public sealed class MlChunkTokenizer : IChunkTokenizer
             maxSequenceLength);
     }
 
+    /// <inheritdoc/>
     public string Id { get; }
 
+    /// <inheritdoc/>
     public int MaxSequenceLength { get; }
 
+    /// <inheritdoc/>
     public int SpecialTokenOverhead { get; }
 
+    /// <inheritdoc/>
     public int CountTokens(ReadOnlySpan<char> text) => _tokenizer.CountTokens(text);
 
+    /// <inheritdoc/>
     public int IndexByTokenCount(string text, int maxTokens, out int tokenCount)
     {
         ArgumentNullException.ThrowIfNull(text);

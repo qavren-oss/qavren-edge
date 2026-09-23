@@ -21,17 +21,22 @@ public sealed class PlainChunker : IChunker
 {
     private readonly ILogger _logger;
 
+    /// <summary>Creates the chunker with no logger.</summary>
     public PlainChunker()
         : this(null)
     {
     }
 
+    /// <summary>Creates the chunker, logging through <paramref name="logger"/> (or nowhere, when <see langword="null"/>).</summary>
     public PlainChunker(ILogger? logger) => _logger = logger ?? NullLogger.Instance;
 
+    /// <inheritdoc/>
     public string Id => ChunkerIds.Plain;
 
+    /// <inheritdoc/>
     public int Version => 1;
 
+    /// <inheritdoc/>
     public IEnumerable<ChunkDraft> Chunk(
         ExtractedDocument document, ResolvedChunkOptions options, IChunkTokenizer tokenizer)
     {

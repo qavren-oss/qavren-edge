@@ -16,6 +16,9 @@ public interface IEdgePaths
 /// </summary>
 public sealed class DefaultEdgePaths : IEdgePaths
 {
+    /// <summary>Resolves and creates <see cref="Data"/> and <see cref="Cache"/> under the platform's local application data folder.</summary>
+    /// <param name="appName">The application's name; used as the directory segment under local application data.</param>
+    /// <exception cref="ArgumentException"><paramref name="appName"/> is null, empty, or whitespace.</exception>
     public DefaultEdgePaths(string appName)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(appName);
@@ -30,7 +33,9 @@ public sealed class DefaultEdgePaths : IEdgePaths
         Directory.CreateDirectory(Cache);
     }
 
+    /// <inheritdoc/>
     public string Data { get; }
 
+    /// <inheritdoc/>
     public string Cache { get; }
 }
