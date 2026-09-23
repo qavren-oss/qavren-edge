@@ -6,6 +6,8 @@ Date: 2026-09-11
 
 Accepted
 
+Implemented 2026-09-23 (PR #32)
+
 ## Context
 
 Model bundles (23–137 MB) need a storage location that is neither
