@@ -1,0 +1,33 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <!-- Sub-project 5 part 3 (docs/superpowers/specs/2026-09-23-sp5-benchmarks-design.md). A
+         BenchmarkDotNet console, run by the dispatch-only benchmarks.yml and by hand; never a test
+         step and never packed. -->
+    <TargetFramework>net10.0</TargetFramework>
+    <OutputType>Exe</OutputType>
+    <IsPackable>false</IsPackable>
+    <!-- BenchmarkDotNet discovers benchmark classes by reflection and requires them public and
+         unsealed; CA1515 would have every one of them internal. MEVD9001 is the experimental
+         hybrid-search surface the VectorData benchmarks measure on purpose. CS1591: benchmark
+         classes are not documented API. -->
+    <NoWarn>$(NoWarn);CA1515;MEVD9001;CS1591</NoWarn>
+    <!-- BenchmarkDotNet reads the release build; a Debug run is refused by its own validator. -->
+    <Optimize>true</Optimize>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\foundation\src\Qavren.Edge.Sqlite.Native\Qavren.Edge.Sqlite.Native.csproj" />
+    <ProjectReference Include="..\..\embeddings\src\Qavren.Edge.VectorData\Qavren.Edge.VectorData.csproj" />
+    <ProjectReference Include="..\..\embeddings\src\Qavren.Edge.Embeddings.Onnx\Qavren.Edge.Embeddings.Onnx.csproj" />
+    <ProjectReference Include="..\..\ingestion\src\Qavren.Edge.Ingestion\Qavren.Edge.Ingestion.csproj" />
+    <ProjectReference Include="..\..\chat\src\Qavren.Edge.Chat.Onnx\Qavren.Edge.Chat.Onnx.csproj" />
+  </ItemGroup>
+
+  <!-- The concrete container and logger factory: every src project references only the
+       Abstractions packages. Both versions already exist in Directory.Packages.props. -->
+  <ItemGroup>
+    <PackageReference Include="BenchmarkDotNet" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" />
+    <PackageReference Include="Microsoft.Extensions.Logging" />
+  </ItemGroup>
+</Project>
