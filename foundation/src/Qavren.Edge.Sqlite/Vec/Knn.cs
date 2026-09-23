@@ -2,6 +2,9 @@ using Microsoft.Data.Sqlite;
 
 namespace Qavren.Edge.Sqlite.Vec;
 
+/// <summary>One result row from a <see cref="Knn.QueryAsync"/> call.</summary>
+/// <param name="RowId">The matched row's <c>rowid</c>.</param>
+/// <param name="Distance">The vector distance reported by sqlite-vec, in the table's configured metric.</param>
 public readonly record struct KnnHit(long RowId, float Distance);
 
 /// <summary>
@@ -10,6 +13,12 @@ public readonly record struct KnnHit(long RowId, float Distance);
 /// </summary>
 public static class Knn
 {
+    /// <summary>Builds the <c>SELECT rowid, distance FROM ... WHERE ... MATCH ? AND k = ?</c> statement, optionally narrowed by <paramref name="where"/>.</summary>
+    /// <param name="table">The <c>vec0</c> table to query.</param>
+    /// <param name="where">An additional <c>AND</c>-joined predicate (metadata or partition-key filters), or <see langword="null"/> for none.</param>
+    /// <param name="vectorColumn">The vector column's name.</param>
+    /// <returns>The complete KNN <c>SELECT</c> statement.</returns>
+    /// <exception cref="ArgumentException"><paramref name="table"/> or <paramref name="vectorColumn"/> is null, empty, or whitespace.</exception>
     public static string BuildSql(string table, string? where = null, string vectorColumn = "embedding")
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(table);
@@ -19,6 +28,18 @@ public static class Knn
         return string.IsNullOrWhiteSpace(where) ? sql : sql + " AND " + where;
     }
 
+    /// <summary>Runs a KNN query against a <c>vec0</c> table and returns the matched row ids and distances.</summary>
+    /// <param name="connection">The open connection to query on.</param>
+    /// <param name="table">The <c>vec0</c> table to query.</param>
+    /// <param name="query">The query vector.</param>
+    /// <param name="k">The number of nearest neighbours to return.</param>
+    /// <param name="where">An additional <c>AND</c>-joined predicate (metadata or partition-key filters), or <see langword="null"/> for none.</param>
+    /// <param name="parameters">Parameters bound by <paramref name="where"/>, or <see langword="null"/> for none.</param>
+    /// <param name="vectorColumn">The vector column's name.</param>
+    /// <param name="cancellationToken">Cancels the command.</param>
+    /// <returns>The matched rows, ordered nearest first.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="connection"/> is null.</exception>
+    /// <exception cref="ArgumentOutOfRangeException"><paramref name="k"/> is less than 1.</exception>
     public static async Task<IReadOnlyList<KnnHit>> QueryAsync(
         SqliteConnection connection,
         string table,

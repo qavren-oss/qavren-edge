@@ -6,5 +6,6 @@ namespace Qavren.Edge.Ingestion;
 /// </summary>
 public static class EdgeIngestionStartupOrder
 {
+    /// <summary>Resolves the tokenizer and freezes the chunk budget. Opens no database.</summary>
     public const int Validate = 400;
 }

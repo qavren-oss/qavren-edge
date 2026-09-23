@@ -3,6 +3,7 @@ using Qavren.Edge.Hosting;
 
 namespace Qavren.Edge.Sqlite.Native.Cipher;
 
+/// <summary>Registers <see cref="QedgeSqlCipherNativeProvider"/> on an <see cref="EdgeBuilder"/>.</summary>
 public static class SqliteNativeCipherBuilderExtensions
 {
     /// <summary>

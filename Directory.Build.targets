@@ -34,4 +34,15 @@
     <None Include="$(MSBuildProjectDirectory)/README.md" Pack="true" PackagePath="\" Visible="false" Condition="Exists('$(MSBuildProjectDirectory)/README.md')" />
   </ItemGroup>
 
+  <!-- CS1591 (missing XML doc comment) is a real gate for every shipped, packable project - see the
+       comment in Directory.Build.props. It stays suppressed for everything that is NOT packed
+       (tests, samples, the trim-smoke tool, ProviderGen, ci-checks scripts' host projects): those
+       are never NuGet-installed, so an undocumented public member in them costs a consumer nothing.
+       This block lives in targets, not props, for the same reason the packable block above does:
+       $(IsPackable) is set in each project's own PropertyGroup, evaluated after props and before
+       targets. -->
+  <PropertyGroup Condition="'$(IsPackable)' != 'true'">
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+  </PropertyGroup>
+
 </Project>

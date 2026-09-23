@@ -16,11 +16,13 @@ public sealed record SqliteNativeInfo(
 /// </summary>
 public interface ISqliteNativeProvider
 {
+    /// <summary>The provider's display name, e.g. <c>Qavren.Edge.Sqlite.Native</c> or <c>Qavren.Edge.Sqlite.Native.Cipher</c>.</summary>
     string Name { get; }
 
     /// <summary>The base name passed to <c>DllImport</c>, e.g. <c>qedge_sqlite3</c> or <c>__Internal</c>.</summary>
     string LibraryName { get; }
 
+    /// <summary>Whether this provider's native library includes the SQLCipher codec.</summary>
     bool SupportsEncryption { get; }
 
     /// <summary>Installs the provider into <c>SQLitePCL.raw</c> and verifies it. Startup task order 0.</summary>

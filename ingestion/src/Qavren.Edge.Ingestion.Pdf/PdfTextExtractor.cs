@@ -55,27 +55,36 @@ public sealed partial class PdfTextExtractor : IDocumentExtractor
 
     private readonly PdfExtractorOptions _options;
 
+    /// <summary>Creates the extractor with default <see cref="PdfExtractorOptions"/>.</summary>
     public PdfTextExtractor()
         : this(new PdfExtractorOptions())
     {
     }
 
+    /// <summary>Creates the extractor with the given <paramref name="options"/>.</summary>
+    /// <exception cref="ArgumentNullException"><paramref name="options"/> is null.</exception>
     public PdfTextExtractor(PdfExtractorOptions options)
     {
         ArgumentNullException.ThrowIfNull(options);
         _options = options;
     }
 
+    /// <inheritdoc/>
     public string Id => "pdf";
 
+    /// <inheritdoc/>
     public int Version => 1;
 
+    /// <inheritdoc/>
     public IReadOnlyList<string> Extensions => ExtensionList;
 
+    /// <inheritdoc/>
     public IReadOnlyList<string> MediaTypes => MediaTypeList;
 
+    /// <inheritdoc/>
     public bool CanExtract(DocumentSourceItem item) => item is not null;
 
+    /// <inheritdoc/>
     public async ValueTask<ExtractedDocument> ExtractAsync(
         DocumentSourceItem item, ExtractionContext context, CancellationToken cancellationToken)
     {

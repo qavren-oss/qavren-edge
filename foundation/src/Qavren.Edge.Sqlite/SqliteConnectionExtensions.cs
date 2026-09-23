@@ -11,6 +11,13 @@ namespace Qavren.Edge.Sqlite;
 /// </summary>
 public static class SqliteConnectionExtensions
 {
+    /// <summary>Runs <paramref name="sql"/> as a non-query and returns the affected row count.</summary>
+    /// <param name="connection">The open connection to run the command on.</param>
+    /// <param name="sql">The SQL text to execute.</param>
+    /// <param name="parameters">Parameters to bind, or <see langword="null"/> for none.</param>
+    /// <param name="cancellationToken">Cancels the command.</param>
+    /// <exception cref="ArgumentNullException"><paramref name="connection"/> is null.</exception>
+    /// <exception cref="ArgumentException"><paramref name="sql"/> is null, empty, or whitespace.</exception>
     public static async Task<int> ExecuteAsync(
         this SqliteConnection connection,
         string sql,
@@ -24,6 +31,14 @@ public static class SqliteConnectionExtensions
         }
     }
 
+    /// <summary>Runs <paramref name="sql"/> and returns the first column of the first row, converted to <typeparamref name="T"/>.</summary>
+    /// <param name="connection">The open connection to run the command on.</param>
+    /// <param name="sql">The SQL text to execute.</param>
+    /// <param name="parameters">Parameters to bind, or <see langword="null"/> for none.</param>
+    /// <param name="cancellationToken">Cancels the command.</param>
+    /// <returns>The converted scalar value, or <c>default</c> when the result is null or <c>DBNull</c>.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="connection"/> is null.</exception>
+    /// <exception cref="ArgumentException"><paramref name="sql"/> is null, empty, or whitespace.</exception>
     public static async Task<T?> ScalarAsync<T>(
         this SqliteConnection connection,
         string sql,
@@ -38,6 +53,15 @@ public static class SqliteConnectionExtensions
         }
     }
 
+    /// <summary>Runs <paramref name="sql"/> and projects every row through <paramref name="map"/>.</summary>
+    /// <param name="connection">The open connection to run the command on.</param>
+    /// <param name="sql">The SQL text to execute.</param>
+    /// <param name="map">Projects each read row to a <typeparamref name="T"/>.</param>
+    /// <param name="parameters">Parameters to bind, or <see langword="null"/> for none.</param>
+    /// <param name="cancellationToken">Cancels the command.</param>
+    /// <returns>Every row, in cursor order.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="connection"/> or <paramref name="map"/> is null.</exception>
+    /// <exception cref="ArgumentException"><paramref name="sql"/> is null, empty, or whitespace.</exception>
     public static async Task<IReadOnlyList<T>> QueryAsync<T>(
         this SqliteConnection connection,
         string sql,

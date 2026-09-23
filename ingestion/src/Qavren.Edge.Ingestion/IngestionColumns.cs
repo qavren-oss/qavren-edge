@@ -10,21 +10,52 @@ namespace Qavren.Edge.Ingestion;
 /// </summary>
 public static class IngestionColumns
 {
+    /// <summary>The vector store's primary key column.</summary>
     public const string Key = "key";
+
+    /// <summary>The chunk's embedding vector column.</summary>
     public const string Embedding = "embedding";
+
+    /// <summary>The id of the <c>IngestionSource</c> the document came from.</summary>
     public const string SourceId = "source_id";
+
+    /// <summary>The document's id within its source.</summary>
     public const string DocumentId = "document_id";
+
+    /// <summary>The chunk's position within its document.</summary>
     public const string Ordinal = "ordinal";
+
+    /// <summary>The chunk's text.</summary>
     public const string Text = "text";
+
+    /// <summary>The chunk's rendered heading-path breadcrumb.</summary>
     public const string HeadingPath = "heading_path";
+
+    /// <summary>The document's content hash, used to detect unchanged documents between runs.</summary>
     public const string ContentHash = "content_hash";
+
+    /// <summary>The chunk's starting character offset within the document.</summary>
     public const string CharStart = "char_start";
+
+    /// <summary>The chunk's ending character offset within the document.</summary>
     public const string CharEnd = "char_end";
+
+    /// <summary>The chunk's token count.</summary>
     public const string TokenCount = "token_count";
+
+    /// <summary>The page number the chunk came from, for paginated formats such as PDF.</summary>
     public const string Page = "page";
+
+    /// <summary>The chunk's structural kind (paragraph, heading, list item, and so on).</summary>
     public const string BlockKind = "block_kind";
+
+    /// <summary>The id of the <c>IDocumentExtractor</c> that produced the chunk.</summary>
     public const string ExtractorId = "extractor_id";
+
+    /// <summary>The document's media type.</summary>
     public const string MediaType = "media_type";
+
+    /// <summary>When the chunk was written, in UTC.</summary>
     public const string CreatedUtc = "created_utc";
 
     /// <summary>

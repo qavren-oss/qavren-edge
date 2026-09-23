@@ -16,10 +16,13 @@ public class QedgeSqliteNativeProvider : ISqliteNativeProvider
 
     private SqliteNativeInfo? _info;
 
+    /// <inheritdoc/>
     public virtual string Name => "Qavren.Edge.Sqlite.Native";
 
+    /// <inheritdoc/>
     public virtual string LibraryName => QedgeNativeLibrary.DllImportNameForCurrentTarget;
 
+    /// <inheritdoc/>
     public virtual bool SupportsEncryption => false;
 
     /// <summary>What the provider reports to Microsoft.Data.Sqlite. See <see cref="QedgeNativeLibrary.ReportedName"/>.</summary>
@@ -39,8 +42,10 @@ public class QedgeSqliteNativeProvider : ISqliteNativeProvider
     /// </summary>
     public bool? FreezeProvider { get; set; }
 
+    /// <summary>The full path the native library resolved to, or <see langword="null"/> before <see cref="Install"/> has resolved one.</summary>
     public string? ResolvedPath { get; private set; }
 
+    /// <inheritdoc/>
     public void Install()
     {
         lock (InstallGate)
@@ -62,6 +67,8 @@ public class QedgeSqliteNativeProvider : ISqliteNativeProvider
         }
     }
 
+    /// <inheritdoc/>
+    /// <exception cref="InvalidOperationException"><see cref="Install"/> has not run yet.</exception>
     public SqliteNativeInfo Describe()
         => _info ?? throw new InvalidOperationException("Install() has not run yet.");
 
