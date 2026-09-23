@@ -12,8 +12,9 @@ the public documentation.
 | `embeddings/` | ONNX hosting, embeddings, the vector store, the trim-smoke tool |
 | `ingestion/` | Ingestion core and its four satellites |
 | `chat/` | Chat over ONNX Runtime GenAI and the RAG recipe |
-| `docs/` | Design specs and implementation plans under `superpowers/`, and this file |
-| `.github/` | `ci.yml` (every PR), `native.yml` (called by ci and release), `release.yml` (tags), `tier0-genai-smoke.yml` (manual), `upstream-pins.yml`, branch protection JSON |
+| `benchmarks/` | The BenchmarkDotNet suite (`Qavren.Edge.Benchmarks`), run by `benchmarks.yml` and by hand; results page `docs/site/benchmarks.md` |
+| `docs/` | Design specs and implementation plans under `superpowers/`, the docs site under `site/`, and this file |
+| `.github/` | `ci.yml` (every PR), `native.yml` (called by ci and release), `release.yml` (tags), `tier0-genai-smoke.yml` (manual), `benchmarks.yml` (manual), `docs.yml` (every PR, deploys on `main`), `upstream-pins.yml`, branch protection JSON |
 
 Each area folder has a `Directory.Build.props` that appends its package tags;
 the root `Directory.Build.targets` packs the icon and each package's README
@@ -126,6 +127,14 @@ package must not depend on a prerelease one); with the suffix target it packs
 - `model-tests` and `chat-model-tests` run nightly and on manual dispatch
   only, fetch a pinned model and verify its SHA-256 on every run; they never
   gate a PR.
+- `benchmarks.yml` runs the benchmark suite on `workflow_dispatch` only (inputs
+  `full` and `models`), on `ubuntu-24.04` and `macos-15` (arm64, NEON). Never on a PR or
+  a schedule: it spends hosted minutes and two model downloads to measure whichever runner
+  it drew, and a hosted-runner number cannot gate anything. It reuses `native.yml` and the
+  model lanes' pinned, hash-verified, content-keyed model caches. Results land in the job
+  summary and in the `benchmarks-<os>` artifact (`artifacts/benchmarks/`); the published
+  numbers are on `docs/site/benchmarks.md`. Dispatch:
+  `gh workflow run benchmarks.yml --ref main -f full=false -f models=true`.
 - `foundation/tools/ci-checks/assert-workflows.py` pins all of the above and
   fails when a workflow drifts. Run it locally after any workflow edit.
 - `foundation/tools/ci-checks/assert-packages.ps1` opens every packed

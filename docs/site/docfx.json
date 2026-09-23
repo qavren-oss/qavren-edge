@@ -32,6 +32,7 @@
         "files": [
           "index.md",
           "getting-started.md",
+          "benchmarks.md",
           "toc.yml",
           "decisions/index.md",
           "decisions/toc.yml",

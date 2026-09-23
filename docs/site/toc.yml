@@ -52,6 +52,8 @@
   href: decisions/
 - name: Errors
   href: ../../foundation/docs/errors.md
+- name: Benchmarks
+  href: benchmarks.md
 - name: API reference
   href: api/
 - name: MAUI API
