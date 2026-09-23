@@ -1,12 +1,18 @@
 # Getting started
 
 Two packages get you a database; the rest of the chain is added as you need
-it. Install with `--prerelease` while the suite is pre-1.0.
+it.
 
 ```
-dotnet add package Qavren.Edge --prerelease
-dotnet add package Qavren.Edge.Maui --prerelease
+dotnet add package Qavren.Edge
+dotnet add package Qavren.Edge.Maui
 ```
+
+Add the packages the chain below needs as you go: `Qavren.Edge.Embeddings.Onnx`,
+`Qavren.Edge.VectorData`, `Qavren.Edge.Ingestion` (with `.Onnx`, `.Pdf`,
+`.OpenXml`, `.DataIngestion`), `Qavren.Edge.Chat.Onnx`, `Qavren.Edge.Rag`.
+`Qavren.Edge.Ingestion.DataIngestion` is prerelease only regardless of the
+suite's own version — add it with `--prerelease`.
 
 The whole stack, composed once in `MauiProgram.cs`. Outside MAUI the same
 chain hangs off `services.AddQavrenEdge(edge => ...)`.

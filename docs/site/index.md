@@ -14,14 +14,16 @@ phone, and nothing is downloaded without the user's consent.
 ## Install
 
 ```
-dotnet add package Qavren.Edge --prerelease          # hosting core + SQLite + the native library
-dotnet add package Qavren.Edge.Maui --prerelease     # MAUI lifecycle bridge and app paths
+dotnet add package Qavren.Edge          # hosting core + SQLite + the native library
+dotnet add package Qavren.Edge.Maui     # MAUI lifecycle bridge and app paths
 ```
 
 Then add what you use: `Qavren.Edge.Embeddings.Onnx`, `Qavren.Edge.VectorData`,
-`Qavren.Edge.Ingestion` (with `.Onnx`, `.Pdf`, `.OpenXml`), `Qavren.Edge.Chat.Onnx`,
+`Qavren.Edge.Ingestion` (with `.Onnx`, `.Pdf`, `.OpenXml`, `.DataIngestion`), `Qavren.Edge.Chat.Onnx`,
 `Qavren.Edge.Rag`. Every package is MIT except that `Qavren.Edge.Ingestion.Pdf`
 depends on PdfPig (Apache-2.0), which is why PDF support is a separate package.
+`Qavren.Edge.Ingestion.DataIngestion` is prerelease only regardless of the
+suite's own version — add it with `--prerelease`.
 
 ## Where to go
 

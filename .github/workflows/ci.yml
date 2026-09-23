@@ -281,6 +281,19 @@ jobs:
         shell: pwsh
         run: ./foundation/tools/ci-checks/assert-packages.ps1
 
+      # A stable release tag (v1.0.0, no `-`) packs the whole solution as if it were 1.0-shaped,
+      # to prove Qavren.Edge.Ingestion.DataIngestion's suffix target still holds it at
+      # X.Y.Z-preview when nothing else is - and that no stable package acquired a prerelease
+      # dependency - before a real v1.0.0 tag can ever reach release.yml's pack step.
+      - name: Pack with a stable version override
+        if: matrix.os == 'windows-2025'
+        run: dotnet pack QavrenEdge.slnx -c Release -o artifacts/packages-stable -p:MinVerVersionOverride=9.9.9
+
+      - name: Assert stable-override package versions
+        if: matrix.os == 'windows-2025'
+        shell: pwsh
+        run: ./foundation/tools/ci-checks/assert-packages.ps1 -PackagesDir artifacts/packages-stable -StableOverride 9.9.9
+
       - uses: actions/upload-artifact@v7
         if: matrix.os == 'windows-2025'
         with:

@@ -22,4 +22,26 @@
     <PackageReference Include="Microsoft.Extensions.DataIngestion.Abstractions" />
     <ProjectReference Include="..\Qavren.Edge.Ingestion\Qavren.Edge.Ingestion.csproj" />
   </ItemGroup>
+
+  <!-- Proven 2026-09-23: `dotnet pack -p:MinVerVersionOverride=1.0.0` fails NU5104 (warning as
+       error) because this package's only dependency, Microsoft.Extensions.DataIngestion.
+       Abstractions 10.10.0-preview.1.26459.2, is itself a prerelease and nuget.org has no stable
+       version of it (checked 2026-09-23) - a stable release must not depend on a prerelease.
+       Rule: a stable suite tag X.Y.Z packs this project as X.Y.Z-preview instead (consumers ask
+       for it with the dotnet CLI's prerelease flag); a prerelease suite tag (MinVerPreRelease already set, e.g.
+       X.Y.Z-rc.1) passes through untouched, since NU5104 only fires between a stable package and
+       a prerelease dependency. Removal trigger: MEDI Abstractions ships a stable version - delete
+       this target and flip EnablePackageValidation back to true above (see that comment). The
+       MinVerMajor != '' half of the condition guards DocFX's API-metadata build (docs.yml /
+       docfx.json), which evaluates this project without ever running MinVer, leaving
+       MinVerMajor/Minor/Patch empty - without the guard this target still fires on AfterTargets
+       and writes the literal, invalid PackageVersion "..-preview" (proven 2026-09-23). -->
+  <Target Name="QedgeDataIngestionPrereleaseSuffix" AfterTargets="MinVer"
+          Condition="'$(MinVerPreRelease)' == '' AND '$(MinVerMajor)' != ''">
+    <PropertyGroup>
+      <PackageVersion>$(MinVerMajor).$(MinVerMinor).$(MinVerPatch)-preview</PackageVersion>
+      <Version>$(PackageVersion)</Version>
+      <InformationalVersion>$(PackageVersion)+$(MinVerBuildMetadata)</InformationalVersion>
+    </PropertyGroup>
+  </Target>
 </Project>
