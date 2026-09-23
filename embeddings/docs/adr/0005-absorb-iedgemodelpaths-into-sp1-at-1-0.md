@@ -6,6 +6,8 @@ Date: 2026-09-11
 
 Accepted
 
+Implemented 2026-09-23 (PR #32)
+
 ## Context
 
 Model bundles (23–137 MB) need a storage location that is neither
@@ -47,3 +49,23 @@ The type-forward at 1.0 is a source- and binary-compatible move: existing
 callers referencing `Qavren.Edge.Onnx.IEdgeModelPaths` keep resolving after
 the type physically moves to `Qavren.Edge.Core`. This ADR is the record that
 the move is intentional and already decided, not a future open question.
+
+### What moved, what stayed
+
+`IEdgeModelPaths` itself now lives at
+`foundation/src/Qavren.Edge.Core/IEdgeModelPaths.cs`, keeping its original
+`Qavren.Edge.Onnx` namespace — a type-forward requires the identical
+fully-qualified name on both sides, so the namespace is binary-compatibility
+surface, not a naming choice. `DefaultEdgeModelPaths` and every
+platform-specific implementation (Android `NoBackupFilesDir`, Apple `NSURL`
+with backup exclusion) stay in `Qavren.Edge.Onnx`, since `Qavren.Edge.Core`
+targets `net10.0` only and cannot host them.
+`embeddings/src/Qavren.Edge.Onnx/Properties/TypeForwards.cs` carries the
+`[assembly: TypeForwardedTo(typeof(Qavren.Edge.Onnx.IEdgeModelPaths))]` that
+makes the move invisible to an already-compiled consumer.
+
+A future package-validation baseline (comparing a shipped `.nupkg`'s public
+surface release over release) will see this type-forward as the intended
+shape for `Qavren.Edge.Onnx` 1.0 onward — `IEdgeModelPaths` disappearing from
+that package's own declared types, with a forward in its place, is the
+expected diff, not a regression to flag.

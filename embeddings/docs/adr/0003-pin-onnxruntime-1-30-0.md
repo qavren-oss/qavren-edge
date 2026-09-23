@@ -47,3 +47,19 @@ The pin is re-evaluated at 1.0 — when the vector store and embeddings
 packages themselves leave preview — rather than left to drift on a routine
 Dependabot bump; any bump proposal should link back to this ADR instead of
 silently superseding it.
+
+## Re-evaluation at 1.0 (2026-09-23)
+
+Checked against nuget.org: `1.30.0` is still the newest published version of
+`Microsoft.ML.OnnxRuntime` — there is nothing to roll forward to. The four
+device lanes (Android, iOS, Mac Catalyst, Windows host) and the nightly
+tier-3 lane have soaked this exact pin since 2026-09-11, unchanged. The pin
+stands for 1.0.
+
+The next review trigger is a new ORT release, not the passage of time. When
+one ships, it is evaluated through the tier-0 smoke and the nightly lane —
+never adopted on a Dependabot bump alone, for the same reason this ADR's
+original Decision gives: `Directory.Packages.props` is the single point
+where the pin is asserted, and a bump there has to carry the same
+four-device-lane-plus-nightly evidence this entry records, not just a green
+Dependabot PR.
