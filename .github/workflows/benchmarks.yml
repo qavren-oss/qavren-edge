@@ -1,0 +1,148 @@
+name: benchmarks
+
+# Sub-project 5 part 3 (docs/superpowers/specs/2026-09-23-sp5-benchmarks-design.md). Manual only:
+# a benchmark on a pull request spends hosted minutes to measure whichever runner it drew, and the
+# model lanes never run on pull_request or on a new schedule (the Actions spend rule ci.yml's
+# model-tests follows). assert-workflows.py fails if this ever gains another trigger.
+on:
+  workflow_dispatch:
+    inputs:
+      full:
+        description: 'Full BenchmarkDotNet statistics instead of ShortRun (much slower)'
+        type: boolean
+        default: false
+      models:
+        description: 'Fetch the pinned MiniLM and Qwen3 models and run the Embeddings and Chat benchmarks'
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+env:
+  DOTNET_NOLOGO: 'true'
+  DOTNET_SKIP_FIRST_TIME_EXPERIENCE: 'true'
+
+jobs:
+  # Exactly ci.yml's `natives` job: native.yml's `reuse` job repairs a missing cache entry from the
+  # last good run's artifact, and a called workflow can only NARROW the caller's token.
+  natives:
+    uses: ./.github/workflows/native.yml
+    permissions:
+      contents: read
+      actions: read
+
+  bench:
+    needs: natives
+    strategy:
+      fail-fast: false
+      matrix:
+        # macos-15 is arm64: the NEON int8 kernel class the product ships on. ubuntu-24.04 draws
+        # AVX2 or AVX-512 VNNI hosts at random; the Runner CPU step says which.
+        os: [ubuntu-24.04, macos-15]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    env:
+      # Same names, revisions and hashes as ci.yml's model-tests and chat-model-tests. The two
+      # *_DIR variables are what Program.cs gates on; an empty value (models unchecked) skips the
+      # Embeddings and Chat classes with one printed line each instead of failing.
+      QAVREN_EDGE_MODEL_REPO: sentence-transformers/all-MiniLM-L6-v2
+      QAVREN_EDGE_MODEL_REV: 1110a243fdf4706b3f48f1d95db1a4f5529b4d41
+      QAVREN_EDGE_MODEL_SHA256: 4278337fd0ff3c68bfb6291042cad8ab363e1d9fbc43dcb499fe91c871902474
+      QAVREN_EDGE_VOCAB_SHA256: 07eced375cec144d27c900241f3e339478dec958f92fddbc551f295c992038a3
+      QAVREN_EDGE_MODEL_DIR: ${{ inputs.models && format('{0}/.model-cache', github.workspace) || '' }}
+      QAVREN_EDGE_CHAT_MODEL_REPO: Arm/qwen3-0-6b-onnx-genai-int4-kquantlast-emb-int4
+      QAVREN_EDGE_CHAT_MODEL_REV: c1d7bbbbb20630eef24c00d8ad18250bd57b232c
+      QAVREN_EDGE_CHAT_MODEL_SHA256: 52640ca0d65e00d33dfb10b822c6a41e31bab1aaa6a49457b1dc5952c0dab0fb
+      QAVREN_EDGE_CHAT_GRAPH_SHA256: e9208ab7164ea6da0206eec2a2f0996a24e75d164f85823b02111f23046aab89
+      QAVREN_EDGE_CHAT_TOKENIZER_SHA256: be75606093db2094d7cd20f3c2f385c212750648bd6ea4fb2bf507a6a4c55506
+      QAVREN_EDGE_CHAT_MODEL_DIR: ${{ inputs.models && format('{0}/.chat-model-cache', github.workspace) || '' }}
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0, filter: 'tree:0' }
+      - uses: actions/setup-dotnet@v4
+        with: { global-json-file: global.json }
+      - uses: actions/download-artifact@v8
+        with: { pattern: native-*, merge-multiple: true, path: foundation/native/artifacts }
+
+      # Keyed on the CONTENT hash, as in ci.yml: a key on the revision or a date would hide a swap.
+      - uses: actions/cache@v6.1.0
+        if: inputs.models
+        id: model-cache
+        with:
+          path: ${{ env.QAVREN_EDGE_MODEL_DIR }}
+          key: qavren-edge-model-${{ env.QAVREN_EDGE_MODEL_SHA256 }}
+
+      - name: Fetch the pinned model
+        if: inputs.models && steps.model-cache.outputs.cache-hit != 'true'
+        run: |
+          set -euo pipefail
+          mkdir -p "$QAVREN_EDGE_MODEL_DIR/onnx"
+          base="https://huggingface.co/$QAVREN_EDGE_MODEL_REPO/resolve/$QAVREN_EDGE_MODEL_REV"
+          curl -fsSL "$base/onnx/model_qint8_arm64.onnx" -o "$QAVREN_EDGE_MODEL_DIR/onnx/model_qint8_arm64.onnx"
+          curl -fsSL "$base/vocab.txt" -o "$QAVREN_EDGE_MODEL_DIR/vocab.txt"
+
+      # Verified on EVERY run, cache hit included. `shasum -a 256` rather than ci.yml's sha256sum
+      # because this job also runs on macOS; the check is the same.
+      - name: Verify the model hashes
+        if: inputs.models
+        run: |
+          set -euo pipefail
+          echo "$QAVREN_EDGE_MODEL_SHA256  $QAVREN_EDGE_MODEL_DIR/onnx/model_qint8_arm64.onnx" | shasum -a 256 -c -
+          echo "$QAVREN_EDGE_VOCAB_SHA256  $QAVREN_EDGE_MODEL_DIR/vocab.txt" | shasum -a 256 -c -
+
+      - uses: actions/cache@v6.1.0
+        if: inputs.models
+        id: chat-model-cache
+        with:
+          path: ${{ env.QAVREN_EDGE_CHAT_MODEL_DIR }}
+          key: qavren-edge-chat-model-${{ env.QAVREN_EDGE_CHAT_MODEL_SHA256 }}
+
+      - name: Fetch the pinned chat model
+        if: inputs.models && steps.chat-model-cache.outputs.cache-hit != 'true'
+        run: |
+          set -euo pipefail
+          mkdir -p "$QAVREN_EDGE_CHAT_MODEL_DIR"
+          base="https://huggingface.co/$QAVREN_EDGE_CHAT_MODEL_REPO/resolve/$QAVREN_EDGE_CHAT_MODEL_REV"
+          for f in genai_config.json model.onnx model.onnx.data tokenizer.json tokenizer_config.json chat_template.jinja; do
+            curl -fsSL "$base/$f" -o "$QAVREN_EDGE_CHAT_MODEL_DIR/$f"
+          done
+
+      - name: Verify the chat model hashes
+        if: inputs.models
+        run: |
+          set -euo pipefail
+          echo "$QAVREN_EDGE_CHAT_GRAPH_SHA256  $QAVREN_EDGE_CHAT_MODEL_DIR/model.onnx" | shasum -a 256 -c -
+          echo "$QAVREN_EDGE_CHAT_MODEL_SHA256  $QAVREN_EDGE_CHAT_MODEL_DIR/model.onnx.data" | shasum -a 256 -c -
+          echo "$QAVREN_EDGE_CHAT_TOKENIZER_SHA256  $QAVREN_EDGE_CHAT_MODEL_DIR/tokenizer.json" | shasum -a 256 -c -
+
+      # The int8 graphs' speed depends on the CPU's integer kernels (AVX2 u8s8 saturates where
+      # AVX-512 VNNI and NEON do not), so every number is attributed to the CPU this run drew.
+      - name: Runner CPU
+        run: |
+          if [ "$RUNNER_OS" = "macOS" ]; then
+            echo "Model name: $(sysctl -n machdep.cpu.brand_string)"
+            echo "int8 kernel class: NEON (arm64)"
+          else
+            lscpu | grep -E '^Model name'
+            echo "int8 kernel flags: $(grep -m1 '^flags' /proc/cpuinfo | grep -oE '\b(avx2|avx512_vnni|avx_vnni|amx_int8)\b' | sort -u | tr '\n' ' ')"
+          fi
+
+      - name: Run the benchmark suite
+        run: dotnet run --project benchmarks/Qavren.Edge.Benchmarks/Qavren.Edge.Benchmarks.csproj -c Release -- ${{ inputs.full && '--full' || '' }}
+
+      - name: Job summary
+        if: always()
+        run: |
+          shopt -s nullglob
+          for f in artifacts/benchmarks/results/*-report-github.md; do
+            echo "### $(basename "$f" -report-github.md)" >> "$GITHUB_STEP_SUMMARY"
+            cat "$f" >> "$GITHUB_STEP_SUMMARY"
+            echo >> "$GITHUB_STEP_SUMMARY"
+          done
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: benchmarks-${{ matrix.os }}
+          path: artifacts/benchmarks/**
