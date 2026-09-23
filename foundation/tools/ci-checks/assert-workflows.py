@@ -5,7 +5,9 @@ import sys
 
 import yaml
 
-root = pathlib.Path(sys.argv[1] if len(sys.argv) > 1 else r"C:\Users\steve\projects\qavren-edge")
+# Default to the checkout this script lives in (foundation/tools/ci-checks/ -> repo root), so a
+# worktree or a CI clone is checked rather than a hard-coded path on one machine.
+root = pathlib.Path(sys.argv[1]) if len(sys.argv) > 1 else pathlib.Path(__file__).resolve().parents[3]
 w = root / ".github" / "workflows"
 ci = yaml.safe_load((w / "ci.yml").read_text(encoding="utf-8"))
 nat = yaml.safe_load((w / "native.yml").read_text(encoding="utf-8"))
