@@ -129,7 +129,7 @@ jobs:
           fi
 
       - name: Run the benchmark suite
-        run: dotnet run --project benchmarks/Qavren.Edge.Benchmarks/Qavren.Edge.Benchmarks.csproj -c Release -- ${{ inputs.full && '--full' || '' }}
+        run: dotnet run --project benchmarks/Qavren.Edge.Benchmarks/Qavren.Edge.Benchmarks.csproj -c Release -f net10.0 -p:TargetFrameworks=net10.0 -- ${{ inputs.full && '--full' || '' }}
 
       - name: Job summary
         if: always()

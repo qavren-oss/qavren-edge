@@ -49,11 +49,16 @@ in `foundation/native/artifacts/<rid>`; see
 [building the native library](../../foundation/native/README.md)):
 
 ```
-dotnet run --project benchmarks/Qavren.Edge.Benchmarks -c Release
-dotnet run --project benchmarks/Qavren.Edge.Benchmarks -c Release -- --list flat
-dotnet run --project benchmarks/Qavren.Edge.Benchmarks -c Release -- --filter *VecKnn*
-dotnet run --project benchmarks/Qavren.Edge.Benchmarks -c Release -- --full
+dotnet run --project benchmarks/Qavren.Edge.Benchmarks -c Release -p:TargetFrameworks=net10.0
+dotnet run --project benchmarks/Qavren.Edge.Benchmarks -c Release -p:TargetFrameworks=net10.0 -- --list flat
+dotnet run --project benchmarks/Qavren.Edge.Benchmarks -c Release -p:TargetFrameworks=net10.0 -- --filter *VecKnn*
+dotnet run --project benchmarks/Qavren.Edge.Benchmarks -c Release -p:TargetFrameworks=net10.0 -- --full
 ```
+
+`-p:TargetFrameworks=net10.0` keeps the restore to the host framework: the
+packages the suite references also target Android, iOS and Mac Catalyst, and
+without it `dotnet run` asks for those workloads. The suite passes the same
+property to the child build BenchmarkDotNet generates for every benchmark.
 
 The default job is `ShortRun`: 3 warm-ups, 3 iterations, 1 launch. It is fast
 and noisy. `--full` uses BenchmarkDotNet's default job, which runs until the
