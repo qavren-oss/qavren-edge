@@ -94,11 +94,15 @@ Each leg writes its tables to the job summary and uploads
 
 ## Results
 
-Two ShortRun measurements taken on 2026-09-23, one per int8 kernel class the
-suite runs on locally. Treat both as rough. ShortRun keeps three iterations,
-and the error column BenchmarkDotNet reports (half the 99.9% confidence
-interval) is often as large as the mean. Every row says whether it was
-measured. The hosted-runner legs of `benchmarks.yml` have not run yet.
+Four ShortRun measurements: two taken locally on 2026-09-23, one per int8
+kernel class the suite runs on locally, and two taken by the hosted legs of
+`benchmarks.yml` on 2026-09-24
+([run 35952566540](https://github.com/qavren-oss/qavren-edge/actions/runs/35952566540)).
+Treat all four as rough. ShortRun keeps three iterations, and the error
+column BenchmarkDotNet reports (half the 99.9% confidence interval) is often
+as large as the mean — on the hosted legs it is frequently larger than the
+mean. Every row says whether it was measured. The two hosted tables follow
+the two local ones below.
 
 ### AMD Ryzen 7 5825U (x64, AVX2)
 
@@ -181,7 +185,90 @@ This is the NEON int8 class the product ships on. One run of the same command.
 
 The chat rows come from a second run of the chat class alone, a few minutes after the rest. The model finished staging on the Mini only after the main run had started.
 
-### What the two runs show
+### GitHub-hosted ubuntu-24.04 (AMD EPYC 9V74, x64, AVX2)
+
+AMD EPYC 9V74 2.87GHz, Ubuntu 24.04.5 LTS, 4 logical / 2 physical cores,
+.NET 10.0.401 SDK / 10.0.12 runtime, 2026-09-24, ShortRun, run
+[35952566540](https://github.com/qavren-oss/qavren-edge/actions/runs/35952566540).
+The workflow reported this leg's int8 kernel flags as `avx2` (AVX2 without
+VNNI, the same class as the Ryzen above). A GitHub-hosted runner is shared
+hardware, not a dedicated machine, so treat these numbers as indicative.
+
+| Area | Benchmark | Parameters | Mean | Throughput | Measured |
+|---|---|---|---:|---:|---|
+| SQLite | vec0 KNN, k = 10 | 1 000 rows, chunk 256 | 0.51 ms | 2.0 M rows/s scanned | yes |
+| SQLite | vec0 KNN, k = 10 | 1 000 rows, chunk 1 024 | 0.51 ms | 2.0 M rows/s scanned | yes |
+| SQLite | vec0 KNN, k = 10 | 10 000 rows, chunk 256 | 8.20 ms | 1.2 M rows/s scanned | yes |
+| SQLite | vec0 KNN, k = 10 | 10 000 rows, chunk 1 024 | 8.20 ms | 1.2 M rows/s scanned | yes |
+| SQLite | vec0 KNN, k = 10 | 100 000 rows, chunk 256 | 85.4 ms | 1.2 M rows/s scanned | yes |
+| SQLite | vec0 KNN, k = 10 | 100 000 rows, chunk 1 024 | 80.9 ms | 1.2 M rows/s scanned | yes |
+| SQLite | FTS5 MATCH, top 10 | 1 000 rows | 18.6 µs | | yes |
+| SQLite | FTS5 MATCH, top 10 | 10 000 rows | 47 µs | | yes |
+| SQLite | FTS5 MATCH, top 10 | 100 000 rows | 377 µs | | yes |
+| SQLite | vec0 insert, one transaction | 1 000 rows, chunk 256 | 10.6 ms | 94 000 rows/s | yes |
+| SQLite | vec0 insert, one transaction | 1 000 rows, chunk 1 024 | 13.5 ms | 74 000 rows/s | yes |
+| SQLite | vec0 insert, one transaction | 10 000 rows, chunk 256 | 103.3 ms | 97 000 rows/s | yes |
+| SQLite | vec0 insert, one transaction | 10 000 rows, chunk 1 024 | 137.0 ms | 73 000 rows/s | yes |
+| Vector store | `SearchAsync` | 10 000 records | 8.47 ms | | yes |
+| Vector store | `SearchAsync` + filter | 10 000 records | 4.96 ms | | yes |
+| Vector store | `HybridSearchAsync` | 10 000 records | 9.35 ms | | yes |
+| Vector store | `HybridSearchAsync` + filter | 10 000 records | 29.1 ms | | yes |
+| Ingestion | plain-text extraction | 200 documents | 4.9 ms | 41 200 docs/s | yes |
+| Ingestion | Markdown extraction | 200 documents | 8.3 ms | 24 000 docs/s | yes |
+| Ingestion | plain chunker | 200 documents | 129.8 ms | 1 540 docs/s | yes |
+| Ingestion | Markdown heading chunker | 200 documents | 160.2 ms | 1 250 docs/s | yes |
+| Ingestion | token-window chunker | 200 documents | 606 ms | 330 docs/s | yes |
+| Ingestion | content hash (xxHash128) | 200 documents | 37 µs | 5.4 M docs/s | yes |
+| Ingestion | pipeline re-run, unchanged corpus | 200 documents | 25.3 ms | 7 900 docs/s | yes |
+| Embeddings | WordPiece encode | 32 sentences | 49 µs | 654 000 sentences/s, 8.1 M tokens/s | yes |
+| Embeddings | `GenerateAsync`, int8 MiniLM | batch 1 | 7.3 ms | 137 sentences/s, 1 780 tokens/s | yes |
+| Embeddings | `GenerateAsync`, int8 MiniLM | batch 8 | 45.6 ms | 175 sentences/s, 2 190 tokens/s | yes |
+| Embeddings | `GenerateAsync`, int8 MiniLM | batch 32 | 183.9 ms | 174 sentences/s, 2 140 tokens/s | yes |
+| Chat | Qwen3 0.6B int4, 120-token prompt, 1-token answer | | 1 013 ms | about 120 prompt tokens/s | yes |
+| Chat | Qwen3 0.6B int4, 120-token prompt, 64-token answer | | 2 265 ms | 50 decode tokens/s | yes |
+
+### GitHub-hosted macos-15 (Apple M1 virtual, arm64, NEON)
+
+Apple M1 (Virtual), macOS Sequoia 15.7.9, 3 logical / 3 physical cores,
+.NET 10.0.401 SDK / 10.0.12 runtime, 2026-09-24, ShortRun, run
+[35952566540](https://github.com/qavren-oss/qavren-edge/actions/runs/35952566540).
+This is a virtualized M1 with 3 cores on shared GitHub-hosted hardware, not
+the dedicated M4 above, so treat these numbers as indicative.
+
+| Area | Benchmark | Parameters | Mean | Throughput | Measured |
+|---|---|---|---:|---:|---|
+| SQLite | vec0 KNN, k = 10 | 1 000 rows, chunk 256 | 0.53 ms | 1.9 M rows/s scanned | yes |
+| SQLite | vec0 KNN, k = 10 | 1 000 rows, chunk 1 024 | 0.51 ms | 2.0 M rows/s scanned | yes |
+| SQLite | vec0 KNN, k = 10 | 10 000 rows, chunk 256 | 7.31 ms | 1.4 M rows/s scanned | yes |
+| SQLite | vec0 KNN, k = 10 | 10 000 rows, chunk 1 024 | 8.67 ms | 1.2 M rows/s scanned | yes |
+| SQLite | vec0 KNN, k = 10 | 100 000 rows, chunk 256 | 84.9 ms | 1.2 M rows/s scanned | yes |
+| SQLite | vec0 KNN, k = 10 | 100 000 rows, chunk 1 024 | 82.3 ms | 1.2 M rows/s scanned | yes |
+| SQLite | FTS5 MATCH, top 10 | 1 000 rows | 15.4 µs | | yes |
+| SQLite | FTS5 MATCH, top 10 | 10 000 rows | 42 µs | | yes |
+| SQLite | FTS5 MATCH, top 10 | 100 000 rows | 371 µs | | yes |
+| SQLite | vec0 insert, one transaction | 1 000 rows, chunk 256 | 12.3 ms | 82 000 rows/s | yes |
+| SQLite | vec0 insert, one transaction | 1 000 rows, chunk 1 024 | 12.9 ms | 77 000 rows/s | yes |
+| SQLite | vec0 insert, one transaction | 10 000 rows, chunk 256 | 105.3 ms | 95 000 rows/s | yes |
+| SQLite | vec0 insert, one transaction | 10 000 rows, chunk 1 024 | 151.6 ms | 66 000 rows/s | yes |
+| Vector store | `SearchAsync` | 10 000 records | 8.98 ms | | yes |
+| Vector store | `SearchAsync` + filter | 10 000 records | 5.09 ms | | yes |
+| Vector store | `HybridSearchAsync` | 10 000 records | 9.99 ms | | yes |
+| Vector store | `HybridSearchAsync` + filter | 10 000 records | 26.9 ms | | yes |
+| Ingestion | plain-text extraction | 200 documents | 43.4 ms | 4 600 docs/s | yes |
+| Ingestion | Markdown extraction | 200 documents | 49.5 ms | 4 000 docs/s | yes |
+| Ingestion | plain chunker | 200 documents | 168.3 ms | 1 190 docs/s | yes |
+| Ingestion | Markdown heading chunker | 200 documents | 192.5 ms | 1 040 docs/s | yes |
+| Ingestion | token-window chunker | 200 documents | 745 ms | 268 docs/s | yes |
+| Ingestion | content hash (xxHash128) | 200 documents | 60 µs | 3.3 M docs/s | yes |
+| Ingestion | pipeline re-run, unchanged corpus | 200 documents | 20.0 ms | 10 000 docs/s | yes |
+| Embeddings | WordPiece encode | 32 sentences | 58 µs | 555 000 sentences/s, 6.8 M tokens/s | yes |
+| Embeddings | `GenerateAsync`, int8 MiniLM | batch 1 | 12.8 ms | 78 sentences/s, 1 020 tokens/s | yes |
+| Embeddings | `GenerateAsync`, int8 MiniLM | batch 8 | 80.2 ms | 100 sentences/s, 1 250 tokens/s | yes |
+| Embeddings | `GenerateAsync`, int8 MiniLM | batch 32 | 398 ms | 80 sentences/s, 990 tokens/s | yes |
+| Chat | Qwen3 0.6B int4, 120-token prompt, 1-token answer | | 1 020 ms | about 120 prompt tokens/s | yes |
+| Chat | Qwen3 0.6B int4, 120-token prompt, 64-token answer | | 2 424 ms | 45 decode tokens/s | yes |
+
+### What the runs show
 
 - **vec0 chunk size (SP2 item 11).** On both machines the shipped 256 and
   sqlite-vec's 1 024 give the same query cost within noise at 10 000 and
@@ -208,3 +295,20 @@ The chat rows come from a second run of the chat class alone, a few minutes afte
   The M4 decodes about three times as fast as the Ryzen.
 - **One read per file** held on both machines. The unchanged re-run opened each
   of the 200 files exactly once and embedded nothing.
+- **Hosted vs local.** Both hosted legs land closer to the local Ryzen than to
+  the local M4 on every one of the KNN, embedding and chat rows — including
+  the macOS leg, whose virtual M1 is slower than the dedicated M4 above. At
+  100 000 rows, KNN scans 1.2 M rows/s on both hosted legs (80.9-85.4 ms),
+  between the Ryzen's 0.8 M rows/s (115.6-121.7 ms) and the M4's 2.6 M rows/s
+  (38.6-38.9 ms) but numerically nearer the Ryzen. Encoder batch-8 throughput
+  is 175 sentences/s on hosted ubuntu and 100 sentences/s on hosted macOS,
+  against the Ryzen's 274 and the M4's 424. Chat decode is 50 tokens/s on
+  hosted ubuntu and 45 on hosted macOS, against the Ryzen's 43 and the M4's
+  129. The chunk-size and token-window-chunker findings above hold on both
+  hosted legs (256 ties or wins on KNN and clearly wins on insert; the
+  token-window chunker still costs 3.8-4.7x the plain/heading chunkers), and
+  the hybrid-filter finding holds in direction (`SearchAsync` unaffected or
+  faster with a filter, `HybridSearchAsync` 2.7-3.1x slower) though the
+  multiplier is smaller than the 3.3-3.6x seen locally — plausibly hosted
+  noise, since the hosted error columns are frequently larger than the means
+  they attach to.
