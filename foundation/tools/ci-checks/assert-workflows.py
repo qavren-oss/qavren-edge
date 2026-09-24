@@ -271,6 +271,10 @@ else:
             problems.append("benchmarks.yml model cache key is not the content hash (" + token + ")")
     if bench.get("jobs", {}).get("natives", {}).get("uses") != "./.github/workflows/native.yml" or "actions: read" not in bench_text:
         problems.append("benchmarks.yml must call native.yml from a `natives` job granting `actions: read`, as ci.yml does")
+    # The referenced packages have mobile TFMs; without the host-only property the run step's restore
+    # demands the android/ios workloads a hosted runner does not have (NETSDK1147, run 35950074339).
+    if "dotnet run --project benchmarks/Qavren.Edge.Benchmarks/Qavren.Edge.Benchmarks.csproj -c Release -f net10.0 -p:TargetFrameworks=net10.0" not in bench_text:
+        problems.append("benchmarks.yml must run the suite with -f net10.0 -p:TargetFrameworks=net10.0 (host-only restore)")
 if "benchmarks.yml" in ci_text or "Qavren.Edge.Benchmarks" in ci_text:
     problems.append("ci.yml references the benchmark suite; benchmarks run from benchmarks.yml on dispatch only")
 toc_text = (root / "docs" / "site" / "toc.yml").read_text(encoding="utf-8")

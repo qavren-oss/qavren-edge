@@ -89,7 +89,14 @@ internal static class Program
             .AddDiagnoser(MemoryDiagnoser.Default)
             .AddColumn([.. ThroughputColumn.All]);
 
-        return full ? config : config.AddJob(Job.ShortRun);
+        // The referenced packages carry Android, iOS and Mac Catalyst TFMs. BenchmarkDotNet builds
+        // every benchmark in a generated project that references this one, and that restore walks
+        // the whole graph, so a host without the mobile workloads fails with NETSDK1147 before one
+        // benchmark runs (run 35950074339: both hosted legs). This is the global property ci.yml's
+        // host lanes pass on the command line, applied to the generated build; benchmarks.yml
+        // passes it to the outer `dotnet run` as well.
+        var hostOnly = new MsBuildArgument("/p:TargetFrameworks=net10.0");
+        return config.AddJob((full ? Job.Default : Job.ShortRun).WithArguments([hostOnly]));
     }
 
     /// <summary>The directory holding <c>QavrenEdge.slnx</c>, found by walking up; else the working directory.</summary>
