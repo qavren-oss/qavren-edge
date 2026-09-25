@@ -106,10 +106,12 @@ package must not depend on a prerelease one); with the suffix target it packs
 
 ### After 1.0
 
-- First follow-up PR: set `PackageValidationBaselineVersion` to `1.0.0` in the
-  packable block of `Directory.Build.targets` (the type-forward of
-  `IEdgeModelPaths` from PR #32 into Core is intended shape to carry forward
-  into that baseline, not a regression to suppress).
+- `PackageValidationBaselineVersion` is `1.0.0` in the packable block of
+  `Directory.Build.targets` (set right after the 2026-09-25 release), so every
+  pack is checked for breaking changes against 1.0.0. A deliberate break needs
+  a `CompatibilitySuppressions.xml` and a major version bump.
+  `Qavren.Edge.Ingestion.DataIngestion` keeps validation off until it drops its
+  prerelease suffix.
 - ADR 0003 and chat ADR 0009 hold the ONNX Runtime / ONNX Runtime GenAI pin
   re-evaluations. A pin bump is a post-1.0 minor, proved by the tier-0 GenAI
   smoke plus the nightly model tests as the soak.
