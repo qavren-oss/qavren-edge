@@ -6,6 +6,9 @@
   <PropertyGroup Condition="'$(IsPackable)' == 'true'">
     <IsAotCompatible Condition="$([MSBuild]::IsTargetFrameworkCompatible('$(TargetFramework)', 'net8.0'))">true</IsAotCompatible>
     <EnablePackageValidation>true</EnablePackageValidation>
+    <!-- The first stable release. Every later pack is checked for API and package breaks
+         against it (Qavren.Edge.Ingestion.DataIngestion opts out; see its .csproj). -->
+    <PackageValidationBaselineVersion>1.0.0</PackageValidationBaselineVersion>
     <PublishRepositoryUrl>true</PublishRepositoryUrl>
     <EmbedUntrackedSources>true</EmbedUntrackedSources>
     <IncludeSymbols>true</IncludeSymbols>
