@@ -5,10 +5,14 @@
        and never apply. -->
   <PropertyGroup Condition="'$(IsPackable)' == 'true'">
     <IsAotCompatible Condition="$([MSBuild]::IsTargetFrameworkCompatible('$(TargetFramework)', 'net8.0'))">true</IsAotCompatible>
-    <EnablePackageValidation>true</EnablePackageValidation>
+    <!-- Defaulted, not forced: this file is imported after the project, so an unconditional
+         value here would silently override a project's own opt-out. -->
+    <EnablePackageValidation Condition="'$(EnablePackageValidation)' == ''">true</EnablePackageValidation>
     <!-- The first stable release. Every later pack is checked for API and package breaks
-         against it (Qavren.Edge.Ingestion.DataIngestion opts out; see its .csproj). -->
-    <PackageValidationBaselineVersion>1.0.0</PackageValidationBaselineVersion>
+         against it. Only where validation is on: setting the baseline alone makes restore
+         download that exact version, and Qavren.Edge.Ingestion.DataIngestion (validation off,
+         see its .csproj) has no 1.0.0 - it shipped as 1.0.0-preview. -->
+    <PackageValidationBaselineVersion Condition="'$(EnablePackageValidation)' == 'true'">1.0.0</PackageValidationBaselineVersion>
     <PublishRepositoryUrl>true</PublishRepositoryUrl>
     <EmbedUntrackedSources>true</EmbedUntrackedSources>
     <IncludeSymbols>true</IncludeSymbols>
