@@ -76,6 +76,18 @@ public class TextNormalizerTests
     }
 
     [Fact]
+    public void NonBreakingAndFigureSpacesFoldToASpaceWithoutMovingOffsets()
+    {
+        // Issue #30: the PScript5/Distiller shape, U+00A0 as every word separator.
+        const string Raw = "AWARD OF CONTRACTS (P102000)";
+
+        var normalised = TextNormalizer.Normalize(Raw);
+
+        Assert.Equal("AWARD OF CONTRACTS (P102000)", normalised);
+        Assert.Equal(Raw.Length, normalised.Length);
+    }
+
+    [Fact]
     public void EmptyAndCleanTextAreTheIdentity()
     {
         Assert.Equal(string.Empty, TextNormalizer.Normalize(string.Empty));

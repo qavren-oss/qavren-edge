@@ -11,6 +11,9 @@ public sealed class ExtractionOptions
     /// </summary>
     public long NonSeekableBufferLimitBytes { get; set; } = 4L * 1024 * 1024;
 
-    /// <summary>Normalise CRLF and lone CR to LF, apply NFC, strip a BOM. On; spec 6 depends on it.</summary>
+    /// <summary>
+    /// Normalise CRLF and lone CR to LF, apply NFC, strip a BOM, and fold U+00A0, U+2007 and U+202F to
+    /// U+0020. On; spec 6 depends on it.
+    /// </summary>
     public bool NormalizeText { get; set; } = true;
 }

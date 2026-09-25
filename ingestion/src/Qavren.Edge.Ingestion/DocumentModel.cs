@@ -49,7 +49,7 @@ public sealed record IngestionFailure(
 
 /// <summary>
 /// One normalised text buffer plus blocks indexing into it. CRLF and lone CR to LF, NFC, BOM
-/// stripped, when <see cref="ExtractionOptions.NormalizeText"/> is on (spec 6).
+/// stripped, U+00A0/U+2007/U+202F folded to a space, when <see cref="ExtractionOptions.NormalizeText"/> is on (spec 6).
 /// </summary>
 public sealed record ExtractedDocument(
     string DocumentId,

@@ -123,7 +123,8 @@ internal static class SatelliteSourceStream
 }
 
 /// <summary>
-/// Spec 6's normalisation — CRLF and lone CR to LF, a leading BOM stripped, NFC — applied to each
+/// Spec 6's normalisation — CRLF and lone CR to LF, a leading BOM stripped, U+00A0/U+2007/U+202F
+/// folded to a space, NFC — applied to each
 /// page's text BEFORE its block offsets are computed. Same rules as the core's internal
 /// <c>TextNormalizer</c>, and the same caveat: under <c>InvariantGlobalization</c> the NFC step is
 /// a no-op, and nothing downstream depends on composition having happened.
@@ -138,12 +139,19 @@ internal static class SatelliteTextNormalizer
         }
 
         var stripped = text[0] == '\uFEFF' ? text[1..] : text;
-        var fixedEndings = FixLineEndings(stripped);
+        var fixedEndings = FoldSpaces(FixLineEndings(stripped));
 
         return fixedEndings.IsNormalized(NormalizationForm.FormC)
             ? fixedEndings
             : fixedEndings.Normalize(NormalizationForm.FormC);
     }
+
+    // Issue #30: PostScript drivers map the font's space glyph to U+00A0, so every word
+    // separator arrives non-breaking. One char for one char, so no offset moves.
+    private static string FoldSpaces(string text) =>
+        text.AsSpan().IndexOfAny(' ', ' ', ' ') < 0
+            ? text
+            : text.Replace(' ', ' ').Replace(' ', ' ').Replace(' ', ' ');
 
     private static string FixLineEndings(string text)
     {
