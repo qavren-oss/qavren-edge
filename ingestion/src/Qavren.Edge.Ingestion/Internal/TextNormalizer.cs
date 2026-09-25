@@ -3,7 +3,8 @@ using System.Text;
 namespace Qavren.Edge.Ingestion.Internal;
 
 /// <summary>
-/// Spec 6's one normalisation: CRLF and lone CR to LF, a leading BOM stripped, NFC applied.
+/// Spec 6's one normalisation: CRLF and lone CR to LF, a leading BOM stripped, U+00A0, U+2007 and
+/// U+202F folded to U+0020, NFC applied.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -38,13 +39,20 @@ internal static class TextNormalizer
         }
 
         var stripped = text[0] == '\uFEFF' ? text[1..] : text;
-        var lineEndingsFixed = FixLineEndings(stripped);
+        var lineEndingsFixed = FoldSpaces(FixLineEndings(stripped));
 
         // See the NFC caveat in the remarks: a no-op under InvariantGlobalization, real elsewhere.
         return lineEndingsFixed.IsNormalized(NormalizationForm.FormC)
             ? lineEndingsFixed
             : lineEndingsFixed.Normalize(NormalizationForm.FormC);
     }
+
+    // Issue #30: PostScript drivers map the font's space glyph to U+00A0, so every word
+    // separator arrives non-breaking. One char for one char, so no offset moves.
+    private static string FoldSpaces(string text) =>
+        text.AsSpan().IndexOfAny(' ', ' ', ' ') < 0
+            ? text
+            : text.Replace(' ', ' ').Replace(' ', ' ').Replace(' ', ' ');
 
     private static string FixLineEndings(string text)
     {

@@ -13,7 +13,7 @@ namespace Qavren.Edge.Ingestion.DataIngestion;
 /// The source is opened through <see cref="DocumentSourceItem.OpenAsync"/>, as every SP3 extractor
 /// must be, and handed to the reader's stream overload. When
 /// <see cref="ExtractionOptions.NormalizeText"/> is on, each element's text is normalised (CRLF and
-/// lone CR to LF, NFC, BOM stripped) <i>before</i> the text buffer is built, so the offsets
+/// lone CR to LF, NFC, BOM stripped, U+00A0/U+2007/U+202F folded to a space) <i>before</i> the text buffer is built, so the offsets
 /// <see cref="EdgeDocumentConverter.FromMedi"/> assigns already index the normalised text. The
 /// same caveat as the core's normaliser applies: under <c>InvariantGlobalization</c>
 /// <see cref="string.Normalize(NormalizationForm)"/> is a no-op, so there the line-ending and BOM
@@ -122,6 +122,10 @@ public sealed class MediReaderAdapter : IDocumentExtractor
                     break;
 
                 case '\uFEFF':
+                    break;
+
+                case '\u00A0' or '\u2007' or '\u202F':
+                    builder.Append(' ');
                     break;
 
                 default:

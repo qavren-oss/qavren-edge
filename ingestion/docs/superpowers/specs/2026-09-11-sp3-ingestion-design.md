@@ -396,8 +396,10 @@ source file ─► IDocumentExtractor ─► ExtractedDocument { Text, Blocks[],
                               hash ─► diff ─► embed ─► write
 ```
 
-`ExtractedDocument.Text` is CRLF and lone-CR normalised to LF, NFC-normalised, and
-BOM-stripped. A `DocumentBlock` is `(Kind, Start, End, HeadingLevel?, PageNumber?)`
+`ExtractedDocument.Text` is CRLF and lone-CR normalised to LF, NFC-normalised,
+BOM-stripped, and has U+00A0, U+2007 and U+202F folded to U+0020 (issue #30:
+PostScript drivers emit U+00A0 as the word separator; the fold is one char for one
+char, so no offset moves). A `DocumentBlock` is `(Kind, Start, End, HeadingLevel?, PageNumber?)`
 with `[Start, End)` half-open into `Text`.
 
 `DocumentBlockKind` deliberately uses MEDI's vocabulary so the shim is lossless in

@@ -27,7 +27,7 @@
       "producer": "acrobat",
       "url": "https://raw.githubusercontent.com/UglyToad/PdfPig/0d1d61b1e7d1bd6caf01d91a42a89f48d944aa69/src/UglyToad.PdfPig.Tests/Integration/Documents/Publication_of_award_of_Bids_for_Transport_Sector__August_2016.pdf",
       "sha256": "038126d57e3d9aadfee6c3ac44acc66d4fbdc13598dad8deadd7ec76a2a7d2ab",
-      "phrase": "(P102000)"
+      "phrase": "PUBLICATION OF AWARD OF CONTRACTS UNDER THE TRANSPORT SECTOR PROJECT (P102000)"
     },
     {
       "id": "acrobat-distiller-2.1-mac-ssm2163-datasheet.pdf",
