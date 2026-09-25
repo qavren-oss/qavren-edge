@@ -260,7 +260,7 @@ public class GoldenSqlTests
                 "         f.rank AS bm25",
                 "  FROM \"notes_fts\" f",
                 "  WHERE f.\"notes_fts\" MATCH $keywords",
-                "    AND f.rowid IN (SELECT \"_rowid\" FROM \"notes\" WHERE " + Filter + ")",
+                "    AND +f.rowid IN (SELECT \"_rowid\" FROM \"notes\" WHERE " + Filter + ")",
                 "  ORDER BY f.rank",
                 "  LIMIT $cand",
                 ")",
@@ -324,7 +324,7 @@ public class GoldenSqlTests
         Assert.Equal(includeVectors, sql.Contains("LEFT JOIN \"notes_vec\" nv ON nv.rowid = d.\"_rowid\"", StringComparison.Ordinal));
         Assert.Equal(includeVectors, sql.Contains("       vec.distance, fts.bm25, nv.\"embedding\"", StringComparison.Ordinal));
         Assert.Equal(hasFilter, sql.Contains("    AND v.rowid IN (", StringComparison.Ordinal));
-        Assert.Equal(hasFilter, sql.Contains("    AND f.rowid IN (", StringComparison.Ordinal));
+        Assert.Equal(hasFilter, sql.Contains("    AND +f.rowid IN (", StringComparison.Ordinal));
     }
 
     [Fact]

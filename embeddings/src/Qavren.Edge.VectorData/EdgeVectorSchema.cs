@@ -340,7 +340,11 @@ public sealed class EdgeVectorSchema
         sql.Append("  WHERE f.\"").Append(fts).Append("\" MATCH $keywords");
         if (hasFilter)
         {
-            sql.Append(Newline).Append("    AND f.rowid IN (").Append(FilterSubquery()).Append(')');
+            // Unary plus keeps the IN out of FTS5's xBestIndex. Offered as a rowid constraint,
+            // SQLite runs xFilter once per IN value - the whole MATCH re-evaluated for every
+            // filtered row (issue #36: 3.3-3.6x the unfiltered cost). As a residual predicate the
+            // MATCH runs once and the IN is a probe against the materialised subquery.
+            sql.Append(Newline).Append("    AND +f.rowid IN (").Append(FilterSubquery()).Append(')');
         }
 
         sql.Append(Newline).Append("  ORDER BY f.rank").Append(Newline);
