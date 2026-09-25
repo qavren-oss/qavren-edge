@@ -281,8 +281,12 @@ the dedicated M4 above, so treat these numbers as indicative.
 - **The filter makes hybrid search slower.** On both machines a LINQ filter
   leaves `SearchAsync` no slower (on the M4 it is faster), but it makes
   `HybridSearchAsync` 3.3 to 3.6 times slower: 14.1 ms against 4.3 ms on the
-  M4, and 104 ms against 29 ms on the Ryzen. This needs investigating before
-  anything is claimed about it.
+  M4, and 104 ms against 29 ms on the Ryzen. Fixed after these tables were
+  measured (issue #36): the keyword lane's filter was offered to FTS5 as a
+  rowid constraint, so SQLite re-ran the whole `MATCH` once per filtered row.
+  With the filter kept as a residual predicate, the Ryzen ShortRun measures
+  10.8 ms filtered against 12.6 ms unfiltered. The tables above predate the
+  fix.
 - **The token-window chunker costs 3.5 to 6 times** as much as the plain and
   heading chunkers on the same documents.
 - **Encoder batching.** Throughput peaks at batch 8 on both machines: 424
