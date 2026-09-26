@@ -373,8 +373,10 @@ jobs:
       # test-results/logcat.txt: when the app fails to launch or dies at startup the CLI writes no
       # TRX at all and the logcat it dumps is the only evidence of why. Without it this artifact
       # contains nothing but the checked-in trx2junit fixture.
+      # Evidence only; see the device-tests-ios upload.
       - uses: actions/upload-artifact@v7
         if: always()
+        continue-on-error: true
         with:
           name: device-tests-android
           path: |
@@ -439,8 +441,12 @@ jobs:
           reporter: java-junit
           fail-on-error: false
 
+      # Evidence only: pass/fail is the test step's exit code, and dorny/test-reporter has already
+      # put the results in the job summary. On 2026-09-25 the artifact service failed this step
+      # twice on hosted macOS (ENOTFOUND, ETIMEDOUT) after 84/84 green tests and turned ci-gate red.
       - uses: actions/upload-artifact@v7
         if: always()
+        continue-on-error: true
         with:
           name: device-tests-ios
           path: |
@@ -497,8 +503,10 @@ jobs:
           reporter: java-junit
           fail-on-error: false
 
+      # Evidence only; see the device-tests-ios upload.
       - uses: actions/upload-artifact@v7
         if: always()
+        continue-on-error: true
         with:
           name: device-tests-maccatalyst
           path: |
@@ -544,8 +552,10 @@ jobs:
           reporter: java-junit
           fail-on-error: false
 
+      # Evidence only; see the device-tests-ios upload.
       - uses: actions/upload-artifact@v7
         if: always()
+        continue-on-error: true
         with:
           name: device-tests-windows
           path: |
