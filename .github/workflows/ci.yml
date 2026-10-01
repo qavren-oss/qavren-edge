@@ -644,7 +644,7 @@ jobs:
 
       # Keyed on the CONTENT hash. A key containing the revision would still be stale if the
       # revision were ever repointed; a key containing a date would miss every day.
-      - uses: actions/cache@v6.1.0
+      - uses: actions/cache@v6
         id: model-cache
         with:
           path: ${{ env.QAVREN_EDGE_MODEL_DIR }}
@@ -736,7 +736,7 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with: { global-json-file: global.json }
 
-      - uses: actions/cache@v6.1.0
+      - uses: actions/cache@v6
         id: chat-model-cache
         with:
           path: ${{ env.QAVREN_EDGE_CHAT_MODEL_DIR }}

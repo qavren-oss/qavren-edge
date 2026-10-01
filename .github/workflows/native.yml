@@ -58,14 +58,14 @@ jobs:
       # exact same native inputs have already been built on this OS, so skip straight to upload.
       - name: Cache built natives
         id: native-cache
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: foundation/native/artifacts
           key: qedge-native-${{ matrix.name }}-${{ hashFiles('foundation/native/versions.json', 'foundation/native/CMakeLists.txt', 'foundation/native/src/**', 'foundation/native/cmake/**', 'foundation/native/scripts/**', '.github/workflows/native.yml') }}
 
       - name: Cache fetched sources
         if: steps.native-cache.outputs.cache-hit != 'true'
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: foundation/native/_deps/download
           key: qedge-deps-${{ hashFiles('foundation/native/versions.json') }}
@@ -178,7 +178,7 @@ jobs:
 
       - name: Restore cached Windows natives
         id: c-windows
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v6
         with:
           path: foundation/native/artifacts
           key: qedge-native-windows-${{ hashFiles('foundation/native/versions.json', 'foundation/native/CMakeLists.txt', 'foundation/native/src/**', 'foundation/native/cmake/**', 'foundation/native/scripts/**', '.github/workflows/native.yml') }}
@@ -187,7 +187,7 @@ jobs:
         run: bash .github/scripts/reuse-native-artifact.sh native-windows
       - name: Re-seed the Windows cache
         if: steps.c-windows.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v6
         with:
           path: foundation/native/artifacts
           key: qedge-native-windows-${{ hashFiles('foundation/native/versions.json', 'foundation/native/CMakeLists.txt', 'foundation/native/src/**', 'foundation/native/cmake/**', 'foundation/native/scripts/**', '.github/workflows/native.yml') }}
@@ -198,7 +198,7 @@ jobs:
 
       - name: Restore cached Linux/Android natives
         id: c-linux
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v6
         with:
           path: foundation/native/artifacts
           key: qedge-native-linux-android-${{ hashFiles('foundation/native/versions.json', 'foundation/native/CMakeLists.txt', 'foundation/native/src/**', 'foundation/native/cmake/**', 'foundation/native/scripts/**', '.github/workflows/native.yml') }}
@@ -207,7 +207,7 @@ jobs:
         run: bash .github/scripts/reuse-native-artifact.sh native-linux-android
       - name: Re-seed the Linux/Android cache
         if: steps.c-linux.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v6
         with:
           path: foundation/native/artifacts
           key: qedge-native-linux-android-${{ hashFiles('foundation/native/versions.json', 'foundation/native/CMakeLists.txt', 'foundation/native/src/**', 'foundation/native/cmake/**', 'foundation/native/scripts/**', '.github/workflows/native.yml') }}
@@ -218,7 +218,7 @@ jobs:
 
       - name: Restore cached Apple natives
         id: c-apple
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v6
         with:
           path: foundation/native/artifacts
           key: qedge-native-apple-${{ hashFiles('foundation/native/versions.json', 'foundation/native/CMakeLists.txt', 'foundation/native/src/**', 'foundation/native/cmake/**', 'foundation/native/scripts/**', '.github/workflows/native.yml') }}
@@ -227,7 +227,7 @@ jobs:
         run: bash .github/scripts/reuse-native-artifact.sh native-apple
       - name: Re-seed the Apple cache
         if: steps.c-apple.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v6
         with:
           path: foundation/native/artifacts
           key: qedge-native-apple-${{ hashFiles('foundation/native/versions.json', 'foundation/native/CMakeLists.txt', 'foundation/native/src/**', 'foundation/native/cmake/**', 'foundation/native/scripts/**', '.github/workflows/native.yml') }}
