@@ -75,7 +75,7 @@ jobs:
       # hosted image ships one, but pin it so an image change cannot break configure. No
       # tclsh is required: cmake/make-sqlcipher-amalgamation.cmake drives SQLCipher's own
       # Makefile.msc, which runs every generator through the bundled jimsh0.
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         if: steps.native-cache.outputs.cache-hit != 'true' && matrix.name == 'windows'
         with:
           python-version: '3.12'
