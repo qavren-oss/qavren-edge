@@ -50,13 +50,13 @@ if "force" in nat_text: problems.append("native.yml still carries a `force` bypa
 for token in ("path: foundation/native/artifacts", "qedge-native-${{ matrix.name }}-",
               "foundation/native/CMakeLists.txt", "'.github/workflows/native.yml'"):
     if token not in nat_text: problems.append("native.yml artifact cache key is incomplete (" + token + ")")
-if nat_text.count("actions/cache/restore@v4") != 3:
+if nat_text.count("actions/cache/restore@v6.1.0") != 3:
     problems.append("native.yml reuse job must restore all three OS caches")
 # A cache entry can be absent while the artifact still exists (an interrupted save, an eviction).
 # The reuse job must repair that instead of taking a managed-only PR red.
 if nat_text.count("reuse-native-artifact.sh") != 3:
     problems.append("native.yml reuse job must fall back to the last good run's artifact for all three OS legs")
-if nat_text.count("actions/cache/save@v4") != 3:
+if nat_text.count("actions/cache/save@v6.1.0") != 3:
     problems.append("native.yml reuse job must re-seed all three OS caches after an artifact fallback")
 if not (w.parent / "scripts" / "reuse-native-artifact.sh").is_file():
     problems.append(".github/scripts/reuse-native-artifact.sh is missing")
