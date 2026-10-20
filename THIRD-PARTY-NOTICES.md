@@ -38,7 +38,7 @@ under the Apache License 2.0. https://github.com/UglyToad/PdfPig
 
 ## Markdig (BSD-2-Clause)
 
-Package id `Markdig`, version 1.3.2, licensed under the BSD 2-Clause License.
+Package id `Markdig`, version 1.4.0, licensed under the BSD 2-Clause License.
 https://github.com/xoofx/markdig
 
 ## DocumentFormat.OpenXml (MIT) — Qavren.Edge.Ingestion.OpenXml only

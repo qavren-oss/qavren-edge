@@ -185,7 +185,7 @@ crosses sideways.
 | `Qavren.Edge.Onnx` | `net10.0`, `net10.0-android`, `-ios`, `-maccatalyst` | `AddOnnx()`: session factory, execution-provider policy, consent-gated model provisioning, resource monitor | `Microsoft.ML.OnnxRuntime` 1.30.0 |
 | `Qavren.Edge.Embeddings.Onnx` | same four | `AddOnnxEmbeddings()`, `IEmbeddingGenerator`, `EmbeddingPresets`, `IEdgeTokenizer` | `Microsoft.ML.Tokenizers` 2.0.0, `Microsoft.Extensions.AI` 10.10.0 |
 | `Qavren.Edge.VectorData` | `net10.0` | `AddVectorStore()`; a `VectorStore` over `vec0` + FTS5 with reciprocal rank fusion | `Microsoft.Extensions.VectorData.Abstractions` 10.10.0 |
-| `Qavren.Edge.Ingestion` | `net10.0` | `AddIngestion()`: document model, text and Markdown extractors, three chunkers, token budget, content hashing, incremental diff, runner | `Markdig` 1.3.2, `System.IO.Hashing`, `Microsoft.ML.Tokenizers` 2.0.0 |
+| `Qavren.Edge.Ingestion` | `net10.0` | `AddIngestion()`: document model, text and Markdown extractors, three chunkers, token budget, content hashing, incremental diff, runner | `Markdig` 1.4.0, `System.IO.Hashing`, `Microsoft.ML.Tokenizers` 2.0.0 |
 | `Qavren.Edge.Ingestion.Pdf` | `net10.0` | `AddPdfExtractor()`; page-at-a-time, stream-only | `PdfPig` 0.1.16 (**Apache-2.0**, which is why this is opt-in) |
 | `Qavren.Edge.Ingestion.OpenXml` | `net10.0` | `AddDocxExtractor()` | `DocumentFormat.OpenXml` 3.5.1 (MIT; separate for size) |
 | `Qavren.Edge.Ingestion.Onnx` | `net10.0` | `AddOnnxIngestion()`: the embedding preset's tokenizer as the chunk tokenizer, a throttle over the resource monitor | none new |
