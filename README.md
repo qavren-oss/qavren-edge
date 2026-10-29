@@ -285,10 +285,10 @@ notes, including how releases are cut, are in
 
 ## Versioning
 
-Versions come from git tags; there is no version in any project file. From
-1.0, the suite follows semantic versioning: a breaking change to the public
-API waits for the next major version, and a NuGet package-validation baseline
-is set once 1.0 ships. Every GitHub release ships the packages, the native
+Versions come from git tags; there is no version in any project file. The
+suite follows semantic versioning: a breaking change to the public API waits
+for the next major version, and packs are validated against the 1.0.0
+package-validation baseline. Every GitHub release ships the packages, the native
 library archives, an SPDX SBOM and SHA-256 checksums. See the
 [documentation site](https://edge.qavrensolutions.com) and the
 [benchmark suite](https://edge.qavrensolutions.com/benchmarks.html).
