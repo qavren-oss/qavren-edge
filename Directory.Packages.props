@@ -74,7 +74,7 @@
   </ItemGroup>
 
   <ItemGroup Label="SP3 test">
-    <PackageVersion Include="CsCheck" Version="4.9.1" />
+    <PackageVersion Include="CsCheck" Version="5.0.0" />
   </ItemGroup>
 
   <!-- Referenced by ingestion/samples/Ingestion.Background.Android ONLY (net10.0-android class
