@@ -38,7 +38,7 @@ jobs:
         os: [windows-2025, ubuntu-24.04, macos-15]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0        # MinVer needs history, or every package builds as 0.0.0-alpha.0
           filter: tree:0
@@ -304,7 +304,7 @@ jobs:
     needs: natives
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with: { fetch-depth: 0, filter: 'tree:0' }
       - uses: actions/setup-dotnet@v4
         with: { global-json-file: global.json }
@@ -392,7 +392,7 @@ jobs:
     # On GitHub Actions macos-15 is ARM64; the certified iOS-simulator lane is x64/Rosetta.
     runs-on: macos-15-intel
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with: { fetch-depth: 0, filter: 'tree:0' }
       - uses: maxim-lobanov/setup-xcode@v1
         with: { xcode-version: '26.2' }
@@ -463,7 +463,7 @@ jobs:
     needs: natives
     runs-on: macos-15-intel
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with: { fetch-depth: 0, filter: 'tree:0' }
       - uses: maxim-lobanov/setup-xcode@v1
         with: { xcode-version: '26.2' }
@@ -517,7 +517,7 @@ jobs:
     needs: natives
     runs-on: windows-2025
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with: { fetch-depth: 0, filter: 'tree:0' }
       - uses: actions/setup-dotnet@v4
         with: { global-json-file: global.json }
@@ -572,7 +572,7 @@ jobs:
     needs: natives
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with: { fetch-depth: 0, filter: 'tree:0' }
       - uses: actions/setup-dotnet@v4
         with: { global-json-file: global.json }
@@ -635,7 +635,7 @@ jobs:
       QAVREN_EDGE_MODEL_DIR: ${{ github.workspace }}/.model-cache
       QAVREN_EDGE_DOCS_DIR: ${{ github.workspace }}/.docs-cache
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with: { fetch-depth: 0, filter: 'tree:0' }
       - uses: actions/setup-dotnet@v4
         with: { global-json-file: global.json }
@@ -731,7 +731,7 @@ jobs:
       QAVREN_EDGE_CHAT_TOKENIZER_SHA256: be75606093db2094d7cd20f3c2f385c212750648bd6ea4fb2bf507a6a4c55506
       QAVREN_EDGE_CHAT_MODEL_DIR: ${{ github.workspace }}/.chat-model-cache
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with: { fetch-depth: 0, filter: 'tree:0' }
       - uses: actions/setup-dotnet@v4
         with: { global-json-file: global.json }

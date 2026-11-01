@@ -20,7 +20,7 @@ jobs:
   tier0-windows:
     runs-on: windows-2025
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with: { fetch-depth: 0, filter: 'tree:0' }
       - uses: actions/setup-dotnet@v4
         with: { global-json-file: global.json }
@@ -29,7 +29,7 @@ jobs:
   tier0-linux:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with: { fetch-depth: 0, filter: 'tree:0' }
       - uses: actions/setup-dotnet@v4
         with: { global-json-file: global.json }
@@ -41,7 +41,7 @@ jobs:
   tier0-winui:
     runs-on: windows-2025
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with: { fetch-depth: 0, filter: 'tree:0' }
       - uses: actions/setup-dotnet@v4
         with: { global-json-file: global.json }
@@ -56,7 +56,7 @@ jobs:
   tier0-android:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with: { fetch-depth: 0, filter: 'tree:0' }
       - uses: actions/setup-dotnet@v4
         with: { global-json-file: global.json }
@@ -94,7 +94,7 @@ jobs:
   tier0-ios:
     runs-on: macos-15-intel
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with: { fetch-depth: 0, filter: 'tree:0' }
       - uses: maxim-lobanov/setup-xcode@v1
         with: { xcode-version: '26.2' }
@@ -122,7 +122,7 @@ jobs:
   tier0-maccatalyst:
     runs-on: macos-15-intel
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with: { fetch-depth: 0, filter: 'tree:0' }
       - uses: maxim-lobanov/setup-xcode@v1
         with: { xcode-version: '26.2' }

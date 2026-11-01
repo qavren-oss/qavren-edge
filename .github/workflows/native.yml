@@ -24,7 +24,7 @@ jobs:
     outputs:
       native: ${{ steps.filter.outputs.native }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dorny/paths-filter@v3
         id: filter
         with:
@@ -52,7 +52,7 @@ jobs:
           - { os: macos-15,      name: apple }
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # Spec 10.4: cache key = versions.json + native/** + this workflow file. A hit means the
       # exact same native inputs have already been built on this OS, so skip straight to upload.
@@ -174,7 +174,7 @@ jobs:
       GH_TOKEN: ${{ github.token }}
       QEDGE_FALLBACK_BRANCH: ${{ github.event.repository.default_branch }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Restore cached Windows natives
         id: c-windows

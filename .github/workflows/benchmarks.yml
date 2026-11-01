@@ -58,7 +58,7 @@ jobs:
       QAVREN_EDGE_CHAT_TOKENIZER_SHA256: be75606093db2094d7cd20f3c2f385c212750648bd6ea4fb2bf507a6a4c55506
       QAVREN_EDGE_CHAT_MODEL_DIR: ${{ inputs.models && format('{0}/.chat-model-cache', github.workspace) || '' }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with: { fetch-depth: 0, filter: 'tree:0' }
       - uses: actions/setup-dotnet@v4
         with: { global-json-file: global.json }
