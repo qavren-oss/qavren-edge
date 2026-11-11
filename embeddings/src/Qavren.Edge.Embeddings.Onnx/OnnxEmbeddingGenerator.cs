@@ -451,6 +451,15 @@ public sealed class OnnxEmbeddingGenerator : IEmbeddingGenerator<string, Embeddi
         var configured = Math.Max(1, _options.Value.MaxBatchSize);
         var effective = configured;
 
+        if (_options.Value.PinnedSequenceLength is not null)
+        {
+            // A pinned session's batch_size is baked into the graph at MaxBatchSize: it runs that
+            // many rows whatever it is handed, so halving the batch would run the same tensor twice
+            // for the cost of one and save no memory at all.
+            Volatile.Write(ref _effectiveBatchSize, configured);
+            return configured;
+        }
+
         // Spec 11 names a LATCHED Moderate as the only trigger, and it is deliberately only that
         // one: Critical's reaction lives in L0, where the lifecycle observer drops sessions
         // (DropOnMemoryPressure), and halving a batch at the same moment the session underneath it
@@ -505,11 +514,33 @@ public sealed class OnnxEmbeddingGenerator : IEmbeddingGenerator<string, Embeddi
 
     private BatchOutcome RunBatch(OnnxSessionLease lease, IEdgeTokenizer tokenizer, string[] texts)
     {
-        var batch = tokenizer.EncodeBatch(texts, _preset.MaxSequenceLength, _preset.SequenceBuckets);
+        var maxLength = _preset.MaxSequenceLength;
+        IReadOnlyList<int> buckets = _preset.SequenceBuckets;
+        var feed = texts;
+
+        if (_options.Value.PinnedSequenceLength is { } pinned)
+        {
+            // ApplyPinning baked batch_size = MaxBatchSize and sequence_length = pinned into the
+            // session, and ORT refuses a tensor of any other shape before it runs a node. So every
+            // batch is encoded at exactly that width - truncated to it, padded to it - and a short
+            // last batch is filled up with empty rows that are dropped again after the Run.
+            maxLength = Math.Min(maxLength, pinned);
+            buckets = [pinned];
+
+            var rows = Math.Max(1, _options.Value.MaxBatchSize);
+            if (texts.Length < rows)
+            {
+                feed = new string[rows];
+                Array.Copy(texts, feed, texts.Length);
+                Array.Fill(feed, string.Empty, texts.Length, rows - texts.Length);
+            }
+        }
+
+        var batch = tokenizer.EncodeBatch(feed, maxLength, buckets);
 
         try
         {
-            return RunBatchCore(lease, batch);
+            return RunBatchCore(lease, batch, texts.Length, maxLength);
         }
         finally
         {
@@ -521,10 +552,14 @@ public sealed class OnnxEmbeddingGenerator : IEmbeddingGenerator<string, Embeddi
         }
     }
 
-    private BatchOutcome RunBatchCore(OnnxSessionLease lease, TokenizedBatch batch)
+    /// <param name="lease">The session lease.</param>
+    /// <param name="batch">The encoded batch; it may carry more rows than there are inputs.</param>
+    /// <param name="inputRows">How many of its rows are inputs. The rest are a pinned session's filler.</param>
+    /// <param name="maxLength">The ceiling the batch was truncated to: the preset's, or the pinned width.</param>
+    private BatchOutcome RunBatchCore(OnnxSessionLease lease, TokenizedBatch batch, int inputRows, int maxLength)
     {
         long tokenCount = 0;
-        for (var b = 0; b < batch.BatchSize; b++)
+        for (var b = 0; b < inputRows; b++)
         {
             tokenCount += batch.TokenCounts[b];
 
@@ -540,15 +575,16 @@ public sealed class OnnxEmbeddingGenerator : IEmbeddingGenerator<string, Embeddi
                 throw new EdgeEmbeddingException(
                     EdgeErrorCode.EmbeddingInputTooLong,
                     _preset.Id,
-                    $"An input exceeded the {_preset.MaxSequenceLength}-token maximum of preset " +
-                    $"'{_preset.Id}' and Truncation is {nameof(EmbeddingTruncation.Throw)}.")
+                    $"An input exceeded the {maxLength}-token maximum of preset '{_preset.Id}'" +
+                    (maxLength < _preset.MaxSequenceLength ? " as pinned by PinnedSequenceLength" : string.Empty) +
+                    $" and Truncation is {nameof(EmbeddingTruncation.Throw)}.")
                 {
-                    Expected = _preset.MaxSequenceLength,
+                    Expected = maxLength,
                     Actual = batch.TokenCounts[b],
                 };
             }
 
-            s_inputTruncated(_logger, _preset.Id, batch.TokenCounts[b], _preset.MaxSequenceLength, null);
+            s_inputTruncated(_logger, _preset.Id, batch.TokenCounts[b], maxLength, null);
         }
 
         long[] shape = [batch.BatchSize, batch.SequenceLength];
@@ -591,6 +627,12 @@ public sealed class OnnxEmbeddingGenerator : IEmbeddingGenerator<string, Embeddi
             var elapsed = Stopwatch.GetElapsedTime(started);
 
             var vectors = Pool(outputs[0], batch);
+            if (vectors.Length > inputRows)
+            {
+                // A pinned session's filler rows: run, because the session's shape demands them,
+                // and never handed back.
+                vectors = vectors[..inputRows];
+            }
 
             RecordRun(elapsed);
             s_batchCompleted(_logger, _preset.Id, batch.BatchSize, batch.SequenceLength, elapsed.TotalMilliseconds, null);
