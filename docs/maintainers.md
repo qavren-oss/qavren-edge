@@ -86,10 +86,17 @@ depending on a prerelease one — see "DataIngestion stays prerelease" below.
 
 1. Everything to ship is on `main` and `ci-gate` is green.
 2. Dry run: `gh workflow run release.yml --ref main`. On `workflow_dispatch`
-   the workflow builds the natives, packs, asserts the package metadata,
+   the `pack` job builds the natives, packs, asserts the package metadata,
    zips, generates the SBOM and checksums, and uploads a `release-dry-run`
-   artifact; the NuGet push and the GitHub release are skipped. This proves
-   the workflow shape but never touches nuget.org.
+   artifact; the `publish` job does not start. This proves the workflow
+   shape but never touches nuget.org.
+
+   `release.yml` is split so that only `publish` can publish. `pack` restores
+   and builds the solution and runs the SBOM action with `contents: read` and
+   no `id-token`; it hands everything over as the `release-assets` artifact.
+   `publish` runs only on a `v*` tag, builds nothing, checks every file in the
+   artifact against the `SHA256SUMS.txt` that `pack` wrote, then holds the
+   OIDC token for the push and `contents: write` for the GitHub release.
 3. Rehearsal, required for a stable cut: tag `v1.0.0-rc.1` on `main` and push
    it.
    ```
@@ -174,7 +181,7 @@ package must not depend on a prerelease one); with the suffix target it packs
   pinned to a full commit SHA with the release in a trailing comment,
   `owner/repo@<sha> # vX.Y.Z`, which is the form Dependabot rewrites in place.
   A tag is a pointer its owner can move, and every step of `release.yml`'s
-  `release` job can mint the OIDC token nuget.org trusts. To pin a new one:
+  `publish` job can mint the OIDC token nuget.org trusts. To pin a new one:
   `gh api repos/<owner>/<repo>/commits/<tag> --jq .sha`.
 - `foundation/tools/ci-checks/assert-workflows.py` pins all of the above and
   fails when a workflow drifts. Run it locally after any workflow edit.

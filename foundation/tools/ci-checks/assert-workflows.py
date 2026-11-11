@@ -202,29 +202,55 @@ if "-p:MinVerVersionOverride=9.9.9" not in ci_text:
 if "-StableOverride" not in ci_text:
     problems.append("ci.yml must run assert-packages.ps1 -StableOverride against the stable-override pack")
 
-# release.yml: workflow_dispatch is a dry run. Exactly the two publishing steps are guarded on a
-# v* tag, the dry run uploads the would-be assets, prereleases are flagged from the tag name, and
-# the release job proves package metadata before anything is pushed.
-if rel_text.count("if: startsWith(github.ref, 'refs/tags/v')") != 3:
-    problems.append("release.yml must guard exactly three steps (NuGet login, NuGet push, GitHub release) on startsWith(github.ref, 'refs/tags/v')")
-# Trusted publishing: the login step mints the key from the GitHub OIDC token, which needs
-# id-token: write on the release job; no NUGET_API_KEY secret may survive in the workflow.
-for token in ("uses: NuGet/login@", "id-token: write", "steps.login.outputs.NUGET_API_KEY"):
+# release.yml is two jobs. `pack` builds everything and holds no write scope and no id-token;
+# `publish` builds nothing, runs only on a v* tag, and is the one job that can mint the OIDC token
+# nuget.org trusts. workflow_dispatch is the dry run: `pack` uploads the would-be assets as
+# `release-dry-run` and `publish` never starts.
+rel_jobs = rel.get("jobs", {})
+pack, publish = rel_jobs.get("pack"), rel_jobs.get("publish")
+if pack is None or publish is None:
+    problems.append("release.yml must have a `pack` job and a `publish` job")
+else:
+    if (rel.get("permissions") or {}) != {"contents": "read"}:
+        problems.append("release.yml's workflow-level permissions must be exactly contents: read")
+    if (pack.get("permissions") or {}) != {"contents": "read"}:
+        problems.append("release.yml `pack` must hold contents: read and nothing else: it restores and builds, so it must not be able to mint the publishing token or write the repository")
+    if publish.get("needs") != "pack" and publish.get("needs") != ["pack"]:
+        problems.append("release.yml `publish` must need `pack` and nothing else")
+    if str(publish.get("if", "")).strip() != "startsWith(github.ref, 'refs/tags/v')":
+        problems.append("release.yml `publish` must run only on a v* tag: if: startsWith(github.ref, 'refs/tags/v')")
+    if (publish.get("permissions") or {}) != {"contents": "write", "id-token": "write"}:
+        problems.append("release.yml `publish` must hold exactly contents: write and id-token: write")
+    pack_text = yaml.safe_dump(pack)
+    if "dotnet pack" not in pack_text or "assert-packages.ps1" not in pack_text:
+        problems.append("release.yml `pack` must pack the solution and assert the package metadata")
+    pub_steps = publish.get("steps", [])
+    pub_text = yaml.safe_dump(publish)
+    for forbidden in ("dotnet pack", "dotnet build", "dotnet restore", "dotnet run"):
+        if forbidden in pub_text:
+            problems.append("release.yml `publish` must build nothing (found `" + forbidden + "`); everything it publishes comes from `pack`'s artifact")
+    if "release-assets" not in pub_text or "SHA256SUMS.txt" not in pub_text:
+        problems.append("release.yml `publish` must download `release-assets` and verify it against SHA256SUMS.txt before pushing")
+    names = [str(s.get("name", s.get("uses", ""))) for s in pub_steps]
+    release_idx = [i for i, s in enumerate(pub_steps) if str(s.get("uses", "")).startswith("softprops/action-gh-release")]
+    verify_idx = [i for i, n in enumerate(names) if "SHA256SUMS" in n]
+    if "Push to NuGet.org" not in names or not release_idx:
+        problems.append("release.yml `publish` must keep a step named `Push to NuGet.org` and a softprops/action-gh-release step")
+    elif names.index("Push to NuGet.org") > release_idx[0]:
+        problems.append("release.yml must push to NuGet before creating the GitHub release")
+    elif not verify_idx or verify_idx[0] > names.index("Push to NuGet.org"):
+        problems.append("release.yml `publish` must verify the hand-over against SHA256SUMS before pushing")
+# Trusted publishing: the login step mints the key from the GitHub OIDC token; no NUGET_API_KEY
+# secret may survive in the workflow.
+for token in ("uses: NuGet/login@", "steps.login.outputs.NUGET_API_KEY"):
     if token not in rel_text:
         problems.append("release.yml missing " + token)
 if "secrets.NUGET_API_KEY" in rel_text:
     problems.append("release.yml still reads secrets.NUGET_API_KEY; publishing is OIDC trusted publishing")
-for token in ("name: release-dry-run", "prerelease: ${{ contains(github.ref_name, '-') }}",
+for token in ("'release-dry-run'", "'release-assets'", "prerelease: ${{ contains(github.ref_name, '-') }}",
               "assert-packages.ps1", "expected 17 .nupkg"):
     if token not in rel_text:
         problems.append("release.yml missing " + token)
-rel_steps = rel["jobs"]["release"]["steps"]
-names = [str(s.get("name", s.get("uses", ""))) for s in rel_steps]
-release_idx = [i for i, s in enumerate(rel_steps) if str(s.get("uses", "")).startswith("softprops/action-gh-release")]
-if "Push to NuGet.org" not in names or not release_idx:
-    problems.append("release.yml must keep a step named `Push to NuGet.org` and a softprops/action-gh-release step")
-elif names.index("Push to NuGet.org") > release_idx[0]:
-    problems.append("release.yml must push to NuGet before creating the GitHub release")
 
 # --- Docs site (SP5 part 2) ---
 # docs.yml builds on every PR and deploys only off pull_request; the build is the link check,
