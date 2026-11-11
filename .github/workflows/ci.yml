@@ -4,6 +4,13 @@ on:
   push:
     branches: [main]
   pull_request:
+  # The merge queue (.github/merge-queue-ruleset.json) builds each queued pull request on top of
+  # `main` plus everything queued ahead of it, on a temporary `gh-readonly-queue/main/...` branch,
+  # and waits for `ci-gate` and `natives / native-gate` to report THERE. Without this trigger
+  # neither ever reports and every queued pull request sits until the queue times it out.
+  # native.yml sees `merge_group` as "not a pull request", so it takes its `build` path, which is
+  # a cache restore and an upload when the native tree did not move.
+  merge_group:
   workflow_dispatch:
   schedule:
     # 07:00 UTC daily. Tier 3 only - see the `if` on model-tests. Nothing else keys off this.
