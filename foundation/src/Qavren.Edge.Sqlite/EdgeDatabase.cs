@@ -40,7 +40,9 @@ public sealed class EdgeDatabase : IEdgeDatabase, IDisposable
     /// constructor closes a container cycle (database -> host -> startup tasks -> database) that
     /// MSDI cannot see through a factory registration and that hangs instead of failing. Deferring
     /// also keeps "no native provider registered" a startup fault, as the plan's Step 8 note requires,
-    /// rather than a failure to resolve <see cref="IEdgeDatabase"/> at all.
+    /// rather than a failure to resolve <see cref="IEdgeDatabase"/> at all. The provider accessor is
+    /// called when the connection string is built - on the first open, and again after a rekey -
+    /// whether or not a key is configured.
     /// </remarks>
     public EdgeDatabase(
         string name,
@@ -157,6 +159,12 @@ public sealed class EdgeDatabase : IEdgeDatabase, IDisposable
                 return _connectionString;
             }
 
+            // Asked for on every database, not only a keyed one. This is the first thing any open
+            // does, and it is where "no native provider" and "two of them" become the documented
+            // configuration error - for the open task, and equally for a startup task ordered ahead
+            // of it, which the host lets straight through to here.
+            var native = _native();
+
             var builder = new SqliteConnectionStringBuilder
             {
                 DataSource = Path,
@@ -169,7 +177,6 @@ public sealed class EdgeDatabase : IEdgeDatabase, IDisposable
 
             if (IsEncrypted)
             {
-                var native = _native();
                 if (!native.SupportsEncryption)
                 {
                     throw new EdgeConfigurationException(

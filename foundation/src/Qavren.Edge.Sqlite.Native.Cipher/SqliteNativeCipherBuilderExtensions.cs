@@ -9,7 +9,7 @@ public static class SqliteNativeCipherBuilderExtensions
 {
     /// <summary>
     /// Registers the SQLCipher native provider. Calling this together with <c>UseSqliteNative()</c>
-    /// is a configuration error caught when a database is resolved.
+    /// is a configuration error that faults startup when the first database is opened.
     /// </summary>
     public static EdgeBuilder UseSqliteNativeCipher(
         this EdgeBuilder builder,

@@ -1,4 +1,5 @@
 using Microsoft.Extensions.DependencyInjection;
+using Qavren.Edge.Diagnostics;
 using Qavren.Edge.Hosting;
 using Qavren.Edge.Sqlite.Native;
 using Xunit;
@@ -44,12 +45,111 @@ public class RegistrationTests
         services.AddQavrenEdge(edge => edge.AddSqlite(o => o.DatabaseName = ":memory:"));
         using var sp = services.BuildServiceProvider();
 
+        // Resolved on its own line, outside the assertion. With both inside it this test passed on
+        // a host that could not be resolved at all: the exception came out of GetRequiredService,
+        // startup never ran, and nothing that takes an IEdgeHost could be built.
+        var host = sp.GetRequiredService<IEdgeHost>();
+
         var ex = await Assert.ThrowsAsync<EdgeConfigurationException>(async () =>
+            await host.EnsureStartedAsync(TestContext.Current.CancellationToken).ConfigureAwait(false));
+
+        Assert.Equal(EdgeErrorCode.NoNativeProviderRegistered, ex.Code);
+        Assert.True(host.Started.IsFaulted);
+    }
+
+    [Fact]
+    public async Task MoreThanOneNativeProvider_FaultsStartupWithAConfigurationError()
+    {
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddQavrenEdge(edge => edge.AddSqlite(o => o.DatabaseName = ":memory:"));
+        services.AddSingleton<ISqliteNativeProvider>(new NamedProvider("one"));
+        services.AddSingleton<ISqliteNativeProvider>(new NamedProvider("two"));
+        using var sp = services.BuildServiceProvider();
+
+        var host = sp.GetRequiredService<IEdgeHost>();
+
+        var ex = await Assert.ThrowsAsync<EdgeConfigurationException>(async () =>
+            await host.EnsureStartedAsync(TestContext.Current.CancellationToken).ConfigureAwait(false));
+
+        Assert.Equal(EdgeErrorCode.MultipleNativeProvidersRegistered, ex.Code);
+        Assert.Contains("one, two", ex.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task WithNoNativeProviderOpeningTheDatabaseRethrowsTheStartupFault()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddQavrenEdge(edge => edge.AddSqlite(o => o.DatabaseName = ":memory:"));
+        using var sp = services.BuildServiceProvider();
+
+        var database = sp.GetRequiredService<IEdgeDatabase>();
+
+        var ex = await Assert.ThrowsAsync<EdgeConfigurationException>(async () =>
+        {
+            var connection = await database.OpenConnectionAsync(ct).ConfigureAwait(false);
+            await connection.DisposeAsync().ConfigureAwait(false);
+        });
+
+        // The one fault every caller is handed, not a second exception that happens to look like it.
+        Assert.Equal(EdgeErrorCode.NoNativeProviderRegistered, ex.Code);
+        Assert.Same(ex, sp.GetRequiredService<IEdgeHost>().Started.Exception?.InnerException);
+    }
+
+    [Fact]
+    public async Task WithNoNativeProviderTheDiagnosticsReportIsStillProducedAndCarriesTheFault()
+    {
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddQavrenEdge(edge => edge.AddSqlite(o => o.DatabaseName = ":memory:"));
+        using var sp = services.BuildServiceProvider();
+
+        await Assert.ThrowsAsync<EdgeConfigurationException>(async () =>
             await sp.GetRequiredService<IEdgeHost>()
                 .EnsureStartedAsync(TestContext.Current.CancellationToken)
                 .ConfigureAwait(false));
 
+        // A report is what somebody asks for once startup has failed. This contributor used to take
+        // the provider as a constructor argument, so with none registered the whole report was a
+        // container error about a type the app never mentions.
+        var report = sp.GetRequiredService<IEdgeDiagnostics>().Report();
+
+        var failed = Assert.Single(report.Startup, task => task.Error is not null);
+        Assert.Contains("No SQLite native provider is registered", failed.Error, StringComparison.Ordinal);
+
+        var sqlite = Assert.Single(report.Components, component => component.Name == "Qavren.Edge.Sqlite");
+        Assert.Equal(":memory:", sqlite.Details["db[(default)].path"]);
+        Assert.Contains(
+            nameof(EdgeErrorCode.NoNativeProviderRegistered),
+            sqlite.Details["nativeProvider"],
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task AStartupTaskThatOpensTheDatabaseAheadOfTheOpenTaskGetsTheSameConfigurationError()
+    {
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddQavrenEdge(edge => edge.AddSqlite(o => o.DatabaseName = ":memory:"));
+
+        // A startup task is let straight through EnsureStartedAsync, so one ordered ahead of the
+        // open task reaches the connection before anything has looked for a provider. It is owed
+        // the documented error like everybody else, not whatever SQLitePCL says about having none.
+        services.AddSingleton<IEdgeStartupTask>(sp => new OpensAheadOfTheOpenTask(sp));
+        using var sp = services.BuildServiceProvider();
+
+        var host = sp.GetRequiredService<EdgeHost>();
+
+        var ex = await Assert.ThrowsAsync<EdgeConfigurationException>(async () =>
+            await host.EnsureStartedAsync(TestContext.Current.CancellationToken).ConfigureAwait(false));
+
         Assert.Equal(EdgeErrorCode.NoNativeProviderRegistered, ex.Code);
+
+        var failed = Assert.Single(host.StartupReports);
+        Assert.Equal(typeof(OpensAheadOfTheOpenTask).FullName, failed.Name);
+        Assert.NotNull(failed.Error);
     }
 
     [Fact]
@@ -171,6 +271,35 @@ public class RegistrationTests
             File.Delete(file);
 
             Assert.False(File.Exists(file));
+        }
+    }
+
+    /// <summary>A provider that is only ever counted: nothing in these tests installs it.</summary>
+    private sealed class NamedProvider(string name) : ISqliteNativeProvider
+    {
+        public string Name => name;
+
+        public string LibraryName => name;
+
+        public bool SupportsEncryption => false;
+
+        public void Install()
+        {
+        }
+
+        public SqliteNativeInfo Describe() => throw new InvalidOperationException("Install() has not run yet.");
+    }
+
+    private sealed class OpensAheadOfTheOpenTask(IServiceProvider services) : IEdgeStartupTask
+    {
+        public int Order => EdgeStartupOrder.DatabaseOpen - 1;
+
+        public async Task RunAsync(CancellationToken cancellationToken)
+        {
+            var connection = await services.GetRequiredService<IEdgeDatabase>()
+                .OpenConnectionAsync(cancellationToken)
+                .ConfigureAwait(false);
+            await connection.DisposeAsync().ConfigureAwait(false);
         }
     }
 
