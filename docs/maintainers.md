@@ -137,6 +137,12 @@ package must not depend on a prerelease one); with the suffix target it packs
   summary and in the `benchmarks-<os>` artifact (`artifacts/benchmarks/`); the published
   numbers are on `docs/site/benchmarks.md`. Dispatch:
   `gh workflow run benchmarks.yml --ref main -f full=false -f models=true`.
+- Third-party actions (anything that is not GitHub's own `actions/*`) are
+  pinned to a full commit SHA with the release in a trailing comment,
+  `owner/repo@<sha> # vX.Y.Z`, which is the form Dependabot rewrites in place.
+  A tag is a pointer its owner can move, and every step of `release.yml`'s
+  `release` job can mint the OIDC token nuget.org trusts. To pin a new one:
+  `gh api repos/<owner>/<repo>/commits/<tag> --jq .sha`.
 - `foundation/tools/ci-checks/assert-workflows.py` pins all of the above and
   fails when a workflow drifts. Run it locally after any workflow edit.
 - `foundation/tools/ci-checks/assert-packages.ps1` opens every packed

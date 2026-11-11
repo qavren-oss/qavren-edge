@@ -25,7 +25,7 @@ jobs:
       native: ${{ steps.filter.outputs.native }}
     steps:
       - uses: actions/checkout@v7
-      - uses: dorny/paths-filter@v4
+      - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
         id: filter
         with:
           filters: |
@@ -132,7 +132,7 @@ jobs:
 
       - name: Select Xcode
         if: steps.native-cache.outputs.cache-hit != 'true' && matrix.name == 'apple'
-        uses: maxim-lobanov/setup-xcode@v1
+        uses: maxim-lobanov/setup-xcode@ed7a3b1fda3918c0306d1b724322adc0b8cc0a90 # v1.7.0
         with:
           xcode-version: '26.2'
 
