@@ -5,6 +5,7 @@ using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging;
 using Qavren.Edge.Sqlite;
+using Qavren.Edge.VectorData.Internal;
 using MEVD = Microsoft.Extensions.VectorData;
 
 namespace Qavren.Edge.VectorData;
@@ -157,10 +158,14 @@ public sealed class EdgeVectorStore : MEVD.VectorStore
     /// <returns>A task that completes when the transaction has committed.</returns>
     public override async Task EnsureCollectionDeletedAsync(string name, CancellationToken cancellationToken = default)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(name);
+        // The name goes into seven DROP statements as text. A name that closes its own quotes is
+        // not a collection that does not exist, it is a second statement - see SqlIdentifier.
+        _ = SqlIdentifier.Require(name, "collection name", nameof(name));
 
-        var vectorTable = string.Format(CultureInfo.InvariantCulture, _options.VectorTableNameFormat, name);
-        var fullTextTable = string.Format(CultureInfo.InvariantCulture, _options.FullTextTableNameFormat, name);
+        var vectorTable = SqlIdentifier.Require(
+            string.Format(CultureInfo.InvariantCulture, _options.VectorTableNameFormat, name), "vector table name", nameof(name));
+        var fullTextTable = SqlIdentifier.Require(
+            string.Format(CultureInfo.InvariantCulture, _options.FullTextTableNameFormat, name), "full-text table name", nameof(name));
 
         string[] statements =
         [

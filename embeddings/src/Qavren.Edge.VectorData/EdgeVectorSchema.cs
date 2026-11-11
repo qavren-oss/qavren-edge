@@ -62,18 +62,30 @@ public sealed class EdgeVectorSchema
 
         var vector = model.VectorProperty;
 
-        CollectionName = collectionName;
+        // Every name below is written into SQL text between double quotes. See SqlIdentifier.
+        CollectionName = SqlIdentifier.Require(collectionName, "collection name", nameof(collectionName));
         DataTable = collectionName;
-        VectorTable = string.Format(CultureInfo.InvariantCulture, options.VectorTableNameFormat, collectionName);
-        KeyColumn = model.KeyProperty.StorageName;
+        VectorTable = SqlIdentifier.Require(
+            string.Format(CultureInfo.InvariantCulture, options.VectorTableNameFormat, collectionName),
+            "vector table name",
+            nameof(options));
+        KeyColumn = SqlIdentifier.Require(model.KeyProperty.StorageName, "column name", nameof(model));
         RowIdColumn = EdgeCollectionModelBuilder.RowIdColumn;
         VectorColumn = VectorColumnName;
         Dimensions = vector.Dimensions;
 
         FullTextColumns = [.. model.DataProperties.Where(p => p.IsFullTextIndexed).Select(p => p.StorageName)];
         FullTextTable = FullTextColumns.Count > 0 || alwaysCreateFullTextIndex
-            ? string.Format(CultureInfo.InvariantCulture, options.FullTextTableNameFormat, collectionName)
+            ? SqlIdentifier.Require(
+                string.Format(CultureInfo.InvariantCulture, options.FullTextTableNameFormat, collectionName),
+                "full-text table name",
+                nameof(options))
             : null;
+
+        foreach (var property in model.DataProperties)
+        {
+            _ = SqlIdentifier.Require(property.StorageName, "column name", nameof(model));
+        }
 
         _dataColumns = [KeyColumn, .. model.DataProperties.Select(p => p.StorageName)];
         _columnDefinitions =
