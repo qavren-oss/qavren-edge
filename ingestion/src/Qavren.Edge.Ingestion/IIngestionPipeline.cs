@@ -123,7 +123,11 @@ public sealed class IngestionRunOptions
     /// <summary>Null takes <see cref="IngestionOptions.WriteBatchSize"/> (32).</summary>
     public int? WriteBatchSize { get; set; }
 
-    /// <summary>Null considers every enumerated item.</summary>
+    /// <summary>
+    /// Null considers every enumerated item. A document the filter passes over is skipped for this
+    /// run and nothing more: it is still in the source, so <see cref="DeleteMissing"/> does not
+    /// prune it.
+    /// </summary>
     public Func<DocumentSourceItem, bool>? Filter { get; set; }
 }
 

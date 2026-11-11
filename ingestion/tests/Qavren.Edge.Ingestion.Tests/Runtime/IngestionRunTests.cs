@@ -234,6 +234,181 @@ public sealed class IngestionRunTests
         Assert.Contains(completed.RunId, error.Message, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public async Task A_document_that_becomes_empty_takes_its_chunks_out_of_the_index()
+    {
+        using var host = await IngestionTestHost.StartAsync();
+        var source = new RecordingSource().Add("a.txt", "alpha beta gamma").Add("b.txt", "delta");
+
+        await host.Pipeline.RunAsync(source, cancellationToken: Token);
+        source.Replace("a.txt", string.Empty);
+        var second = await host.Pipeline.RunAsync(source, cancellationToken: Token);
+
+        // The state row said "no chunks" and the hash gate then skipped the document for ever, so
+        // the text somebody had deleted stayed searchable until the file changed again.
+        Assert.Equal(1, second.ChunksRemoved);
+        Assert.Equal(1, Assert.Single(second.Documents, d => d.DocumentId == "a.txt").ChunksRemoved);
+
+        var status = await host.Pipeline.GetStatusAsync(ct: Token);
+        Assert.Equal(1, status.ChunkCount);
+        Assert.Equal(1, status.NoTextLayerCount);
+
+        var third = await host.Pipeline.RunAsync(source, cancellationToken: Token);
+        Assert.Equal(2, third.DocumentsSkipped);
+        Assert.Equal(0, third.ChunksRemoved);
+    }
+
+    [Theory]
+    [InlineData(false, 1)]
+    [InlineData(true, 0)]
+    public async Task A_document_that_loses_its_extractor_keeps_its_chunks_only_while_its_bytes_are_the_same(
+        bool bytesChanged, long chunksLeft)
+    {
+        using var host = await IngestionTestHost.StartAsync();
+
+        // No extension, so the media type alone picks the extractor.
+        var source = new RecordingSource().Add("note", "alpha beta gamma");
+        await host.Pipeline.RunAsync(source, cancellationToken: Token);
+
+        source.Remove("note").Add("note", bytesChanged ? "something else" : "alpha beta gamma", "application/x-nothing-reads-this");
+        var second = await host.Pipeline.RunAsync(source, cancellationToken: Token);
+
+        // Same bytes: the chunks are still true, and keeping them makes re-registering the
+        // extractor free. Changed bytes: they describe a document that no longer exists, and
+        // nothing was ever going to replace them.
+        Assert.Equal(IngestionDocumentOutcome.Unsupported, Assert.Single(second.Documents).Outcome);
+        Assert.Equal(bytesChanged ? 1 : 0, second.ChunksRemoved);
+        Assert.Equal(chunksLeft, (await host.Pipeline.GetStatusAsync(ct: Token)).ChunkCount);
+    }
+
+    [Fact]
+    public async Task The_timestamp_gate_does_not_take_no_metadata_for_unchanged()
+    {
+        using var host = await IngestionTestHost.StartAsync(o => o.SkipUnchangedByTimestamp = true);
+        var source = new BareSource { Text = "alpha" };
+
+        await host.Pipeline.RunAsync(source, cancellationToken: Token);
+        source.Text = "alpha, rewritten";
+        var second = await host.Pipeline.RunAsync(source, cancellationToken: Token);
+
+        // A source that declares neither a size nor a time is null == null on both comparisons.
+        Assert.Equal(0, second.DocumentsSkipped);
+        Assert.Equal(1, second.DocumentsIndexed);
+    }
+
+    [Fact]
+    public async Task A_document_the_filter_passes_over_is_not_pruned_as_missing()
+    {
+        using var host = await IngestionTestHost.StartAsync();
+        var source = new RecordingSource().Add("a.txt", "alpha").Add("b.txt", "beta").Add("c.txt", "gamma");
+
+        await host.Pipeline.RunAsync(source, cancellationToken: Token);
+
+        // "Only what I know changed" - with pruning on, which is the default.
+        var second = await host.Pipeline.RunAsync(
+            source,
+            options: new IngestionRunOptions { Filter = item => item.DocumentId == "a.txt" },
+            cancellationToken: Token);
+
+        Assert.Equal(IngestionRunOutcome.Completed, second.Outcome);
+        Assert.Equal(1, second.DocumentsSeen);
+        Assert.Equal(0, second.DocumentsRemoved);
+
+        var status = await host.Pipeline.GetStatusAsync(ct: Token);
+        Assert.Equal(3, status.DocumentCount);
+        Assert.Equal(3, status.ChunkCount);
+    }
+
+    [Fact]
+    public async Task A_timeout_inside_the_embedder_is_retried_like_any_other_embed_failure()
+    {
+        using var host = await IngestionTestHost.StartAsync();
+
+        // What an HttpClient timeout in a cloud embedder looks like: an OperationCanceledException,
+        // with the run's own token untouched. It used to skip the halve-and-retry and fail the run.
+        host.Generator.FailOnce = new TaskCanceledException("the embedder timed out");
+
+        var result = await host.Pipeline.RunAsync(
+            new RecordingSource().Add("a.txt", "alpha beta"), cancellationToken: Token);
+
+        Assert.Equal(IngestionRunOutcome.Completed, result.Outcome);
+        Assert.Equal(1, result.DocumentsIndexed);
+        Assert.Equal(2, result.EmbedCalls);
+    }
+
+    [Fact]
+    public async Task A_timeout_inside_an_extractor_fails_that_document_and_not_the_run()
+    {
+        using var host = await IngestionTestHost.StartAsync(
+            o => o.Extractors.Add(new ThrowingExtractor(new TaskCanceledException("the source timed out"))));
+
+        var result = await host.Pipeline.RunAsync(
+            new RecordingSource().Add("a.txt", "alpha"), cancellationToken: Token);
+
+        Assert.Equal(IngestionRunOutcome.Completed, result.Outcome);
+        Assert.Equal(EdgeErrorCode.ExtractionFailed, Assert.Single(result.Failures).Failure!.Code);
+    }
+
+    [Fact]
+    public async Task FailFast_rethrows_the_original_with_the_stack_that_says_where_it_failed()
+    {
+        using var host = await IngestionTestHost.StartAsync(o => o.Extractors.Add(new DeepThrowingExtractor()));
+
+        var error = await Assert.ThrowsAsync<EdgeExtractionException>(
+            () => host.Pipeline.RunAsync(
+                new RecordingSource().Add("a.txt", "alpha"),
+                options: new IngestionRunOptions { FailFast = true },
+                cancellationToken: Token));
+
+        // "throw original;" restarted the trace at the runner and lost this frame.
+        Assert.Contains(nameof(DeepThrowingExtractor.WhereItActuallyFailed), error.StackTrace, StringComparison.Ordinal);
+    }
+
+    /// <summary>One document, no declared size and no declared time.</summary>
+    private sealed class BareSource : IngestionSource
+    {
+        public string Text { get; set; } = string.Empty;
+
+        public override string Id => "bare";
+
+#pragma warning disable CS1998
+        public override async IAsyncEnumerable<DocumentSourceItem> EnumerateAsync(
+            [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken ct = default)
+        {
+            var bytes = System.Text.Encoding.UTF8.GetBytes(Text);
+            yield return new DocumentSourceItem(
+                "only.txt",
+                IngestionMediaTypes.PlainText,
+                _ => new ValueTask<Stream>(new MemoryStream(bytes, writable: false)));
+        }
+#pragma warning restore CS1998
+    }
+
+    /// <summary>Throws a typed fault from a named frame of its own.</summary>
+    private sealed class DeepThrowingExtractor : IDocumentExtractor
+    {
+        public string Id => "deep";
+
+        public int Version => 1;
+
+        public IReadOnlyList<string> Extensions => [".txt"];
+
+        public IReadOnlyList<string> MediaTypes => [IngestionMediaTypes.PlainText];
+
+        public bool CanExtract(DocumentSourceItem item) => true;
+
+        public ValueTask<ExtractedDocument> ExtractAsync(
+            DocumentSourceItem item, ExtractionContext context, CancellationToken cancellationToken)
+        {
+            WhereItActuallyFailed();
+            throw new InvalidOperationException("unreachable");
+        }
+
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        public static void WhereItActuallyFailed() =>
+            throw new EdgeExtractionException(EdgeErrorCode.DocumentMalformed, "bad") { ExtractorName = "deep" };
+    }
+
     private sealed class BlockingSource(Task gate) : IngestionSource
     {
         public override string Id => "blocking";

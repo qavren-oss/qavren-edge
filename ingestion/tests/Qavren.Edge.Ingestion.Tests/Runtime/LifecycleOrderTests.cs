@@ -112,6 +112,23 @@ public sealed class LifecycleOrderTests
     }
 
     [Fact]
+    public async Task The_floor_of_four_never_raises_a_batch_that_was_configured_smaller()
+    {
+        var control = new IngestionRunControl();
+        var observer = new IngestionLifecycleObserver(control, new IngestionRegistry(), new ManualTimeProvider());
+
+        // With no pressure at all, a configured batch of one or two used to come back as four.
+        Assert.Equal(1, control.ApplyShrink(1));
+        Assert.Equal(2, control.ApplyShrink(2));
+        Assert.Equal(4, control.ApplyShrink(4));
+
+        // And pressure cannot grow it either.
+        await observer.OnMemoryPressureAsync(EdgeMemoryPressure.Moderate, CancellationToken.None);
+        Assert.Equal(2, control.ApplyShrink(2));
+        Assert.Equal(4, control.ApplyShrink(6));
+    }
+
+    [Fact]
     public async Task RequestStop_ends_the_next_run_as_Cancelled_with_the_caller_reason()
     {
         using var host = await IngestionTestHost.StartAsync();
