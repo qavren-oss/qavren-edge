@@ -218,8 +218,8 @@ public enum EdgeErrorCode
     /// <remarks>Call <c>AddIngestion</c> once per collection; remove the duplicate call.</remarks>
     IngestionMigrationVersionConflict = 6007,
 
-    /// <summary><c>IngestionPipeline.RunAsync</c> was called while a run is already active on the same pipeline.</summary>
-    /// <remarks>Await the active run's <c>IngestionRunResult</c> before starting another on the same pipeline, or use a separate pipeline/collection.</remarks>
+    /// <summary><c>IngestionPipeline.RunAsync</c> was called while a run is already active on the same pipeline, or a run and a removal (<c>PruneAsync</c>, <c>RemoveSourceAsync</c>, <c>RemoveDocumentAsync</c>) were asked to overlap.</summary>
+    /// <remarks>Await the active run's <c>IngestionRunResult</c> before starting another run or a removal on the same pipeline, or use a separate pipeline/collection.</remarks>
     IngestionRunAlreadyActive = 6008,
 
     /// <summary>The recipe hash (chunking and extraction configuration) differs from the one the state store last recorded, and <c>StrictRecipe</c> is set.</summary>

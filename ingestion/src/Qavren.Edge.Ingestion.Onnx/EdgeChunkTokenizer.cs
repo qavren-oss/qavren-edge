@@ -36,7 +36,7 @@ namespace Qavren.Edge.Ingestion.Onnx;
 /// who swaps one wiring for the other must not re-index a corpus for a spelling difference.
 /// </para>
 /// </remarks>
-public sealed class EdgeChunkTokenizer : IChunkTokenizer
+public sealed class EdgeChunkTokenizer : IChunkTokenizer, IRangeTokenIndex
 {
     /// <summary>The measured <c>[CLS]</c> + <c>[SEP]</c> overhead of a WordPiece encoder.</summary>
     private const int WordPieceOverhead = 2;
@@ -88,5 +88,13 @@ public sealed class EdgeChunkTokenizer : IChunkTokenizer
 
         // NOT a forward to IEdgeTokenizer.IndexByTokenCount - see the type remarks.
         return TokenIndexSearch.Find(CountTokens, text, maxTokens, out tokenCount);
+    }
+
+    /// <inheritdoc />
+    int IRangeTokenIndex.IndexByTokenCount(string text, int start, int end, int maxTokens, out int tokenCount)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(maxTokens);
+
+        return TokenIndexSearch.Find(CountTokens, text, start, end, maxTokens, out tokenCount);
     }
 }

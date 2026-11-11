@@ -19,6 +19,19 @@ public abstract class IngestionSource
     /// FILESYSTEM PATHS ONLY. Ordinal-sorted; document ids are forward-slashed paths relative to
     /// the root. This is the desktop and app-private-storage shape — see spec 11.3 for mobile.
     /// </summary>
+    /// <remarks>
+    /// <para>
+    /// A sub-directory that is a symbolic link or a junction is not entered: a link can point back
+    /// up the tree, which is a walk that does not end, or out of it, which is documents nobody
+    /// chose to index. The root itself may be a link, and a symbolic link to a FILE is still read -
+    /// its id is the link's path and its content the target's.
+    /// </para>
+    /// <para>
+    /// A sub-directory that cannot be listed is skipped and logged (event 923), and the run goes on.
+    /// Documents already indexed from it are kept rather than pruned, because not being able to
+    /// look is not evidence that they are gone.
+    /// </para>
+    /// </remarks>
     /// <exception cref="EdgeIngestionException">
     /// 6051 when the root is missing or unreadable — raised here, before any document, because a
     /// run over a folder that is not there is meaningless. 6055 for an empty source id.

@@ -39,22 +39,34 @@ public interface IIngestionPipeline
     /// <param name="collectionName">Null resolves to the single configured collection.</param>
     /// <param name="cancellationToken">Cancels the sweep.</param>
     /// <returns>The number of documents pruned.</returns>
+    /// <exception cref="EdgeIngestionException">
+    /// <see cref="EdgeErrorCode.IngestionRunAlreadyActive"/> (6008) while a run or another removal
+    /// is active on this pipeline. Each pruned document goes in one transaction of its own.
+    /// </exception>
     Task<int> PruneAsync(
         IngestionSource source, string? collectionName = null, CancellationToken cancellationToken = default);
 
-    /// <summary>Deletes every chunk and state row under one source.</summary>
+    /// <summary>Deletes every chunk and state row under one source, in one transaction.</summary>
     /// <param name="sourceId">The source id.</param>
     /// <param name="collectionName">Null resolves to the single configured collection.</param>
     /// <param name="ct">Cancels the removal.</param>
     /// <returns>The number of documents removed.</returns>
+    /// <exception cref="EdgeIngestionException">
+    /// <see cref="EdgeErrorCode.IngestionRunAlreadyActive"/> (6008) while a run or another removal
+    /// is active on this pipeline.
+    /// </exception>
     Task<int> RemoveSourceAsync(string sourceId, string? collectionName = null, CancellationToken ct = default);
 
-    /// <summary>Deletes every chunk and the state row for one document.</summary>
+    /// <summary>Deletes every chunk and the state row for one document, in one transaction.</summary>
     /// <param name="sourceId">The source id.</param>
     /// <param name="documentId">The document id.</param>
     /// <param name="collectionName">Null resolves to the single configured collection.</param>
     /// <param name="ct">Cancels the removal.</param>
     /// <returns>1 when the document existed, 0 otherwise.</returns>
+    /// <exception cref="EdgeIngestionException">
+    /// <see cref="EdgeErrorCode.IngestionRunAlreadyActive"/> (6008) while a run or another removal
+    /// is active on this pipeline.
+    /// </exception>
     Task<int> RemoveDocumentAsync(
         string sourceId, string documentId, string? collectionName = null, CancellationToken ct = default);
 
@@ -267,7 +279,8 @@ public sealed record IngestionRunResult(
 /// <param name="FailedCount">State rows whose status is <c>Failed</c>.</param>
 /// <param name="NoTextLayerCount">State rows whose status is <c>NoTextLayer</c>.</param>
 /// <param name="StaleDocumentCount">
-/// Rows whose <c>last_run_id</c> is not the newest completed run's: candidates for a sweep.
+/// Rows the newest run over their own source did not stamp: candidates for a sweep. Counted per
+/// source, so two sources feeding one collection do not make each other's documents stale.
 /// </param>
 /// <param name="RecipeStaleCount">
 /// Rows whose stored <c>recipe_hash</c> differs from the current recipe — one indexed COUNT, and

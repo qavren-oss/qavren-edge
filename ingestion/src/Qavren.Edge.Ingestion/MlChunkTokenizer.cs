@@ -21,7 +21,7 @@ namespace Qavren.Edge.Ingestion;
 /// <c>tokenCount</c> 1 for every budget. ADR 0013's decision (one shared prefix search) is
 /// unchanged; only its stated reason moves.
 /// </remarks>
-public sealed class MlChunkTokenizer : IChunkTokenizer
+public sealed class MlChunkTokenizer : IChunkTokenizer, IRangeTokenIndex
 {
     private readonly Tokenizer _tokenizer;
 
@@ -79,6 +79,14 @@ public sealed class MlChunkTokenizer : IChunkTokenizer
         // all and hands back text.Length with tokenCount 1 for every budget (measured - see
         // Internal.TokenIndexSearch). The derivation from CountTokens is the one implementation.
         return TokenIndexSearch.Find(CountTokens, text, maxTokens, out tokenCount);
+    }
+
+    /// <inheritdoc/>
+    int IRangeTokenIndex.IndexByTokenCount(string text, int start, int end, int maxTokens, out int tokenCount)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(maxTokens);
+
+        return TokenIndexSearch.Find(CountTokens, text, start, end, maxTokens, out tokenCount);
     }
 }
 

@@ -22,6 +22,7 @@ internal sealed class IngestionPipeline : IIngestionPipeline
     private readonly ILoggerFactory _loggerFactory;
     private readonly Lock _gate = new();
     private string? _activeRunId;
+    private string? _activeRemoval;
     private IngestionRunner? _active;
 
     public IngestionPipeline(
@@ -84,7 +85,15 @@ internal sealed class IngestionPipeline : IIngestionPipeline
         ArgumentNullException.ThrowIfNull(source);
 
         var runner = Build(_registry.Resolve(collectionName));
-        return await runner.PruneAsync(source, cancellationToken).ConfigureAwait(false);
+        Enter(nameof(PruneAsync));
+        try
+        {
+            return await runner.PruneAsync(source, cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            Exit();
+        }
     }
 
     /// <inheritdoc />
@@ -94,7 +103,15 @@ internal sealed class IngestionPipeline : IIngestionPipeline
         ArgumentException.ThrowIfNullOrWhiteSpace(sourceId);
 
         var runner = Build(_registry.Resolve(collectionName));
-        return await runner.RemoveSourceAsync(sourceId, ct).ConfigureAwait(false);
+        Enter(nameof(RemoveSourceAsync));
+        try
+        {
+            return await runner.RemoveSourceAsync(sourceId, ct).ConfigureAwait(false);
+        }
+        finally
+        {
+            Exit();
+        }
     }
 
     /// <inheritdoc />
@@ -105,7 +122,15 @@ internal sealed class IngestionPipeline : IIngestionPipeline
         ArgumentException.ThrowIfNullOrWhiteSpace(documentId);
 
         var runner = Build(_registry.Resolve(collectionName));
-        return await runner.RemoveDocumentAsync(sourceId, documentId, ct).ConfigureAwait(false);
+        Enter(nameof(RemoveDocumentAsync));
+        try
+        {
+            return await runner.RemoveDocumentAsync(sourceId, documentId, ct).ConfigureAwait(false);
+        }
+        finally
+        {
+            Exit();
+        }
     }
 
     /// <inheritdoc />
@@ -121,7 +146,6 @@ internal sealed class IngestionPipeline : IIngestionPipeline
         var counts = await state.CountAsync(
             registration.CollectionName,
             RecipeComposition.CurrentHashes(recipe, extractors),
-            latest?.RunId,
             ct).ConfigureAwait(false);
         var chunks = await state.ChunkCountAsync(registration.CollectionName, ct).ConfigureAwait(false);
 
@@ -163,20 +187,7 @@ internal sealed class IngestionPipeline : IIngestionPipeline
 
         lock (_gate)
         {
-            if (_activeRunId is { } active)
-            {
-                throw new EdgeIngestionException(
-                    EdgeErrorCode.IngestionRunAlreadyActive,
-                    string.Format(
-                        CultureInfo.InvariantCulture,
-                        "Ingestion run {0} is already active on this pipeline. Runs are sequential.",
-                        active))
-                {
-                    RunId = active,
-                    Remediation = "Await the active run, or call RequestStop before starting another.",
-                };
-            }
-
+            ThrowIfBusy();
             _activeRunId = runId;
             _active = runner;
         }
@@ -187,11 +198,64 @@ internal sealed class IngestionPipeline : IIngestionPipeline
         }
         finally
         {
-            lock (_gate)
+            Exit();
+        }
+    }
+
+    /// <summary>
+    /// Closes the gate for a removal. It is the SAME gate a run closes: a removal that interleaved
+    /// with a run could take a document's chunks out from between two of the run's write windows,
+    /// and the state row the run writes last would then describe chunks that are gone. A sweep is
+    /// worse - it would read the state rows while the run is still adding to them.
+    /// </summary>
+    /// <param name="removal">The public member, which is all a removal has to be named by.</param>
+    private void Enter(string removal)
+    {
+        lock (_gate)
+        {
+            ThrowIfBusy();
+            _activeRemoval = removal;
+        }
+    }
+
+    private void Exit()
+    {
+        lock (_gate)
+        {
+            _activeRunId = null;
+            _activeRemoval = null;
+            _active = null;
+        }
+    }
+
+    /// <summary>6008, naming whatever holds the gate. Called with the gate's lock held.</summary>
+    private void ThrowIfBusy()
+    {
+        if (_activeRunId is { } active)
+        {
+            throw new EdgeIngestionException(
+                EdgeErrorCode.IngestionRunAlreadyActive,
+                string.Format(
+                    CultureInfo.InvariantCulture,
+                    "Ingestion run {0} is already active on this pipeline. Runs and removals are sequential.",
+                    active))
             {
-                _activeRunId = null;
-                _active = null;
-            }
+                RunId = active,
+                Remediation = "Await the active run, or call RequestStop, before starting another run or a removal.",
+            };
+        }
+
+        if (_activeRemoval is { } removal)
+        {
+            throw new EdgeIngestionException(
+                EdgeErrorCode.IngestionRunAlreadyActive,
+                string.Format(
+                    CultureInfo.InvariantCulture,
+                    "{0} is in progress on this pipeline. Runs and removals are sequential.",
+                    removal))
+            {
+                Remediation = "Await the removal before starting a run or another removal.",
+            };
         }
     }
 

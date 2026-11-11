@@ -93,7 +93,14 @@ public sealed class DocxTextExtractor : IDocumentExtractor
 
         try
         {
-            using var document = WordprocessingDocument.Open(stream, isEditable: false);
+            // Before the SDK builds anything from a part: see DocxPackageBounds for why both
+            // ceilings exist and why a stack overflow cannot be left to the catch below.
+            DocxPackageBounds.ThrowIfHostile(stream, item, context.SourceId, Id);
+
+            using var document = WordprocessingDocument.Open(
+                stream,
+                isEditable: false,
+                new OpenSettings { MaxCharactersInPart = DocxPackageBounds.MaxPartBytes });
             var main = document.MainDocumentPart
                 ?? throw new InvalidOperationException("The package has no main document part.");
 
