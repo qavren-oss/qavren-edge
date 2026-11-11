@@ -22,6 +22,23 @@ public class FtsTableOptionsTests
     }
 
     [Fact]
+    public void AnApostropheInTheContentTableNameIsDoubledNotLeftToEndTheOption()
+    {
+        // content= and content_rowid= are string literals to FTS5. Left alone, the quote in the name
+        // ends the option and the rest of the name is parsed as more options.
+        var withOptions = FtsTable.BuildCreateSql(
+            "notes_fts",
+            ["Body"],
+            FtsTokenizer.Unicode61,
+            new FtsTableOptions { ContentTable = "john's notes", ContentRowId = "_rowid" });
+
+        var simple = FtsTable.BuildCreateSql("notes_fts", ["Body"], FtsTokenizer.Unicode61, contentTable: "john's notes");
+
+        Assert.Contains("content='john''s notes', content_rowid='_rowid'", withOptions, StringComparison.Ordinal);
+        Assert.Contains("content='john''s notes'", simple, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void PrefixIsEmittedWhenSet()
     {
         var sql = FtsTable.BuildCreateSql(

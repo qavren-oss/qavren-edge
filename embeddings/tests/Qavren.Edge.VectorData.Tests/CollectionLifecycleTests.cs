@@ -1,4 +1,6 @@
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.VectorData;
+using Qavren.Edge.Sqlite;
 using Qavren.Edge.Sqlite.Vec;
 using Qavren.Edge.VectorData.Tests.Fakes;
 using Qavren.Edge.VectorData.Tests.Records;
@@ -311,6 +313,71 @@ public sealed class CollectionLifecycleTests
         Assert.Equal(EdgeErrorCode.VectorDimensionMismatch, error.Code);
         Assert.Contains("384", error.Message, StringComparison.Ordinal);
         Assert.Contains("7-d", error.Message, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("notes\"; DROP TABLE sentinel; --")]
+    [InlineData("notes\"")]
+    [InlineData("no\0tes")]
+    public async Task ACollectionNameThatCouldEndItsOwnQuotationIsRefusedBeforeItReachesSql(string hostile)
+    {
+        using var host = await VectorTestHost.StartAsync(edge => edge.AddVectorStore());
+
+        var connection = await host.Database.OpenConnectionAsync(Token);
+        await using (connection.ConfigureAwait(true))
+        {
+            await connection.ExecuteAsync("CREATE TABLE sentinel(x)", cancellationToken: Token);
+        }
+
+        var store = host.Services.GetRequiredService<EdgeVectorStore>();
+
+        // SQLite takes no parameters for identifiers, so the name is written into the statement
+        // between double quotes. The first of these three, handed to EnsureCollectionDeletedAsync,
+        // was two statements - and the second one dropped somebody else's table.
+        await Assert.ThrowsAsync<ArgumentException>(() => store.EnsureCollectionDeletedAsync(hostile, Token));
+        Assert.Throws<ArgumentException>(() => new EdgeVectorStoreCollection<string, RawVec>(host.Database, hostile));
+        Assert.Throws<ArgumentException>(() => store.GetCollection<string, RawVec>(hostile));
+
+        var check = await host.Database.OpenConnectionAsync(Token);
+        await using (check.ConfigureAwait(true))
+        {
+            Assert.Equal(
+                1L,
+                await check.ScalarAsync<long>(
+                    "SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name = 'sentinel'",
+                    cancellationToken: Token));
+        }
+    }
+
+    [Fact]
+    public async Task ACollectionNamedWithAnApostropheWorksIncludingItsFullTextIndex()
+    {
+        using var host = await VectorTestHost.StartAsync();
+
+        // Legal in a double-quoted identifier, and what a user called "John" will type. FTS5 takes
+        // the data table's name as a string literal (content='...'), where it used to end early.
+        var collection = new EdgeVectorStoreCollection<string, Note>(
+            host.Database,
+            "john's notes",
+            new EdgeVectorStoreCollectionOptions { EmbeddingGenerator = new DeterministicEmbeddingGenerator(Dimensions) });
+
+        await collection.EnsureCollectionExistsAsync(Token);
+        await collection.UpsertAsync(
+            new Note { Key = "k", Title = "Warranty", Body = "Coverage lasts two years." }, Token);
+
+        var hits = await collection
+            .HybridSearchAsync(
+                "coverage",
+                ["coverage"],
+                top: 3,
+                new HybridSearchOptions<Note> { AdditionalProperty = n => n.Body },
+                Token)
+            .ToListAsync(Token);
+
+        Assert.Equal("k", Assert.Single(hits).Record.Key);
+
+        await collection.EnsureCollectionDeletedAsync(Token);
+        Assert.False(await collection.CollectionExistsAsync(Token));
     }
 
     [Fact]

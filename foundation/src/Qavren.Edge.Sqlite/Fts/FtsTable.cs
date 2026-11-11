@@ -68,7 +68,7 @@ public static class FtsTable
         var parts = new List<string>(columns);
         if (!string.IsNullOrWhiteSpace(contentTable))
         {
-            parts.Add($"content='{contentTable}'");
+            parts.Add($"content={Literal(contentTable)}");
         }
 
         parts.Add($"tokenize='{TokenizerToken(tokenizer)}'");
@@ -102,8 +102,8 @@ public static class FtsTable
         var parts = new List<string>(columns);
         if (!string.IsNullOrWhiteSpace(options.ContentTable))
         {
-            parts.Add($"content='{options.ContentTable}'");
-            parts.Add($"content_rowid='{options.ContentRowId}'");
+            parts.Add($"content={Literal(options.ContentTable)}");
+            parts.Add($"content_rowid={Literal(options.ContentRowId)}");
         }
 
         if (!string.IsNullOrWhiteSpace(options.Prefix))
@@ -240,6 +240,13 @@ public static class FtsTable
             await connection.ExecuteAsync(sql, cancellationToken: cancellationToken).ConfigureAwait(false);
         }
     }
+
+    /// <summary>
+    /// An FTS5 option value, as the string literal FTS5 reads it as. A single quote inside one is
+    /// doubled, as in SQL: without that a content table called <c>john's notes</c> ends its own
+    /// option, and the rest of its name is parsed as more options.
+    /// </summary>
+    private static string Literal(string value) => "'" + value.Replace("'", "''", StringComparison.Ordinal) + "'";
 
     private static string TokenizerToken(FtsTokenizer tokenizer) => tokenizer switch
     {
