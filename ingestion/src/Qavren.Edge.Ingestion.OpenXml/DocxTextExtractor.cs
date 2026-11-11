@@ -2,6 +2,7 @@ using System.Globalization;
 using DocumentFormat.OpenXml.Packaging;
 using DocumentFormat.OpenXml.Wordprocessing;
 using Microsoft.Extensions.Logging;
+using Qavren.Edge.Ingestion.Internal;
 using Qavren.Edge.Ingestion.OpenXml.Internal;
 
 namespace Qavren.Edge.Ingestion.OpenXml;
@@ -68,7 +69,7 @@ public sealed class DocxTextExtractor : IDocumentExtractor
         ArgumentNullException.ThrowIfNull(item);
         ArgumentNullException.ThrowIfNull(context);
 
-        var stream = await SatelliteSourceStream
+        var stream = await SourceStream
             .OpenSeekableAsync(item, context.Options, context.SourceId, cancellationToken)
             .ConfigureAwait(false);
 

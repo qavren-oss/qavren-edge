@@ -115,6 +115,30 @@ public sealed class AdapterTests
     }
 
     [Fact]
+    public async Task The_reader_adapter_normalises_with_the_cores_own_rule_and_not_a_copy_of_it()
+    {
+        // The adapter used to carry a private normaliser, and the copy had drifted from spec 6: it
+        // removed EVERY U+FEFF where the rule is "a leading BOM". Past the first character U+FEFF is
+        // ZERO WIDTH NO-BREAK SPACE - part of the text, and part of every offset after it.
+        const string Raw = "\uFEFFa\u00A0b\u2007c\u202Fd\uFEFFe\r\nf\rg";
+
+        var medi = new IngestionDocument("x");
+        var section = new IngestionDocumentSection();
+        section.Elements.Add(new IngestionDocumentParagraph(Raw) { Text = Raw });
+        medi.Sections.Add(section);
+
+        var adapter = new MediReaderAdapter(new StubReader(medi), "stub", [".x"], ["text/x"]);
+        var item = new DocumentSourceItem("x", "text/x", _ => new ValueTask<Stream>(new MemoryStream()));
+        var context = new ExtractionContext("src", "chunks", 1024, new ExtractionOptions(), new CapturingLogger());
+
+        var extracted = await adapter.ExtractAsync(item, context, Token);
+
+        // Leading BOM gone, the three non-breaking spaces folded, CRLF and a lone CR both LF, and
+        // the interior U+FEFF still there.
+        Assert.Equal("a b c d\uFEFFe\nf\ng", extracted.Text);
+    }
+
+    [Fact]
     public async Task The_reader_adapter_leaves_text_alone_when_normalisation_is_off()
     {
         var medi = new IngestionDocument("x");

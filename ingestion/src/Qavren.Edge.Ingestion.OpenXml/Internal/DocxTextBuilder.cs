@@ -1,4 +1,5 @@
 using System.Text;
+using Qavren.Edge.Ingestion.Internal;
 
 namespace Qavren.Edge.Ingestion.OpenXml.Internal;
 
@@ -28,7 +29,7 @@ internal sealed class DocxTextBuilder
     /// </summary>
     public void Emit(DocumentBlockKind kind, string text, int? headingLevel)
     {
-        var normalised = _normalize ? SatelliteTextNormalizer.Normalize(text) : text;
+        var normalised = _normalize ? TextNormalizer.Normalize(text) : text;
         if (string.IsNullOrWhiteSpace(normalised))
         {
             return;

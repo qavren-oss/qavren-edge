@@ -1,5 +1,6 @@
 using System.Text;
 using Microsoft.Extensions.DataIngestion;
+using Qavren.Edge.Ingestion.Internal;
 
 namespace Qavren.Edge.Ingestion.DataIngestion;
 
@@ -89,7 +90,7 @@ public sealed class MediReaderAdapter : IDocumentExtractor
             {
                 if (!string.IsNullOrEmpty(element.Text))
                 {
-                    element.Text = Normalize(element.Text);
+                    element.Text = TextNormalizer.Normalize(element.Text);
                 }
             }
         }
@@ -102,39 +103,5 @@ public sealed class MediReaderAdapter : IDocumentExtractor
             ExtractorVersion = Version,
             MediaType = string.IsNullOrEmpty(item.MediaType) ? extracted.MediaType : item.MediaType,
         };
-    }
-
-    private static string Normalize(string text)
-    {
-        var builder = new StringBuilder(text.Length);
-        for (var i = 0; i < text.Length; i++)
-        {
-            var ch = text[i];
-            switch (ch)
-            {
-                case '\r':
-                    builder.Append('\n');
-                    if (i + 1 < text.Length && text[i + 1] == '\n')
-                    {
-                        i++;
-                    }
-
-                    break;
-
-                case '\uFEFF':
-                    break;
-
-                case '\u00A0' or '\u2007' or '\u202F':
-                    builder.Append(' ');
-                    break;
-
-                default:
-                    builder.Append(ch);
-                    break;
-            }
-        }
-
-        var joined = builder.ToString();
-        return joined.IsNormalized(NormalizationForm.FormC) ? joined : joined.Normalize(NormalizationForm.FormC);
     }
 }

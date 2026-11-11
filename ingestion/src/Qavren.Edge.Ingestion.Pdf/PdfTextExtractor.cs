@@ -3,6 +3,7 @@ using System.Globalization;
 using System.Text;
 using System.Text.RegularExpressions;
 using Microsoft.Extensions.Logging;
+using Qavren.Edge.Ingestion.Internal;
 using UglyToad.PdfPig;
 using UglyToad.PdfPig.Content;
 using UglyToad.PdfPig.DocumentLayoutAnalysis.PageSegmenter;
@@ -91,7 +92,7 @@ public sealed partial class PdfTextExtractor : IDocumentExtractor
         ArgumentNullException.ThrowIfNull(item);
         ArgumentNullException.ThrowIfNull(context);
 
-        var stream = await SatelliteSourceStream
+        var stream = await SourceStream
             .OpenSeekableAsync(item, context.Options, context.SourceId, cancellationToken)
             .ConfigureAwait(false);
 
@@ -237,7 +238,7 @@ public sealed partial class PdfTextExtractor : IDocumentExtractor
 
         if (normalize)
         {
-            pageText = SatelliteTextNormalizer.Normalize(pageText);
+            pageText = TextNormalizer.Normalize(pageText);
         }
 
         if (pageText.Length == 0 || string.IsNullOrWhiteSpace(pageText))

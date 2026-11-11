@@ -23,6 +23,14 @@
     <ProjectReference Include="..\Qavren.Edge.Ingestion\Qavren.Edge.Ingestion.csproj" />
   </ItemGroup>
 
+  <!-- Spec 6's normaliser is the CORE's own source file, compiled into this assembly as well. The
+       adapter used to carry a private copy, and the copy had drifted: it stripped every U+FEFF
+       where spec 6 strips a leading BOM. A link rather than an InternalsVisibleTo grant, for the
+       reason the PDF and DOCX satellites give. -->
+  <ItemGroup>
+    <Compile Include="..\Qavren.Edge.Ingestion\Internal\TextNormalizer.cs" Link="Internal\Shared\TextNormalizer.cs" />
+  </ItemGroup>
+
   <!-- Proven 2026-09-23: `dotnet pack -p:MinVerVersionOverride=1.0.0` fails NU5104 (warning as
        error) because this package's only dependency, Microsoft.Extensions.DataIngestion.
        Abstractions 10.10.0-preview.1.26459.2, is itself a prerelease and nuget.org has no stable
