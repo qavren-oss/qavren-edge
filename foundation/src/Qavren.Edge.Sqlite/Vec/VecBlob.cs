@@ -1,4 +1,5 @@
 using System.Buffers.Binary;
+using System.Runtime.InteropServices;
 
 namespace Qavren.Edge.Sqlite.Vec;
 
@@ -11,7 +12,17 @@ public static class VecBlob
     /// <summary>Encodes a <c>float[N]</c> vector as a little-endian float32 blob, as sqlite-vec expects.</summary>
     public static byte[] From(ReadOnlySpan<float> values)
     {
-        var blob = new byte[values.Length * sizeof(float)];
+        // Every byte is written below, on both paths, so there is nothing for the runtime to zero.
+        var blob = GC.AllocateUninitializedArray<byte>(values.Length * sizeof(float));
+
+        if (BitConverter.IsLittleEndian)
+        {
+            // The wire format is this host's own layout, so the vector is one block copy rather
+            // than a conversion per element. This runs for every stored vector and every query.
+            MemoryMarshal.AsBytes(values).CopyTo(blob);
+            return blob;
+        }
+
         for (var i = 0; i < values.Length; i++)
         {
             BinaryPrimitives.WriteSingleLittleEndian(blob.AsSpan(i * sizeof(float)), values[i]);
@@ -31,7 +42,14 @@ public static class VecBlob
                 nameof(blob));
         }
 
-        var values = new float[blob.Length / sizeof(float)];
+        var values = GC.AllocateUninitializedArray<float>(blob.Length / sizeof(float));
+
+        if (BitConverter.IsLittleEndian)
+        {
+            blob.CopyTo(MemoryMarshal.AsBytes(values.AsSpan()));
+            return values;
+        }
+
         for (var i = 0; i < values.Length; i++)
         {
             values[i] = BinaryPrimitives.ReadSingleLittleEndian(blob[(i * sizeof(float))..]);
@@ -43,25 +61,14 @@ public static class VecBlob
     /// <summary>Encodes an <c>int8[N]</c> vector as a signed-byte blob, as sqlite-vec expects.</summary>
     public static byte[] FromInt8(ReadOnlySpan<sbyte> values)
     {
-        var blob = new byte[values.Length];
-        for (var i = 0; i < values.Length; i++)
-        {
-            blob[i] = unchecked((byte)values[i]);
-        }
-
-        return blob;
+        // A signed byte and a byte are the same eight bits; there is no byte order to respect.
+        return MemoryMarshal.AsBytes(values).ToArray();
     }
 
     /// <summary>Decodes a signed-byte blob back into an <c>int8[N]</c> vector.</summary>
     public static sbyte[] ToInt8(ReadOnlySpan<byte> blob)
     {
-        var values = new sbyte[blob.Length];
-        for (var i = 0; i < blob.Length; i++)
-        {
-            values[i] = unchecked((sbyte)blob[i]);
-        }
-
-        return values;
+        return MemoryMarshal.Cast<byte, sbyte>(blob).ToArray();
     }
 
     /// <summary>Least significant bit first within each byte, matching <c>vec_bit()</c>.</summary>

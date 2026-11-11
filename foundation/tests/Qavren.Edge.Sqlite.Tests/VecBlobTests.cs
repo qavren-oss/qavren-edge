@@ -27,6 +27,34 @@ public class VecBlobTests
     }
 
     [Fact]
+    public void Float32_RoundTripsAVectorOfARealWidth()
+    {
+        // 384 is the MiniLM width. The encode and the decode are block copies on a little-endian
+        // host, so this is the case that proves a whole vector moves and not just its first element.
+        var source = new float[384];
+        for (var i = 0; i < source.Length; i++)
+        {
+            source[i] = MathF.Sin(i) * (i % 7 == 0 ? -1e-7f : 3.5f);
+        }
+
+        Assert.Equal(source, VecBlob.ToFloats(VecBlob.From(source)));
+    }
+
+    [Fact]
+    public void Float32_DecodesFromAnUnalignedSlice()
+    {
+        // A blob read out of a larger buffer does not start on a 4-byte boundary. Decoding must not
+        // care: 1.0f, 2.0f after one byte of padding.
+        byte[] padded = [0xFF, 0x00, 0x00, 0x80, 0x3F, 0x00, 0x00, 0x00, 0x40];
+
+        Assert.Equal<float[]>([1f, 2f], VecBlob.ToFloats(padded.AsSpan(1)));
+    }
+
+    [Fact]
+    public void Int8_IsTheTwosComplementByteOnTheWire()
+        => Assert.Equal<byte[]>([0x00, 0x01, 0xFF, 0x7F, 0x80], VecBlob.FromInt8([0, 1, -1, 127, -128]));
+
+    [Fact]
     public void ToFloats_RejectsBlobsThatAreNotAMultipleOfFour()
         => Assert.Throws<ArgumentException>(() => VecBlob.ToFloats(new byte[7]));
 
