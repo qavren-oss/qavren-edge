@@ -35,6 +35,15 @@ public sealed class SqliteRegistry
                 $"AddMigration was called before AddSqlite for database '{databaseName}'.");
         }
 
+        if (version <= 0)
+        {
+            throw new EdgeConfigurationException(
+                EdgeErrorCode.MigrationVersionConflict,
+                $"Migration '{migrationName}' on database '{databaseName}' declares version {version}. " +
+                "Versions start at 1: a new database is at user_version 0 and the migrator runs only the " +
+                "versions above the one the file is already at, so this migration would never run.");
+        }
+
         if (!versions.Add(version))
         {
             throw new EdgeConfigurationException(

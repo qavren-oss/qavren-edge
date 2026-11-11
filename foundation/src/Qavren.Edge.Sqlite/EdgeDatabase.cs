@@ -91,15 +91,22 @@ public sealed class EdgeDatabase : IEdgeDatabase, IDisposable
         try
         {
             await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
+            await ApplyPerOpenPragmasAsync(connection, cancellationToken).ConfigureAwait(false);
+            return connection;
         }
         catch (SqliteException ex) when (IsEncrypted && ex.SqliteErrorCode == 26 /* SQLITE_NOTADB */)
         {
             await connection.DisposeAsync().ConfigureAwait(false);
             throw new EdgeDatabaseKeyException(Name, ex);
         }
-
-        await ApplyPerOpenPragmasAsync(connection, cancellationToken).ConfigureAwait(false);
-        return connection;
+        catch
+        {
+            // Nobody else holds this connection yet, so nobody else can dispose it. A cancellation
+            // between the open and the pragmas would otherwise leave an open pooled handle - and,
+            // on Windows, a file nothing can delete - until a finaliser got round to it.
+            await connection.DisposeAsync().ConfigureAwait(false);
+            throw;
+        }
     }
 
     /// <summary>
@@ -291,7 +298,12 @@ public sealed class EdgeDatabase : IEdgeDatabase, IDisposable
         // Pooled handles still hold the old key. Drop them, then rebuild the connection string.
         SqliteConnection.ClearAllPools();
 
-        await _keyGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        // NOT the caller's token. The PRAGMA above is the point of no return: the file is on the
+        // new key now, and Microsoft.Data.Sqlite runs a command to completion whatever its token
+        // does, so a cancellation requested during a long rekey is first SEEN here. Honouring it
+        // throws OperationCanceledException at a caller who then keeps the old key, in a process
+        // that still holds the old key too - a database nothing can open again.
+        await _keyGate.WaitAsync(CancellationToken.None).ConfigureAwait(false);
         try
         {
             _resolvedKey = newKey;

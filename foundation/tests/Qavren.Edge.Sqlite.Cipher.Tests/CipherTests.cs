@@ -184,6 +184,98 @@ public class CipherTests
     }
 
     [Fact]
+    public async Task Rekey_NeverLeavesTheProcessOnAKeyTheFileIsNoLongerOn()
+    {
+        Assert.SkipUnless(NativePresent, "qedge_sqlcipher was not built on this machine.");
+
+        var root = NewRoot();
+        var ct = TestContext.Current.CancellationToken;
+        bool cancelled;
+
+        var sp = await StartAsync(root, SqliteKey.FromRawBytes(KeyA), ct).ConfigureAwait(true);
+        await using (sp.ConfigureAwait(true))
+        {
+            var db = sp.GetRequiredService<IEdgeDatabase>();
+
+            // Enough pages that re-encrypting them takes far longer than the cancellation below, so
+            // it lands DURING the PRAGMA - which runs to completion whatever its token does.
+            var seeded = await db.OpenConnectionAsync(ct).ConfigureAwait(true);
+            await using (seeded.ConfigureAwait(true))
+            {
+                await seeded.ExecuteAsync("CREATE TABLE t(x BLOB)", cancellationToken: ct).ConfigureAwait(true);
+                await seeded.ExecuteAsync(
+                    "WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 20000) " +
+                    "INSERT INTO t SELECT randomblob(2000) FROM n",
+                    cancellationToken: ct).ConfigureAwait(true);
+            }
+
+            using var impatient = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            impatient.CancelAfter(TimeSpan.FromMilliseconds(25));
+
+            try
+            {
+                await db.RekeyAsync(SqliteKey.FromRawBytes(KeyB), impatient.Token).ConfigureAwait(true);
+                cancelled = false;
+            }
+            catch (OperationCanceledException)
+            {
+                // Only legitimate BEFORE the point of no return. If the file had been rekeyed and
+                // this were thrown anyway, the caller would keep key A, the process would too, and
+                // the open below would fail - forever, on every later launch.
+                cancelled = true;
+            }
+
+            var reopened = await db.OpenConnectionAsync(ct).ConfigureAwait(true);
+            await using (reopened.ConfigureAwait(true))
+            {
+                Assert.Equal(
+                    20000L,
+                    await reopened.ScalarAsync<long>("SELECT count(*) FROM t", cancellationToken: ct).ConfigureAwait(true));
+            }
+        }
+
+        SqliteConnection.ClearAllPools();
+
+        // And what the caller was told matches the file: "cancelled" means still key A.
+        var after = await StartAsync(root, SqliteKey.FromRawBytes(cancelled ? KeyA : KeyB), ct).ConfigureAwait(true);
+        await using (after.ConfigureAwait(true))
+        {
+            var connection = await after.GetRequiredService<IEdgeDatabase>().OpenConnectionAsync(ct).ConfigureAwait(true);
+            await using (connection.ConfigureAwait(true))
+            {
+                Assert.Equal(
+                    20000L,
+                    await connection.ScalarAsync<long>("SELECT count(*) FROM t", cancellationToken: ct).ConfigureAwait(true));
+            }
+        }
+    }
+
+    [Fact]
+    public async Task TheDiagnosticsReportDescribesTheCipherNative()
+    {
+        Assert.SkipUnless(NativePresent, "qedge_sqlcipher was not built on this machine.");
+
+        var ct = TestContext.Current.CancellationToken;
+
+        var sp = await StartAsync(NewRoot(), SqliteKey.FromRawBytes(KeyA), ct).ConfigureAwait(true);
+        await using (sp.ConfigureAwait(true))
+        {
+            var report = sp.GetRequiredService<Qavren.Edge.Diagnostics.IEdgeDiagnostics>().Report();
+
+            // UseSqliteNativeCipher() registered no contributor, so an encrypted app's report had
+            // an empty native block: no library, no path, no versions.
+            Assert.Contains(report.Components, c => c.Name == "Qavren.Edge.Sqlite.Native.Cipher");
+            Assert.Equal("v0.1.9", report.Native["vecVersion"]);
+            Assert.False(string.IsNullOrEmpty(report.Native["sqliteVersion"]));
+            Assert.False(string.IsNullOrEmpty(report.Native["cipherVersion"]));
+
+            // resolvedPath is not asserted: the DllImport resolver is installed once per process, by
+            // whichever provider instance got there first, and this test process creates several.
+            Assert.True(report.Native.ContainsKey("resolvedPath"));
+        }
+    }
+
+    [Fact]
     public void PlainProviderPlusKey_IsAConfigurationError()
     {
         // The plan's note says this test never starts the host, but OpenConnectionAsync awaits
