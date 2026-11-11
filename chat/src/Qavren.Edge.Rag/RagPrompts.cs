@@ -24,6 +24,9 @@ public static class RagPrompts
     /// <summary>Appended to a clamped chunk, so a reader can see the model was shown less than the whole thing.</summary>
     public const string TruncationSuffix = "…(truncated)";
 
+    /// <summary>The longest a title is rendered in the block. A heading, not a second chunk.</summary>
+    private const int MaxTitleChars = 200;
+
     private const string Indent = "    ";
     private const string Separator = "---";
     private const char Lf = '\n';
@@ -139,11 +142,27 @@ public static class RagPrompts
             return TruncationSuffix;
         }
 
-        // The ends-with guard keeps Clamp - and therefore Prepare and Format - idempotent, so a
-        // caller that prepares a list and then formats it does not stamp a second suffix on.
-        return text.Length <= maxChars || text.EndsWith(TruncationSuffix, StringComparison.Ordinal)
-            ? text
-            : string.Concat(text.AsSpan(0, maxChars), TruncationSuffix);
+        if (text.Length <= maxChars)
+        {
+            return text;
+        }
+
+        // Idempotence: a string this method already clamped ends with the suffix AND is no longer
+        // than the clamp plus the suffix, so a caller that prepares a list and then formats it does
+        // not stamp a second suffix on. The length half is not optional. Without it any chunk that
+        // merely ends with the marker - and a document can simply contain it - skipped the clamp
+        // at whatever length it was, and one such chunk ranked first is a turn that fails with
+        // RagContextBudgetTooSmall on the content of a document.
+        if (text.Length <= maxChars + TruncationSuffix.Length
+            && text.EndsWith(TruncationSuffix, StringComparison.Ordinal))
+        {
+            return text;
+        }
+
+        // Never half of a surrogate pair at the cut: a lone high surrogate is not a character, and
+        // a tokenizer handed one answers with U+FFFD or with an exception.
+        var cut = char.IsHighSurrogate(text[maxChars - 1]) ? maxChars - 1 : maxChars;
+        return string.Concat(text.AsSpan(0, cut), TruncationSuffix);
     }
 
     /// <summary>Ranks, clamps and stamps <c>Ordinal</c> 1..n. The list the block and the carriers share.</summary>
@@ -184,14 +203,17 @@ public static class RagPrompts
 
             if (!string.IsNullOrEmpty(source.Title))
             {
-                builder.Append(" Title: ").Append(source.Title);
+                builder.Append(" Title: ");
+                AppendOnOneLine(builder, source.Title, MaxTitleChars);
             }
 
             builder.Append(Lf);
 
             if (source.Uri is { } uri)
             {
-                builder.Append(Indent).Append("Source: ").Append(uri.ToString()).Append(Lf);
+                builder.Append(Indent).Append("Source: ");
+                AppendOnOneLine(builder, uri.ToString(), int.MaxValue);
+                builder.Append(Lf);
             }
 
             builder.Append(Indent).Append(Separator).Append(Lf);
@@ -204,6 +226,49 @@ public static class RagPrompts
         }
 
         return builder.ToString();
+    }
+
+    /// <summary>
+    /// Appends metadata that sits on a header line, as one line. A title comes out of an ingested
+    /// document just as the text does, and the text is indented precisely so that nothing in it can
+    /// start a line at column zero and pass for a <c>[n]</c> header or an instruction. A line break
+    /// in a title would walk straight round that, so every control character and line separator
+    /// becomes a single space, and the title is bounded so one source cannot spend the whole budget
+    /// on its heading.
+    /// </summary>
+    private static void AppendOnOneLine(StringBuilder builder, string text, int maxChars)
+    {
+        var written = 0;
+        var pendingSpace = false;
+
+        for (var i = 0; i < text.Length; i++)
+        {
+            var c = text[i];
+
+            if (char.IsControl(c) || c is '\u2028' or '\u2029')
+            {
+                pendingSpace = written > 0;
+                continue;
+            }
+
+            var width = char.IsHighSurrogate(c) && i + 1 < text.Length && char.IsLowSurrogate(text[i + 1]) ? 2 : 1;
+            if (written + (pendingSpace ? 1 : 0) + width > maxChars)
+            {
+                builder.Append('…');
+                return;
+            }
+
+            if (pendingSpace)
+            {
+                builder.Append(' ');
+                written++;
+                pendingSpace = false;
+            }
+
+            builder.Append(text, i, width);
+            written += width;
+            i += width - 1;
+        }
     }
 
     private static void AppendIndented(StringBuilder builder, string text)
