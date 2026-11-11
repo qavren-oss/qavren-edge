@@ -18,6 +18,13 @@ public sealed class EdgeHost : IEdgeHost, IDisposable
     private readonly List<EdgeStartupTaskReport> _reports = [];
     private bool _startRequested;
 
+    /// <summary>
+    /// Set for the duration of one startup task and visible only along that task's own call path.
+    /// It is what lets <see cref="EnsureStartedAsync"/> tell "a startup task is asking" from
+    /// "anybody else is asking" - see the remarks there.
+    /// </summary>
+    private static readonly AsyncLocal<StartupScope?> s_scope = new();
+
     // CA1848: the plan's inline LogInformation/LogDebug/LogError calls are errors under this
     // repo's TreatWarningsAsErrors + latest-recommended analysis level. LoggerMessage.Define keeps
     // the plan's exact event ids, levels and message templates while staying allocation-free and
@@ -94,8 +101,25 @@ public sealed class EdgeHost : IEdgeHost, IDisposable
     }
 
     /// <inheritdoc />
+    /// <remarks>
+    /// <b>Called from inside a startup task, this returns at once.</b> Every Qavren.Edge entry point
+    /// awaits startup first - <c>IEdgeDatabase.OpenConnectionAsync</c>, a session acquire, a chat
+    /// turn - and startup completes only when every task has returned. A task that opened a
+    /// connection to seed a table, which is what a startup task is for, therefore waited on itself
+    /// and the host never started. What such a task can rely on is exactly what the order promises:
+    /// every task ordered before it has completed. Tasks ordered after it have not run.
+    /// <para>
+    /// The exemption follows the task's own call path and ends when the task returns. Work a task
+    /// starts and does not await goes back to waiting for startup like any other caller.
+    /// </para>
+    /// </remarks>
     public async ValueTask EnsureStartedAsync(CancellationToken cancellationToken = default)
     {
+        if (s_scope.Value is { Active: true } scope && ReferenceEquals(scope.Owner, this))
+        {
+            return;
+        }
+
         Start();
         await Started.WaitAsync(cancellationToken).ConfigureAwait(false);
     }
@@ -120,6 +144,12 @@ public sealed class EdgeHost : IEdgeHost, IDisposable
         {
             var name = task.GetType().FullName ?? task.GetType().Name;
             var started = _timeProvider.GetTimestamp();
+
+            // An AsyncLocal flows DOWN into whatever the task awaits and never back out to the
+            // callers of Start(). The scope object is what turns the exemption off again: a value
+            // captured by work the task left running would otherwise keep it for ever.
+            var scope = new StartupScope(this);
+            s_scope.Value = scope;
             try
             {
                 await task.RunAsync(CancellationToken.None).ConfigureAwait(false);
@@ -135,10 +165,27 @@ public sealed class EdgeHost : IEdgeHost, IDisposable
                 _started.TrySetException(ex);
                 return;
             }
+            finally
+            {
+                scope.Active = false;
+            }
         }
 
         s_startupCompleted(_logger, null);
         _started.TrySetResult();
+    }
+
+    private sealed class StartupScope(EdgeHost owner)
+    {
+        private volatile bool _active = true;
+
+        public EdgeHost Owner => owner;
+
+        public bool Active
+        {
+            get => _active;
+            set => _active = value;
+        }
     }
 
     private void Record(EdgeStartupTaskReport report)

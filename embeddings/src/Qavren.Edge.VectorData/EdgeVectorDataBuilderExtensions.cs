@@ -165,14 +165,11 @@ public static class EdgeVectorDataBuilderExtensions
     /// The ad-hoc alternative: an <c>IEdgeStartupTask</c> at order 300 calling
     /// <c>EnsureCollectionExistsAsync</c>. Same SQL, no version bookkeeping.
     /// <para>
-    /// <b>Known limitation, unresolved as of 2026-09-11.</b> A task running inside the startup
-    /// sequence cannot open a database connection: <c>IEdgeDatabase.OpenConnectionAsync</c> awaits
-    /// <c>IEdgeHost.EnsureStartedAsync</c>, and that barrier only lifts once every startup task -
-    /// including this one - has returned, so the host deadlocks. Sub-project 1 solves this for its
-    /// own order-10 and order-100 tasks with an <c>internal</c> <c>EdgeDatabase.OpenCoreAsync</c>,
-    /// which this package cannot reach. Until sub-project 1 exposes a startup-safe open, use
-    /// <see cref="AddVectorCollectionMigration{TKey, TRecord}"/> (the recommended path anyway) or
-    /// call <c>EnsureCollectionExistsAsync</c> yourself after the host has started.
+    /// The task opens a connection from inside the startup sequence, which works because
+    /// <c>IEdgeHost.EnsureStartedAsync</c> returns at once when a startup task calls it: the
+    /// order-10 open and the order-100 migrations have completed by order 300, and that is all this
+    /// needs. <see cref="AddVectorCollectionMigration{TKey, TRecord}"/> remains the recommended
+    /// path, because a migration is versioned and this is not.
     /// </para>
     /// </summary>
     /// <typeparam name="TKey">The key type.</typeparam>
