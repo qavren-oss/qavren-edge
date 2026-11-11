@@ -73,6 +73,16 @@ internal sealed class FakeChatModelHost : IChatModelHost, IChatLifecycleTarget
         AcceptingTurnsChanges.Add(accepting);
     }
 
+    /// <summary>How many times memory pressure paused new turns - the pause that ends on its own.</summary>
+    public int PressurePauses { get; private set; }
+
+    /// <inheritdoc />
+    public void PauseTurnsForMemoryPressure()
+    {
+        IsAcceptingTurns = false;
+        PressurePauses++;
+    }
+
     /// <inheritdoc />
     public void SetSuspendRequested(bool suspended)
     {

@@ -155,33 +155,86 @@ public class QueueingTests
     }
 
     [Fact]
-    public async Task AFailureBetweenThePrefillAndTheFirstTokenGivesTheGateAndTheLeaseBack()
+    public async Task AFailureResumingACachedGeneratorGivesTheGateAndTheLeaseBack()
     {
         var ct = TestContext.Current.CancellationToken;
         using var harness = ClientHarness.Build(o => o.TurnQueueTimeout = TimeSpan.FromSeconds(2));
+        var conversation = new ChatOptions { ConversationId = "c" };
 
-        // The one native call between the prefill and the decode loop is the terminate reset.
-        var fail = true;
-        harness.Session.OnGeneratorCreated = generator =>
-        {
-            if (fail)
-            {
-                generator.ThrowOnRuntimeOption = FakeGenerator.NativeFailure("Session in Terminated state");
-            }
-        };
+        var first = await harness.Client.GetResponseAsync(Ask(), conversation, ct).ConfigureAwait(true);
+        var cached = harness.Session.LastGenerator;
+
+        // The first native call a reused generator sees is the terminate reset, ahead of its
+        // prefill. A fresh generator has no native call left between the prefill and the decode
+        // loop at all.
+        cached.ThrowOnRuntimeOption = FakeGenerator.NativeFailure("Session in Terminated state");
+
+        ChatMessage[] followUp =
+        [
+            .. Ask(),
+            new ChatMessage(ChatRole.Assistant, first.Text),
+            new ChatMessage(ChatRole.User, "again"),
+        ];
 
         await Assert.ThrowsAnyAsync<Exception>(
-            () => harness.Client.GetResponseAsync(Ask(), null, ct)).ConfigureAwait(true);
+            () => harness.Client.GetResponseAsync(followUp, conversation, ct)).ConfigureAwait(true);
 
-        // It used to leave the gate held and the lease out: every later turn then waited out
-        // TurnQueueTimeout and was refused as ChatBusy, until the process was restarted.
+        // A failure on this path used to leave the gate held and the lease out: every later turn
+        // then waited out TurnQueueTimeout and was refused as ChatBusy, until the process was
+        // restarted. Nor is the host left holding the setter of a generator that has been freed.
         Assert.Equal(0, harness.Host.ActiveLeases);
-        Assert.True(harness.Session.LastGenerator.Disposed);
+        Assert.True(cached.Disposed);
+        Assert.False(harness.Host.HasActiveGeneration);
 
-        fail = false;
         var next = await harness.Client.GetResponseAsync(Ask(), null, ct).ConfigureAwait(true);
 
         Assert.Equal("Hello world.", next.Text);
+    }
+
+    [Fact]
+    public async Task ATurnThatQueuedBehindOneStoppedByMemoryPressureIsRefusedRatherThanStarted()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        using var release = new ManualResetEventSlim(initialState: false);
+        using var harness = ClientHarness.Build();
+        BlockFirstTurn(harness, release);
+
+        try
+        {
+            var first = harness.Client.GetResponseAsync(Ask(), null, ct);
+            await WaitUntilAsync(() => harness.Client.GateEntries == 1, "the first turn to take the gate").ConfigureAwait(true);
+
+            // Passed its pre-flight while turns were still accepted, and is now waiting its turn.
+            var queued = harness.Client.GetResponseAsync(Ask(), null, ct);
+            await WaitUntilAsync(() => harness.Client.QueuedTurns == 1, "the second turn to queue").ConfigureAwait(true);
+
+            // What MemoryPressure(Critical) does while it waits.
+            harness.Host.IsAcceptingTurns = false;
+            harness.Host.TerminateActiveGeneration();
+            release.Set();
+
+            var stopped = await first.ConfigureAwait(true);
+            Assert.Equal(EdgeChatStopReason.MemoryPressure, stopped.GetTurnStatus()!.StopReason);
+
+            // The pre-flight it passed is as old as its wait. It used to be the only one, so the
+            // queued turn took the gate, cleared the terminate that had just stopped the turn in
+            // front of it, and started a prefill into the pressure that terminate was raised for.
+            var refused = await Assert.ThrowsAsync<EdgeChatException>(() => queued).ConfigureAwait(true);
+
+            Assert.Equal(EdgeErrorCode.ChatBusy, refused.Code);
+            Assert.Single(harness.Session.Generators);
+            Assert.Equal(0, harness.Host.ActiveLeases);
+            Assert.Equal(1, harness.Client.Statistics.RejectedTurns);
+
+            // And the gate it took to find that out was given back.
+            harness.Host.IsAcceptingTurns = true;
+            var next = await harness.Client.GetResponseAsync(Ask(), null, ct).ConfigureAwait(true);
+            Assert.Equal("Hello world.", next.Text);
+        }
+        finally
+        {
+            release.Set();
+        }
     }
 
     [Fact]

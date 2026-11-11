@@ -13,9 +13,19 @@ namespace Qavren.Edge.Chat.Internal;
 /// </summary>
 internal interface IChatLifecycleTarget
 {
-    /// <summary>Turns new turns off, or back on.</summary>
+    /// <summary>
+    /// Turns new turns off for good (<c>Stopping</c>), or back on (<c>Resumed</c>, which also ends
+    /// any memory-pressure pause).
+    /// </summary>
     /// <param name="accepting">Whether turns are accepted.</param>
     void SetAcceptingTurns(bool accepting);
+
+    /// <summary>
+    /// Holds new turns back because of memory pressure. Unlike <see cref="SetAcceptingTurns"/> this
+    /// ends on its own - see <see cref="ChatPressureGate"/> - because the event that would
+    /// otherwise end it, <c>Resumed</c>, never follows a warning the app received in the foreground.
+    /// </summary>
+    void PauseTurnsForMemoryPressure();
 
     /// <summary>The cooperative abort: the abort flag plus <c>terminate_session</c>.</summary>
     void TerminateActiveGeneration();
@@ -68,9 +78,10 @@ internal sealed class ChatLifecycleObserver(
     /// <inheritdoc />
     /// <remarks>
     /// <c>Low</c> does nothing at all - sub-project 2's observer latches it and sub-project 4 reads
-    /// the latch. <c>Moderate</c> stops accepting turns and drops the KV cache. <c>Critical</c>
+    /// the latch. <c>Moderate</c> pauses new turns and drops the KV cache. <c>Critical</c>
     /// terminates first, so a multi-second prefill aborts rather than running to completion into a
-    /// kill, and only then races the unload against the drain budget.
+    /// kill, and only then races the unload against the drain budget. The pause ends at the next
+    /// <c>Resumed</c>, or on its own once the pressure has passed (<see cref="ChatPressureGate"/>).
     /// </remarks>
     public override async Task OnMemoryPressureAsync(
         EdgeMemoryPressure level,
@@ -83,13 +94,13 @@ internal sealed class ChatLifecycleObserver(
 
         if (level == EdgeMemoryPressure.Moderate)
         {
-            target.SetAcceptingTurns(false);
+            target.PauseTurnsForMemoryPressure();
             target.DropConversationCache();
             return;
         }
 
         // Critical. Terminate BEFORE anything else: it is the only thing that can stop a prefill.
-        target.SetAcceptingTurns(false);
+        target.PauseTurnsForMemoryPressure();
         target.TerminateActiveGeneration();
         target.DropConversationCache();
 

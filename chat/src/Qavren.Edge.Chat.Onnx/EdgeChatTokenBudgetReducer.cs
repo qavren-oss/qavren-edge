@@ -88,8 +88,40 @@ public sealed class EdgeChatTokenBudgetReducer : IChatReducer
         var evicted = new bool[history.Count];
         var liveGroups = groups.Count;
 
-        while (Exceeded(history, evicted, liveGroups))
+        // Each message is tokenised ONCE, the first time the token half of the budget is read, and
+        // an eviction subtracts what it removed. Re-counting the survivors after every eviction made
+        // a long history cost (messages x evictions) tokenizer calls - native ones, on every turn.
+        int[]? counts = null;
+        long liveTokens = 0;
+
+        while (true)
         {
+            // The turn cap is read first and on its own, so a history that is only over on turns
+            // never reaches the tokenizer until the cap is satisfied.
+            var exceeded = liveGroups > _options.MaxTurns;
+            if (!exceeded)
+            {
+                if (counts is null)
+                {
+                    counts = new int[history.Count];
+                    for (var i = 0; i < history.Count; i++)
+                    {
+                        if (!evicted[i])
+                        {
+                            counts[i] = _countTokens(history[i].Text ?? string.Empty);
+                            liveTokens += counts[i];
+                        }
+                    }
+                }
+
+                exceeded = liveTokens > _options.MaxHistoryTokens;
+            }
+
+            if (!exceeded)
+            {
+                break;
+            }
+
             var index = NextEvictableGroup(groups, evicted, protectedFrom);
             if (index < 0)
             {
@@ -101,6 +133,10 @@ public sealed class EdgeChatTokenBudgetReducer : IChatReducer
             foreach (var position in groups[index])
             {
                 evicted[position] = true;
+                if (counts is not null)
+                {
+                    liveTokens -= counts[position];
+                }
             }
 
             liveGroups--;
@@ -189,24 +225,5 @@ public sealed class EdgeChatTokenBudgetReducer : IChatReducer
         }
 
         return false;
-    }
-
-    private bool Exceeded(IReadOnlyList<ChatMessage> history, bool[] evicted, int liveGroups)
-    {
-        if (liveGroups > _options.MaxTurns)
-        {
-            return true;
-        }
-
-        var tokens = 0;
-        for (var i = 0; i < history.Count; i++)
-        {
-            if (!evicted[i])
-            {
-                tokens += _countTokens(history[i].Text ?? string.Empty);
-            }
-        }
-
-        return tokens > _options.MaxHistoryTokens;
     }
 }

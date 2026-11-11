@@ -44,3 +44,5 @@
       href: ../../../chat/docs/adr/0012-no-tool-calling-in-v1.md
     - name: 13. Apple platform floor rises to 15.4
       href: ../../../chat/docs/adr/0013-apple-platform-floor-15-4.md
+    - name: 14. A memory-pressure pause ends on its own
+      href: ../../../chat/docs/adr/0014-memory-pressure-pause-ends-on-its-own.md

@@ -55,8 +55,20 @@ internal sealed class FakeGenerator : IChatGenerator
 
     public bool IsDone() => Terminated || _position >= _script.Length;
 
+    /// <summary>Called inside each <c>AppendTokens</c>, before anything is appended: where a terminate lands "mid-prefill".</summary>
+    public Action<FakeGenerator>? BeforeAppend { get; set; }
+
     public void AppendTokens(ReadOnlySpan<int> tokens)
     {
+        BeforeAppend?.Invoke(this);
+
+        // What GenAI does: OgaGenerator_AppendTokens is inside OGA_TRY, so a generator whose
+        // terminate_session is set reports it as a throw rather than appending.
+        if (Terminated)
+        {
+            throw NativeFailure("Session in Terminated state, exiting!");
+        }
+
         Appended.Add(tokens.ToArray());
         _appended += tokens.Length;
     }
@@ -297,6 +309,12 @@ internal sealed class FakeTurnHost : IChatTurnHost
     /// <summary>Whether the client registered its conversation cache.</summary>
     public bool HasConversationCache => _dropCache is not null;
 
+    /// <summary>Called inside each <see cref="AcquireAsync"/>: where something happens "while the model loads".</summary>
+    public Action? OnAcquire { get; set; }
+
+    /// <summary>How many turns told the host they had begun.</summary>
+    public int TurnsBegun { get; private set; }
+
     public ValueTask<ChatModelLease> AcquireAsync(CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
@@ -305,6 +323,8 @@ internal sealed class FakeTurnHost : IChatTurnHost
         {
             throw failure;
         }
+
+        OnAcquire?.Invoke();
 
         Acquires++;
         ActiveLeases++;
@@ -328,14 +348,13 @@ internal sealed class FakeTurnHost : IChatTurnHost
         _activeGeneration?.Invoke("terminate_session", "1");
     }
 
-    public void SetActiveGeneration(Action<string, string>? setRuntimeOption)
+    public void BeginTurn()
     {
-        _activeGeneration = setRuntimeOption;
-        if (setRuntimeOption is not null)
-        {
-            TerminationRequested = false;
-        }
+        TurnsBegun++;
+        TerminationRequested = false;
     }
+
+    public void SetActiveGeneration(Action<string, string>? setRuntimeOption) => _activeGeneration = setRuntimeOption;
 
     public void SetConversationCache(Action? drop) => _dropCache = drop;
 

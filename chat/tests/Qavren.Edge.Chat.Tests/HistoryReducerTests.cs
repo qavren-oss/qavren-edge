@@ -302,4 +302,64 @@ public class HistoryReducerTests
 
         Assert.Equal(original, kept);
     }
+
+    // ---- the tokenizer is the expensive half ----------------------------------------------------------
+
+    [Fact]
+    public async Task EveryMessageIsTokenisedOnceHoweverManyGroupsAreEvicted()
+    {
+        // Forty turns of twenty tokens each against a budget of fifty: thirty-eight evictions. The
+        // reducer used to re-count every survivor after each one - 80 + 78 + ... + 4 calls, 1,638
+        // of them here, each one a native tokenizer call on a real turn.
+        var history = new List<ChatMessage>();
+        for (var i = 0; i < 40; i++)
+        {
+            history.Add(User($"user{i:D6}"));
+            history.Add(Assistant($"asst{i:D6}"));
+        }
+
+        var calls = 0;
+        var reducer = new EdgeChatTokenBudgetReducer(
+            text =>
+            {
+                calls++;
+                return text.Length;
+            },
+            new ChatHistoryOptions { MaxHistoryTokens = 50, MaxTurns = 100 });
+
+        var reduced = (await reducer.ReduceAsync(history, TestContext.Current.CancellationToken).ConfigureAwait(true)).ToList();
+
+        Assert.Equal(80, calls);
+
+        // And the answer is the one the old arithmetic gave: the newest two turns, forty tokens,
+        // because a third would be sixty.
+        Assert.Equal(["user000038", "asst000038", "user000039", "asst000039"], Texts(reduced));
+    }
+
+    [Fact]
+    public async Task AHistoryOverOnTurnsAloneIsNotTokenisedUntilTheTurnCapIsMet()
+    {
+        // Ten turns, a cap of two, and a token budget nothing here approaches: the eight evictions
+        // are decided by counting groups, and only the four survivors ever reach the tokenizer.
+        var history = new List<ChatMessage>();
+        for (var i = 0; i < 10; i++)
+        {
+            history.Add(User($"user{i:D6}"));
+            history.Add(Assistant($"asst{i:D6}"));
+        }
+
+        var counted = new List<string>();
+        var reducer = new EdgeChatTokenBudgetReducer(
+            text =>
+            {
+                counted.Add(text);
+                return text.Length;
+            },
+            new ChatHistoryOptions { MaxHistoryTokens = 10_000, MaxTurns = 2 });
+
+        var reduced = (await reducer.ReduceAsync(history, TestContext.Current.CancellationToken).ConfigureAwait(true)).ToList();
+
+        Assert.Equal(["user000008", "asst000008", "user000009", "asst000009"], Texts(reduced));
+        Assert.Equal(["user000008", "asst000008", "user000009", "asst000009"], counted);
+    }
 }

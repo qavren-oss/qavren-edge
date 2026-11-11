@@ -147,6 +147,34 @@ public class SessionHostTests : IDisposable
     }
 
     [Fact]
+    public async Task DisposingTheHostWhileLeasedKeepsTheSessionAliveUntilTheLastLeaseReturns()
+    {
+        var provider = BuildWithHiddenStates();
+        var host = provider.GetRequiredService<IOnnxSessionHost>();
+
+        var lease = await host.AcquireAsync(HiddenStatesModel, TestContext.Current.CancellationToken);
+
+        // The container going away with an embedding still in flight. Dispose used to free the
+        // session there and then, whatever was borrowed - DropAsync's discipline, skipped on the
+        // one path nobody can retry.
+        await provider.DisposeAsync();
+
+        var marked = host.Describe(HiddenStatesModel)!;
+        Assert.True(marked.IsLoaded);
+        Assert.Equal(1, marked.ActiveLeases);
+        Assert.Contains("input_ids", lease.Session.InputNames);
+
+        lease.Dispose();
+
+        Assert.False(host.Describe(HiddenStatesModel)!.IsLoaded);
+        Assert.Equal(0, host.Describe(HiddenStatesModel)!.ActiveLeases);
+
+        // And a disposed host does not quietly load another session nothing would ever free.
+        await Assert.ThrowsAsync<ObjectDisposedException>(
+            () => host.AcquireAsync(HiddenStatesModel, TestContext.Current.CancellationToken).AsTask());
+    }
+
+    [Fact]
     public async Task AnIdleSessionIsDisposedByDropAndTheNextAcquireReloads()
     {
         using var provider = BuildWithHiddenStates();

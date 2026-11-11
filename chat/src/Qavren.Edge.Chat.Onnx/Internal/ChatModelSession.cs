@@ -228,6 +228,12 @@ internal interface IChatTurnHost : IChatModelHost
     /// <summary>Whether the OS is suspending the app, so a termination reads as <c>Suspended</c>.</summary>
     bool SuspendRequested { get; }
 
+    /// <summary>
+    /// Called once a turn holds the turn gate, before anything is loaded, tokenised or prefilled:
+    /// clears <see cref="TerminationRequested"/>, so that from here on it means "this turn".
+    /// </summary>
+    void BeginTurn();
+
     /// <summary>Registers the live generator's <c>SetRuntimeOption</c>. Null clears it.</summary>
     /// <param name="setRuntimeOption">The setter, or null.</param>
     void SetActiveGeneration(Action<string, string>? setRuntimeOption);

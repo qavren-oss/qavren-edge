@@ -34,3 +34,4 @@ live in the repository.
 - [11. Guidance is unverified, not unavailable](../../../chat/docs/adr/0011-guidance-unverified-not-unavailable.md)
 - [12. No tool calling in v1](../../../chat/docs/adr/0012-no-tool-calling-in-v1.md)
 - [13. Apple platform floor rises to 15.4](../../../chat/docs/adr/0013-apple-platform-floor-15-4.md)
+- [14. A memory-pressure pause ends on its own](../../../chat/docs/adr/0014-memory-pressure-pause-ends-on-its-own.md)
