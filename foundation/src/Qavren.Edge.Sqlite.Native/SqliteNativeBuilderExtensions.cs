@@ -23,33 +23,4 @@ public static class SqliteNativeBuilderExtensions
         builder.Services.AddSingleton<IEdgeDiagnosticsContributor>(new NativeDiagnosticsContributor(provider));
         return builder;
     }
-
-    private sealed class NativeDiagnosticsContributor(ISqliteNativeProvider provider) : IEdgeDiagnosticsContributor
-    {
-        public string ComponentName => "Qavren.Edge.Sqlite.Native";
-
-        public string? ComponentVersion => typeof(NativeDiagnosticsContributor).Assembly.GetName().Version?.ToString();
-
-        public IReadOnlyDictionary<string, string?> Describe()
-        {
-            try
-            {
-                var info = provider.Describe();
-                return new Dictionary<string, string?>(StringComparer.Ordinal)
-                {
-                    ["providerName"] = info.ProviderName,
-                    ["libraryName"] = info.LibraryName,
-                    ["resolvedPath"] = info.ResolvedPath,
-                    ["sqliteVersion"] = info.SqliteVersion,
-                    ["vecVersion"] = info.VecVersion,
-                    ["cipherVersion"] = info.CipherVersion,
-                    ["buildSha"] = info.BuildSha,
-                };
-            }
-            catch (InvalidOperationException)
-            {
-                return new Dictionary<string, string?>(StringComparer.Ordinal) { ["state"] = "not installed" };
-            }
-        }
-    }
 }

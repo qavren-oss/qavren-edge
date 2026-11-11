@@ -41,6 +41,42 @@ public class DiagnosticsTests
         Assert.Contains(report.Lifecycle, r => r.Kind == EdgeLifecycleEventKind.Resumed);
     }
 
+    private sealed class ThrowingContributor : IEdgeDiagnosticsContributor
+    {
+        public string ComponentName => "Broken";
+
+        public string? ComponentVersion => "9.9.9";
+
+        public IReadOnlyDictionary<string, string?> Describe()
+            => throw new InvalidOperationException("SELECT secret FROM somewhere");
+    }
+
+    [Fact]
+    public void AContributorThatThrowsBecomesOneUnavailableSectionAndTheRestOfTheReportSurvives()
+    {
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddQavrenEdge(_ => { });
+        services.AddSingleton<IEdgeDiagnosticsContributor, ThrowingContributor>();
+        services.AddSingleton<IEdgeDiagnosticsContributor, FakeContributor>();
+        using var sp = services.BuildServiceProvider();
+
+        // The report is what gets asked for when something is already wrong, so the contributor
+        // most likely to throw is the one describing the thing that broke.
+        var report = sp.GetRequiredService<IEdgeDiagnostics>().Report();
+
+        Assert.Equal(2, report.Components.Count);
+
+        var broken = Assert.Single(report.Components, c => c.Name == "Broken");
+        Assert.Equal("unavailable", broken.Details["state"]);
+        Assert.Equal(nameof(InvalidOperationException), broken.Details["error"]);
+
+        Assert.Equal("42", Assert.Single(report.Components, c => c.Name == "Fake").Details["answer"]);
+
+        // The type, never the message: this text is pasted into support tickets.
+        Assert.DoesNotContain("secret", EdgeDiagnosticsRenderer.ToText(report), StringComparison.Ordinal);
+    }
+
     [Fact]
     public async Task Report_RendersAsTextAndAsJson()
     {

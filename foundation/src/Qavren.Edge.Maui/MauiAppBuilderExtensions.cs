@@ -25,8 +25,19 @@ public static class MauiAppBuilderExtensions
         builder.Services.Replace(ServiceDescriptor.Singleton<IEdgePaths, MauiEdgePaths>());
 
         // The generic-host EdgeHostedService would block MAUI's launch path; the platform bridge
-        // calls Start() instead and never awaits it on the UI thread.
-        builder.Services.RemoveAll<Microsoft.Extensions.Hosting.IHostedService>();
+        // calls Start() instead and never awaits it on the UI thread. Only that one registration
+        // goes: the app's own hosted services, and every other library's, are not this package's
+        // to remove.
+        for (var i = builder.Services.Count - 1; i >= 0; i--)
+        {
+            var descriptor = builder.Services[i];
+            if (descriptor.ServiceType == typeof(Microsoft.Extensions.Hosting.IHostedService)
+                && !descriptor.IsKeyedService
+                && descriptor.ImplementationType == typeof(EdgeHostedService))
+            {
+                builder.Services.RemoveAt(i);
+            }
+        }
 
         builder.ConfigureLifecycleEvents(events =>
         {

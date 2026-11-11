@@ -58,7 +58,8 @@ public static class SqliteEdgeBuilderExtensions
             sp.GetRequiredService<ILogger<EdgeDatabase>>()));
 
         builder.Services.AddKeyedSingleton<IEdgeDatabase>(key, (sp, k) => sp.GetRequiredKeyedService<EdgeDatabase>(k));
-        builder.Services.AddSingleton<IEdgeDatabase>(sp => sp.GetRequiredKeyedService<IEdgeDatabase>(key));
+        builder.Services.AddSingleton<IEdgeDatabase>(new UnkeyedDatabase(key).Resolve);
+        KeepTheDefaultDatabaseLast(builder.Services);
 
         builder.Services.AddSingleton<IEdgeStartupTask>(sp => new SqliteOpenStartupTask(
             sp.GetRequiredKeyedService<EdgeDatabase>(key),
@@ -104,6 +105,45 @@ public static class SqliteEdgeBuilderExtensions
         }
 
         return builder;
+    }
+
+    /// <summary>
+    /// <c>GetRequiredService&lt;IEdgeDatabase&gt;()</c> returns the LAST unkeyed registration, and
+    /// every consumer that takes "no database name" means the unnamed database by it - the vector
+    /// store and the ingestion pipeline both resolve that way while their migrations go to
+    /// <see cref="SqliteRegistry.DefaultName"/>. So when the unnamed database is registered at all,
+    /// its unkeyed registration is kept last, whichever order the <c>AddSqlite</c> calls came in.
+    /// Nothing is removed: <c>IEnumerable&lt;IEdgeDatabase&gt;</c> still lists every database.
+    /// </summary>
+    private static void KeepTheDefaultDatabaseLast(IServiceCollection services)
+    {
+        for (var i = services.Count - 1; i >= 0; i--)
+        {
+            var descriptor = services[i];
+            if (descriptor.ServiceType == typeof(IEdgeDatabase)
+                && !descriptor.IsKeyedService
+                && descriptor.ImplementationFactory?.Target is UnkeyedDatabase { IsDefault: true })
+            {
+                if (i != services.Count - 1)
+                {
+                    services.RemoveAt(i);
+                    services.Add(descriptor);
+                }
+
+                return;
+            }
+        }
+    }
+
+    /// <summary>
+    /// The unkeyed registration's factory, as an object rather than a lambda so the descriptor of
+    /// the unnamed database can be told apart from a named one's without reflecting over a closure.
+    /// </summary>
+    private sealed class UnkeyedDatabase(string key)
+    {
+        public bool IsDefault => string.Equals(key, SqliteRegistry.DefaultName, StringComparison.Ordinal);
+
+        public IEdgeDatabase Resolve(IServiceProvider services) => services.GetRequiredKeyedService<IEdgeDatabase>(key);
     }
 
     private static ISqliteNativeProvider RequireNative(IServiceProvider services)

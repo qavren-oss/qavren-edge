@@ -17,6 +17,14 @@
     <ProjectReference Include="..\Qavren.Edge.Sqlite.Native\Qavren.Edge.Sqlite.Native.csproj" />
   </ItemGroup>
 
+  <!-- The native diagnostics contributor is ONE source file compiled into both native packages, so
+       UseSqliteNativeCipher() reports the loaded library the way UseSqliteNative() does. A link
+       rather than an InternalsVisibleTo grant: the two packages are separate on nuget.org, and a
+       grant would make that internal type a binary contract between them. -->
+  <ItemGroup>
+    <Compile Include="..\Qavren.Edge.Sqlite.Native\NativeDiagnosticsContributor.cs" Link="NativeDiagnosticsContributor.cs" />
+  </ItemGroup>
+
   <PropertyGroup>
     <!-- The SDK sets NETCoreSdkPortableRuntimeIdentifier to the host RID (win-x64, win-arm64,
          linux-x64, osx-arm64, ...). Using it means an arm64 dev box copies the arm64 native

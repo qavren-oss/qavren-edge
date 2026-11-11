@@ -36,6 +36,26 @@ public class ConnectionExtensionsBindingTests
     }
 
     [Fact]
+    public async Task ScalarAsync_WithANullableType_TellsNullFromZero()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var (host, connection) = await OpenAsync(ct);
+        await using var hostScope = host.ConfigureAwait(false);
+        await using var connectionScope = connection.ConfigureAwait(false);
+
+        // ScalarAsync<long> turns both of these into 0. The nullable form is the only way to tell
+        // "no row matched an aggregate" from "the answer is zero", and it used to throw.
+        Assert.Null(await connection.ScalarAsync<long?>("SELECT max(id) FROM b", cancellationToken: ct));
+        Assert.Equal(0L, await connection.ScalarAsync<long?>("SELECT 0", cancellationToken: ct));
+
+        // SQLite hands back a long and a double; the nullable target still narrows like the plain one.
+        Assert.Equal(5, await connection.ScalarAsync<int?>("SELECT 5", cancellationToken: ct));
+        Assert.Equal(2.5, await connection.ScalarAsync<double?>("SELECT 2.5", cancellationToken: ct));
+        Assert.Equal(7, await connection.ScalarAsync<int>("SELECT 7", cancellationToken: ct));
+        Assert.Equal("text", await connection.ScalarAsync<string>("SELECT 'text'", cancellationToken: ct));
+    }
+
+    [Fact]
     public async Task NullProperty_BindsAsDbNull()
     {
         var ct = TestContext.Current.CancellationToken;
