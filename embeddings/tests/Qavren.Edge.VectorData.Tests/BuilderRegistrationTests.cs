@@ -69,14 +69,8 @@ public sealed class BuilderRegistrationTests
     [Fact]
     public void AddVectorCollectionRegistersOneAdHocSchemaTaskPerCollectionAtStartupOrder300()
     {
-        // This test deliberately BUILDS the container and never starts the host. AddVectorCollection
-        // ships a known limitation, unresolved as of 2026-09-11 and documented on the method: the
-        // task it registers calls IEdgeDatabase.OpenConnectionAsync, which awaits
-        // IEdgeHost.EnsureStartedAsync, and that barrier only lifts once every startup task -
-        // including this one - has returned. Starting a host with this registration therefore hangs
-        // forever, so what is asserted here is the registration shape: order 300, one task per
-        // collection, and the store's own registrations untouched. The execution half needs
-        // sub-project 1 to expose a startup-safe open (EdgeDatabase.OpenCoreAsync is internal).
+        // The registration shape only: order 300, one task per collection, and the store's own
+        // registrations untouched. The execution half is the next test.
         var services = new ServiceCollection();
         services.AddLogging();
         services.AddQavrenEdge(edge =>
@@ -108,6 +102,25 @@ public sealed class BuilderRegistrationTests
         Assert.Single(
             provider.GetServices<IEdgeDiagnosticsContributor>(),
             c => c.ComponentName == "Qavren.Edge.VectorData");
+    }
+
+    [Fact]
+    public async Task AddVectorCollectionCreatesItsCollectionDuringStartup()
+    {
+        // The task opens a connection from INSIDE the startup sequence. Until IEdgeHost let a
+        // startup task through its own barrier that was a host that never started: this method was
+        // shipped public API that hung every Qavren.Edge entry point for ever.
+        using var host = await VectorTestHost.StartAsync(edge =>
+        {
+            edge.AddVectorStore();
+            edge.AddVectorCollection<string, RawVec>("raw");
+        });
+
+        // No EnsureCollectionExistsAsync here: startup already ran it.
+        var collection = host.Services.GetRequiredService<EdgeVectorStore>().GetCollection<string, RawVec>("raw");
+        await collection.UpsertAsync(new RawVec { Key = "k", Embedding = UnitX }, Token);
+
+        Assert.NotNull(await collection.GetAsync("k", cancellationToken: Token));
     }
 
     [Fact]

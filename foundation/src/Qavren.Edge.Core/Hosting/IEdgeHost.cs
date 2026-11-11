@@ -13,7 +13,12 @@ public interface IEdgeHost
     /// <summary>Completes when every startup task has finished; faults with the first failure.</summary>
     Task Started { get; }
 
-    /// <summary>Calls <see cref="Start"/> if needed, awaits <see cref="Started"/>, and rethrows its fault.</summary>
+    /// <summary>
+    /// Calls <see cref="Start"/> if needed, awaits <see cref="Started"/>, and rethrows its fault.
+    /// From inside an <see cref="IEdgeStartupTask"/> it returns at once instead of waiting on the
+    /// task that called it: the tasks ordered before the caller have completed, the ones after it
+    /// have not.
+    /// </summary>
     ValueTask EnsureStartedAsync(CancellationToken cancellationToken = default);
 
     /// <summary>Raises <c>Stopping</c> on the lifecycle hub and disposes owned resources.</summary>
