@@ -11,4 +11,14 @@
     <PackageReference Include="DocumentFormat.OpenXml" />
     <ProjectReference Include="..\Qavren.Edge.Ingestion\Qavren.Edge.Ingestion.csproj" />
   </ItemGroup>
+
+  <!-- The seekable-open contract and spec 6's normaliser are the CORE's own source files, compiled
+       into this assembly as well. They used to be hand copies (SatelliteSupport.cs), and every
+       change to a rule - the U+00A0 fold, most recently - had to be made once per copy. A link
+       rather than an InternalsVisibleTo grant: this package and the core are separate on nuget.org,
+       and a grant would make those internals a binary contract between them. -->
+  <ItemGroup>
+    <Compile Include="..\Qavren.Edge.Ingestion\Internal\SourceStream.cs" Link="Internal\Shared\SourceStream.cs" />
+    <Compile Include="..\Qavren.Edge.Ingestion\Internal\TextNormalizer.cs" Link="Internal\Shared\TextNormalizer.cs" />
+  </ItemGroup>
 </Project>

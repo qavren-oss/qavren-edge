@@ -16,6 +16,12 @@ namespace Qavren.Edge.Ingestion.Internal;
 /// <c>PdfDocument.Open(Stream)</c> makes PdfPig itself copy the whole PDF into a
 /// <see cref="MemoryStream"/>. Doing it silently on SP3's side for a 200 MB scan would be the same
 /// bug wearing our name.
+/// <para>
+/// <b>This file is compiled into three assemblies.</b> The core owns it, and the PDF and DOCX
+/// packages link it for <see cref="OpenSeekableAsync"/>, so the contract is enforced by one piece
+/// of code wherever an extractor opens a document. It must therefore depend on nothing but the
+/// core's public types.
+/// </para>
 /// </remarks>
 internal static class SourceStream
 {

@@ -23,6 +23,11 @@ namespace Qavren.Edge.Ingestion.Internal;
 /// downstream depends on composition having happened - the offset contract is about the buffer that
 /// is actually returned.
 /// </para>
+/// <para>
+/// <b>This file is compiled into four assemblies.</b> The core owns it, and the PDF, DOCX and
+/// DataIngestion packages link it, so there is one definition of spec 6 and a change to a rule is
+/// made once. It must therefore stay self-contained: nothing but the BCL.
+/// </para>
 /// </remarks>
 internal static class TextNormalizer
 {
@@ -48,11 +53,13 @@ internal static class TextNormalizer
     }
 
     // Issue #30: PostScript drivers map the font's space glyph to U+00A0, so every word
-    // separator arrives non-breaking. One char for one char, so no offset moves.
+    // separator arrives non-breaking. One char for one char, so no offset moves. Written as
+    // escapes on purpose: the three characters are invisible, and indistinguishable from U+0020
+    // and from each other in every editor and every diff.
     private static string FoldSpaces(string text) =>
-        text.AsSpan().IndexOfAny(' ', ' ', ' ') < 0
+        text.AsSpan().IndexOfAny('\u00A0', '\u2007', '\u202F') < 0
             ? text
-            : text.Replace(' ', ' ').Replace(' ', ' ').Replace(' ', ' ');
+            : text.Replace('\u00A0', ' ').Replace('\u2007', ' ').Replace('\u202F', ' ');
 
     private static string FixLineEndings(string text)
     {
