@@ -17,9 +17,7 @@ public sealed class EdgeDiagnostics(
     /// <inheritdoc />
     public EdgeDiagnosticsReport Report()
     {
-        var components = contributors
-            .Select(c => new EdgeComponentReport(c.ComponentName, c.ComponentVersion, c.Describe()))
-            .ToArray();
+        var components = contributors.Select(Describe).ToArray();
 
         var native = components
             .FirstOrDefault(c => c.Name.Contains("Native", StringComparison.Ordinal))
@@ -33,6 +31,45 @@ public sealed class EdgeDiagnostics(
             new Dictionary<string, string>(StringComparer.Ordinal) { ["Data"] = paths.Data, ["Cache"] = paths.Cache },
             startup,
             lifecycle.RecentEvents);
+    }
+
+    /// <summary>
+    /// A report is what somebody asks for when something is already wrong. A contributor that throws
+    /// - a database that will not open, a native library that never loaded - becomes one section that
+    /// says so, not the reason every other section is missing as well.
+    /// </summary>
+    private static EdgeComponentReport Describe(IEdgeDiagnosticsContributor contributor)
+    {
+        try
+        {
+            return new EdgeComponentReport(
+                contributor.ComponentName, contributor.ComponentVersion, contributor.Describe());
+        }
+        catch (Exception ex)
+        {
+            // The type and not the message: a message can carry SQL or a document's text, and this
+            // block is pasted into support tickets.
+            return new EdgeComponentReport(
+                NameOf(contributor),
+                null,
+                new Dictionary<string, string?>(StringComparer.Ordinal)
+                {
+                    ["state"] = "unavailable",
+                    ["error"] = ex.GetType().Name,
+                });
+        }
+    }
+
+    private static string NameOf(IEdgeDiagnosticsContributor contributor)
+    {
+        try
+        {
+            return contributor.ComponentName;
+        }
+        catch (Exception)
+        {
+            return contributor.GetType().Name;
+        }
     }
 }
 
