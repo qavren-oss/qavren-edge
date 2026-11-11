@@ -389,7 +389,16 @@ public sealed class EdgeFilterTranslator : FilterTranslatorBase
                 _sql.Append(flag ? '1' : '0');
                 return;
 
-            case int or long or short or sbyte or byte or uint or ulong or ushort or float or double:
+            case float single:
+                // Widened first, as the binder widens it on the way in. A float column holds
+                // (double)0.1f, which is 0.10000000149011612; float.ToString() prints "0.1", which
+                // SQLite reads as a different double, so "== 0.1f" matched no row it had stored and
+                // "<= 0.1f" dropped the boundary one. The same filter with a captured variable
+                // worked, because a parameter is widened by the same binder.
+                _sql.Append(((double)single).ToString("R", CultureInfo.InvariantCulture));
+                return;
+
+            case int or long or short or sbyte or byte or uint or ulong or ushort or double:
                 _sql.Append(((IFormattable)value).ToString(null, CultureInfo.InvariantCulture));
                 return;
 

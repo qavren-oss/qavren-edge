@@ -796,6 +796,26 @@ public class EdgeVectorStoreCollection<TKey, TRecord>
         return record;
     }
 
+    private void AssertWithinKnnLimit(int top, int skip, string operation)
+    {
+        var k = (long)top + skip;
+        if (k <= RrfDefaults.MaxCandidateCount)
+        {
+            return;
+        }
+
+        throw new EdgeVectorStoreException(
+            EdgeErrorCode.KnnLimitExceeded,
+            $"top + Skip is {k.ToString(CultureInfo.InvariantCulture)}, above vec0's SQLITE_VEC_VEC0_K_MAX of " +
+            $"{RrfDefaults.MaxCandidateCount.ToString(CultureInfo.InvariantCulture)}. Narrow the query or page " +
+            "with a filter instead.")
+        {
+            VectorStoreName = _database.Name,
+            CollectionName = Name,
+            OperationName = operation,
+        };
+    }
+
     private async Task<IReadOnlyList<MEVD.VectorSearchResult<TRecord>>> SearchCoreAsync<TInput>(
         TInput searchValue,
         int top,
@@ -807,20 +827,8 @@ public class EdgeVectorStoreCollection<TKey, TRecord>
         var skip = options?.Skip ?? 0;
         ArgumentOutOfRangeException.ThrowIfNegative(skip);
 
+        AssertWithinKnnLimit(top, skip, EdgeVectorStoreOperations.VectorSearch);
         var k = (long)top + skip;
-        if (k > RrfDefaults.MaxCandidateCount)
-        {
-            throw new EdgeVectorStoreException(
-                EdgeErrorCode.KnnLimitExceeded,
-                $"top + Skip is {k.ToString(CultureInfo.InvariantCulture)}, above vec0's SQLITE_VEC_VEC0_K_MAX of " +
-                $"{RrfDefaults.MaxCandidateCount.ToString(CultureInfo.InvariantCulture)}. Narrow the query or page " +
-                "with a filter instead.")
-            {
-                VectorStoreName = _database.Name,
-                CollectionName = Name,
-                OperationName = EdgeVectorStoreOperations.VectorSearch,
-            };
-        }
 
         var includeVectors = options?.IncludeVectors ?? false;
         AssertVectorsReadable(includeVectors);
@@ -876,7 +884,20 @@ public class EdgeVectorStoreCollection<TKey, TRecord>
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(top);
 
         var skip = options?.Skip ?? 0;
+        ArgumentOutOfRangeException.ThrowIfNegative(skip);
+
+        // The ceiling the vector path enforces, for the reason it enforces it. Each lane can ask
+        // vec0 for at most MaxCandidateCount rows, so a page that starts beyond it does not come
+        // back short: it comes back empty, and an empty page reads as "nothing matched".
+        AssertWithinKnnLimit(top, skip, EdgeVectorStoreOperations.HybridSearch);
+
         var edgeOptions = options as EdgeHybridSearchOptions<TRecord>;
+        if (edgeOptions?.CandidateCount is { } requested)
+        {
+            // Zero is "k = 0" to vec0, and a negative LIMIT is no limit at all to SQLite.
+            ArgumentOutOfRangeException.ThrowIfNegativeOrZero(requested, nameof(options));
+        }
+
         var rrfK = edgeOptions?.RrfK ?? Rrf.K;
         var weightVector = edgeOptions?.VectorWeight ?? Rrf.VectorWeight;
         var weightKeyword = edgeOptions?.KeywordWeight ?? Rrf.KeywordWeight;
