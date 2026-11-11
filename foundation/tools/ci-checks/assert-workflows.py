@@ -297,6 +297,35 @@ for wf in sorted(w.glob("*.yml")):
         if not pinned_use.match(used.group(1)):
             problems.append("%s:%d: third-party action must be pinned as owner/repo@<40-hex sha> # vX.Y.Z (found: %s)" % (wf.name, number, used.group(1).strip()))
 
+# --- Merge queue ---
+# The queue tests each queued pull request on a temporary gh-readonly-queue/main/* branch and waits
+# for the two required contexts to report there. They report only if ci.yml runs on `merge_group`:
+# drop the trigger and every queued pull request sits until the queue's timeout, then is thrown
+# out, with nothing red anywhere to say why.
+ci_on = ci.get("on", ci.get(True)) or {}
+if "merge_group" not in ci_on:
+    problems.append("ci.yml must run on merge_group; the merge queue's required checks report only from that event")
+mq_path = w.parent / "merge-queue-ruleset.json"
+if not mq_path.is_file():
+    problems.append(".github/merge-queue-ruleset.json is missing (the merge queue on main, as applied through the rulesets API)")
+else:
+    mq = json.loads(mq_path.read_text(encoding="utf-8"))
+    queue = [r for r in mq.get("rules", []) if r.get("type") == "merge_queue"]
+    if len(queue) != 1:
+        problems.append("merge-queue-ruleset.json must carry exactly one merge_queue rule")
+    else:
+        params = queue[0].get("parameters", {})
+        # `main` requires linear history, so a queue that merges with a merge commit can never land
+        # anything; the project squashes.
+        if params.get("merge_method") != "SQUASH":
+            problems.append("merge-queue-ruleset.json merge_method must be SQUASH (main requires linear history)")
+        # The iOS device lane alone has taken an hour when the hosted macOS runners were busy. A
+        # timeout under that throws a green pull request out of the queue.
+        if params.get("check_response_timeout_minutes", 0) < 90:
+            problems.append("merge-queue-ruleset.json check_response_timeout_minutes must be at least 90 (the iOS device lane can take an hour)")
+    if mq.get("conditions", {}).get("ref_name", {}).get("include") != ["~DEFAULT_BRANCH"]:
+        problems.append("merge-queue-ruleset.json must target exactly the default branch")
+
 win = ci["jobs"]["device-tests-windows"]["runs-on"]
-print("\n".join(problems) if problems else "OK: gates, 4 device lanes, JUnit, win-arm64, native artifact cache + reuse, SBOM and native release assets all present (windows lane on %s)" % win)
+print("\n".join(problems) if problems else "OK: gates, 4 device lanes, JUnit, win-arm64, native artifact cache + reuse, merge queue, SBOM and native release assets all present (windows lane on %s)" % win)
 sys.exit(1 if problems else 0)

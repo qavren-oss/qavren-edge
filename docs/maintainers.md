@@ -14,7 +14,7 @@ the public documentation.
 | `chat/` | Chat over ONNX Runtime GenAI and the RAG recipe |
 | `benchmarks/` | The BenchmarkDotNet suite (`Qavren.Edge.Benchmarks`), run by `benchmarks.yml` and by hand; results page `docs/site/benchmarks.md` |
 | `docs/` | Design specs and implementation plans under `superpowers/`, the docs site under `site/`, and this file |
-| `.github/` | `ci.yml` (every PR), `native.yml` (called by ci and release), `release.yml` (tags), `tier0-genai-smoke.yml` (manual), `benchmarks.yml` (manual), `docs.yml` (every PR, deploys on `main`), `upstream-pins.yml`, branch protection JSON |
+| `.github/` | `ci.yml` (every PR and every merge-queue group), `native.yml` (called by ci and release), `release.yml` (tags), `tier0-genai-smoke.yml` (manual), `benchmarks.yml` (manual), `docs.yml` (every PR, deploys on `main`), `upstream-pins.yml`, branch protection JSON, merge queue ruleset JSON |
 
 Each area folder has a `Directory.Build.props` that appends its package tags;
 the root `Directory.Build.targets` packs the icon and each package's README
@@ -30,6 +30,9 @@ and composes the tags. Error-code ranges are allocated per area and listed in
   `natives / native-gate`, strict, linear history, conversation resolution.
   The JSON is `.github/branch-protection.json` and `assert-workflows.py` checks
   that the contexts still match the gate jobs.
+- `main` merges through a **merge queue**, a repository ruleset whose JSON is
+  `.github/merge-queue-ruleset.json` (squash, up to three groups building at
+  once, a 120-minute check timeout). See "Merging" below.
 - The nuget.org owner is the `Qavren` organisation (admin `stevenfackley`).
   The `Qavren.` package-ID prefix is reserved to it (requested 2026-09-10,
   confirmed by nuget.org support 2026-09-11).
@@ -39,6 +42,36 @@ and composes the tags. Error-code ranges are allocated per area and listed in
   `id-token: write` and `NuGet/login@v1` exchanges the OIDC token for a
   one-hour key at publish time. There is no `NUGET_API_KEY` secret and there
   must not be one.
+
+## Merging
+
+`gh pr merge <n> --squash` (or "Merge when ready" on the pull request) does not
+merge: it puts the pull request in the queue. The queue builds it on a
+temporary `gh-readonly-queue/main/...` branch, on top of `main` plus everything
+queued ahead of it, runs `ci.yml` there through the `merge_group` trigger, and
+squashes it onto `main` when `ci-gate` and `natives / native-gate` are green on
+that branch. A pull request that fails there is dropped from the queue and the
+ones behind it are rebuilt without it.
+
+What that buys: several green pull requests land in about one CI cycle. Before
+the queue, strict "up to date" protection meant every merge put every other
+pull request behind, so ten pull requests were ten serial rebases and ten
+serial CI runs (seven hours on 2026-11-11).
+
+- The pull request's own CI must be green before it can be queued; the queue
+  then runs CI again on the combined result. Nothing needs rebasing by hand.
+- Repository admins can bypass the queue (`gh pr merge <n> --squash --admin`).
+  That is for a jammed queue, not for skipping a red lane.
+- The ruleset is not applied from the file automatically. After editing
+  `.github/merge-queue-ruleset.json`, apply it:
+  ```
+  gh api repos/qavren-oss/qavren-edge/rulesets --jq '.[] | "\(.id) \(.name)"'
+  gh api -X PUT repos/qavren-oss/qavren-edge/rulesets/<id> --input .github/merge-queue-ruleset.json
+  ```
+  (`-X POST repos/qavren-oss/qavren-edge/rulesets` creates it the first time.)
+- `ci.yml` must keep its `merge_group` trigger. Without it the required checks
+  never report on the queue's branch and every queued pull request times out;
+  `assert-workflows.py` fails if the trigger or the ruleset file goes missing.
 
 ## Cutting a release
 
@@ -118,7 +151,7 @@ package must not depend on a prerelease one); with the suffix target it packs
 
 ## CI shape
 
-- `ci.yml` runs on every PR and on `main`: host test lanes on Windows, Ubuntu
+- `ci.yml` runs on every PR, on every merge-queue group and on `main`: host test lanes on Windows, Ubuntu
   and macOS; device lanes for Android (emulator), iOS (simulator), Mac
   Catalyst and Windows; a trim smoke; and the `natives` job that calls
   `native.yml`. `ci-gate` fans everything in and is the one required context.
@@ -225,3 +258,4 @@ resolves; nothing in the repo holds it.
 | XML-doc gate: `CS1591` an error for every shipped package | 2026-09-23 |
 | Benchmark suite + `benchmarks.yml` | 2026-09-23 |
 | 1.0 wording + DataIngestion stable-tag guard | 2026-09-23 |
+| Merge queue on `main` | 2026-11-11 |
