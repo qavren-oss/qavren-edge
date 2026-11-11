@@ -61,6 +61,10 @@ public class QueueingTests
             var fourth = harness.Client.GetResponseAsync(Ask(), null, TestContext.Current.CancellationToken);
             await WaitUntilAsync(() => harness.Client.QueuedTurns == 3, "three turns to queue").ConfigureAwait(true);
 
+            // The first turn takes the gate on the caller's thread and builds its generator on the
+            // pool, so "inside the gate" no longer means "has a generator yet".
+            await WaitUntilAsync(() => harness.Session.Generators.Count >= 1, "the first turn to build its generator").ConfigureAwait(true);
+
             // None of the queued turns has run: the second waits rather than allocating a
             // generator of its own.
             Assert.Single(harness.Session.Generators);
