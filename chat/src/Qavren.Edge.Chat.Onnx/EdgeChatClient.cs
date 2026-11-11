@@ -270,7 +270,14 @@ public sealed class EdgeChatClient : IChatClient
         Turn turn;
         try
         {
-            turn = await PrepareTurnAsync(messages, options, unhonoured, cancellationToken).ConfigureAwait(false);
+            // On the pool, never on the caller. Once the model is loaded every await on the prepare
+            // path completes synchronously - the gate, the lease, the reducer - so without this hop
+            // the tokenizer, the history reduction and the whole prefill ran on whichever thread
+            // called MoveNextAsync. In a MAUI app that is the UI thread, frozen for as long as the
+            // prompt takes to prefill, on every turn after the first.
+            turn = await Task.Run(
+                () => PrepareTurnAsync(messages, options, unhonoured, cancellationToken), CancellationToken.None)
+                .ConfigureAwait(false);
         }
         catch
         {
@@ -278,64 +285,70 @@ public sealed class EdgeChatClient : IChatClient
             throw;
         }
 
-        var channel = Channel.CreateBounded<ChatResponseUpdate>(new BoundedChannelOptions(64)
-        {
-            FullMode = BoundedChannelFullMode.Wait,
-            SingleReader = true,
-            SingleWriter = true,
-        });
-
+        // From here the turn owns a generator, a lease and the gate, and every one of them is given
+        // back in the finally below. Nothing that can throw sits between the prepare and the try:
+        // one exception there used to leave the gate held, and every later turn timing out as
+        // ChatBusy until the process was restarted.
         using var consumerGone = new CancellationTokenSource();
-
-        // Start clean BEFORE anything can terminate this turn: a cached generator whose previous
-        // turn's terminate lost a race with FinishTurn would otherwise report done at once.
-        ChatTurnPipeline.Resume(turn.Generator);
-        using var termination = cancellationToken.Register(static state => TryTerminate((IChatGenerator)state!), turn.Generator);
-        _host.SetActiveGeneration(turn.Generator.SetRuntimeOption);
-
-        var context = new ChatDecodeContext
-        {
-            Generator = turn.Generator,
-            Stream = turn.Stream,
-            StopMatcher = new StopSequenceMatcher(
-                EdgeChatOptions.ComposeStopSequences(_registration.Preset, edge, options?.StopSequences)),
-            Writer = channel.Writer,
-            Host = _host,
-            Monitor = _monitor,
-            TimeProvider = _timeProvider,
-            Logger = _logger,
-            Thermal = edge.Thermal,
-            MaxOutputTokens = turn.MaxOutputTokens,
-            MaxLength = turn.MaxLength,
-            ResolvedContextTokens = turn.ResolvedContextTokens,
-            PromptTokens = turn.PromptTokens,
-            PromptTokensAppended = turn.PromptTokensAppended,
-            MessagesDropped = turn.MessagesDropped,
-            ModelId = ModelId,
-            ConversationId = turn.ConversationId,
-            ResponseId = Guid.NewGuid().ToString("N"),
-            MessageId = Guid.NewGuid().ToString("N"),
-            UnhonouredOptions = unhonoured,
-            InitialSnapshot = snapshot,
-            TurnStartedAt = startedAt,
-            CancellationToken = cancellationToken,
-            ConsumerGone = consumerGone.Token,
-        };
-
-        ChatTurnLog.TurnStarted(
-            _logger,
-            context.ResponseId,
-            ModelId,
-            turn.PromptTokens,
-            turn.PromptTokensAppended,
-            turn.GeneratorOutcome);
-
-        // ---- producer: runs on Task.Run, writes the channel, never yields ----
-        var producer = Task.Run(() => ChatDecodeLoop.RunAsync(context), CancellationToken.None);
-
+        CancellationTokenRegistration termination = default;
+        Task<ChatDecodeResult>? producer = null;
         ChatDecodeResult? result = null;
+
         try
         {
+            var channel = Channel.CreateBounded<ChatResponseUpdate>(new BoundedChannelOptions(64)
+            {
+                FullMode = BoundedChannelFullMode.Wait,
+                SingleReader = true,
+                SingleWriter = true,
+            });
+
+            // Start clean BEFORE anything can terminate this turn: a cached generator whose previous
+            // turn's terminate lost a race with FinishTurn would otherwise report done at once.
+            ChatTurnPipeline.Resume(turn.Generator);
+            termination = cancellationToken.Register(static state => TryTerminate((IChatGenerator)state!), turn.Generator);
+            _host.SetActiveGeneration(turn.Generator.SetRuntimeOption);
+
+            var context = new ChatDecodeContext
+            {
+                Generator = turn.Generator,
+                Stream = turn.Stream,
+                StopMatcher = new StopSequenceMatcher(
+                    EdgeChatOptions.ComposeStopSequences(_registration.Preset, edge, options?.StopSequences)),
+                Writer = channel.Writer,
+                Host = _host,
+                Monitor = _monitor,
+                TimeProvider = _timeProvider,
+                Logger = _logger,
+                Thermal = edge.Thermal,
+                MaxOutputTokens = turn.MaxOutputTokens,
+                MaxLength = turn.MaxLength,
+                ResolvedContextTokens = turn.ResolvedContextTokens,
+                PromptTokens = turn.PromptTokens,
+                PromptTokensAppended = turn.PromptTokensAppended,
+                MessagesDropped = turn.MessagesDropped,
+                ModelId = ModelId,
+                ConversationId = turn.ConversationId,
+                ResponseId = Guid.NewGuid().ToString("N"),
+                MessageId = Guid.NewGuid().ToString("N"),
+                UnhonouredOptions = unhonoured,
+                InitialSnapshot = snapshot,
+                TurnStartedAt = startedAt,
+                CancellationToken = cancellationToken,
+                ConsumerGone = consumerGone.Token,
+            };
+
+            ChatTurnLog.TurnStarted(
+                _logger,
+                context.ResponseId,
+                ModelId,
+                turn.PromptTokens,
+                turn.PromptTokensAppended,
+                turn.GeneratorOutcome);
+
+            // ---- producer: runs on Task.Run, writes the channel, never yields ----
+            producer = Task.Run(() => ChatDecodeLoop.RunAsync(context), CancellationToken.None);
+
             // ---- consumer: the iterator the caller awaits. It reads with no token of its own, so
             // a cancelled turn still delivers its final update before the exception surfaces. ----
             await foreach (var update in channel.Reader.ReadAllAsync(CancellationToken.None).ConfigureAwait(false))
@@ -350,7 +363,10 @@ public sealed class EdgeChatClient : IChatClient
             consumerGone.Cancel();
             try
             {
-                result = await producer.ConfigureAwait(false);
+                if (producer is not null)
+                {
+                    result = await producer.ConfigureAwait(false);
+                }
             }
             finally
             {
@@ -359,8 +375,14 @@ public sealed class EdgeChatClient : IChatClient
                 // a generator a LATER turn will reuse - which would leave terminate_session stuck
                 // at "1" on a cached generator.
                 termination.Dispose();
-                FinishTurn(turn, result);
-                ReleaseGate();
+                try
+                {
+                    FinishTurn(turn, result);
+                }
+                finally
+                {
+                    ReleaseGate();
+                }
             }
         }
 
@@ -579,7 +601,10 @@ public sealed class EdgeChatClient : IChatClient
             var tokens = session.Encode(fullText);
             var promptTokens = tokens.Length;
 
-            if (promptTokens + maxOutput > resolvedContext)
+            // In long: MaxOutputTokens is the caller's number, and int.MaxValue ("as much as you
+            // like") wrapped this sum negative, skipped the check, and handed the native a negative
+            // max_length.
+            if ((long)promptTokens + maxOutput > resolvedContext)
             {
                 throw ChatTurnPipeline.PromptTooLong(preset.Id, promptTokens, resolvedContext, maxOutput);
             }

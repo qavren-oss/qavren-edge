@@ -83,8 +83,16 @@ internal sealed class FakeGenerator : IChatGenerator
 
     public int LastToken() => _last;
 
+    /// <summary>Throw this from <see cref="SetRuntimeOption"/> while it is set.</summary>
+    public Exception? ThrowOnRuntimeOption { get; set; }
+
     public void SetRuntimeOption(string key, string value)
     {
+        if (ThrowOnRuntimeOption is { } failure)
+        {
+            throw failure;
+        }
+
         RuntimeOptions.Add((key, value));
         if (key == "terminate_session")
         {

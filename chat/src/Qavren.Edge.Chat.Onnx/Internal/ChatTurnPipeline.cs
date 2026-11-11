@@ -417,8 +417,17 @@ internal static class ChatTurnPipeline
         ArgumentNullException.ThrowIfNull(edge);
         var preset = edge.Preset;
 
+        var maxOutputTokens = options?.MaxOutputTokens ?? edge.MaxOutputTokens ?? preset.DefaultMaxOutputTokens;
+        if (maxOutputTokens <= 0)
+        {
+            throw OptionUnsupported(
+                FormattableString.Invariant($"MaxOutputTokens is {maxOutputTokens}, and a turn has to be allowed at least one token"),
+                "Set ChatOptions.MaxOutputTokens (or EdgeChatOptions.MaxOutputTokens) to a positive number, or leave " +
+                "it null to take the preset's default.");
+        }
+
         return new ChatTurnKnobs(
-            options?.MaxOutputTokens ?? edge.MaxOutputTokens ?? preset.DefaultMaxOutputTokens,
+            maxOutputTokens,
             options?.Temperature ?? edge.Temperature ?? preset.DefaultTemperature,
             options?.TopP ?? edge.TopP ?? preset.DefaultTopP,
             options?.TopK ?? edge.TopK ?? preset.DefaultTopK,
@@ -533,7 +542,9 @@ internal static class ChatTurnPipeline
             case long l:
                 {
                     var converted = (double)l;
-                    if (Math.Abs(l) <= (1L << 53) && (long)converted == l)
+                    // A range test, not Math.Abs: Math.Abs(long.MinValue) throws OverflowException,
+                    // which is not the 7108 this method promises for a value it cannot carry.
+                    if (l is >= -(1L << 53) and <= (1L << 53) && (long)converted == l)
                     {
                         return converted;
                     }
