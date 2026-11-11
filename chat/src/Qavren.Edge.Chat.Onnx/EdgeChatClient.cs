@@ -629,15 +629,51 @@ public sealed class EdgeChatClient : IChatClient
             }
 
             var tokens = session.Encode(fullText);
-            var promptTokens = tokens.Length;
 
             // In long: MaxOutputTokens is the caller's number, and int.MaxValue ("as much as you
             // like") wrapped this sum negative, skipped the check, and handed the native a negative
             // max_length.
-            if ((long)promptTokens + maxOutput > resolvedContext)
+            while ((long)tokens.Length + maxOutput > resolvedContext)
             {
-                throw ChatTurnPipeline.PromptTooLong(preset.Id, promptTokens, resolvedContext, maxOutput);
+                // The reducer budgets the messages' TEXT; the template wraps every message in role
+                // markers the budget never saw, and ReservedPromptTokens is a guess at them. When
+                // the guess is short the formatted prompt overshoots - and this used to be a 7102
+                // with older turns still there to drop. So the history is cut again, by exactly the
+                // overshoot, from what it is now, and the prompt re-formatted. Every pass evicts at
+                // least one more group or stops at the reducer's floor, which IS the 7102.
+                var overshoot = (long)tokens.Length + maxOutput - resolvedContext;
+                long kept = 0;
+                foreach (var message in reduced)
+                {
+                    kept += message.Text is { Length: > 0 } text ? session.Encode(text).Length : 0;
+                }
+
+                historyOptions.MaxHistoryTokens = (int)Math.Clamp(kept - overshoot, 0, int.MaxValue);
+                var tighter = await new EdgeChatTokenBudgetReducer(
+                        text => text.Length == 0 ? 0 : session.Encode(text).Length,
+                        historyOptions)
+                    .ReduceAsync(composed, cancellationToken)
+                    .ConfigureAwait(false);
+                var shorter = tighter as IReadOnlyList<ChatMessage> ?? [.. tighter];
+
+                if (shorter.Count == reduced.Count)
+                {
+                    throw ChatTurnPipeline.PromptTooLong(preset.Id, tokens.Length, resolvedContext, maxOutput);
+                }
+
+                reduced = shorter;
+                dropped = composed.Count - reduced.Count;
+                ChatTurnLog.HistoryReduced(_logger, dropped, composed.Count, historyOptions.MaxHistoryTokens);
+
+                // From the session the turn now holds: after a conversation-cache miss the context
+                // built above wraps the candidate's, whose lease is gone.
+                promptContext = new ChatPromptContext(session, preset.Id, info.Shape, resolvedContext);
+                fullText = Format(reduced, options, edge, info, promptContext);
+                ChatTurnLog.FormattedPrompt(_logger, fullText);
+                tokens = session.Encode(fullText);
             }
+
+            var promptTokens = tokens.Length;
 
             // (e) max_length: the KV MEMORY cap, <= resolvedContext either way. A generator the
             // cache may keep is built to the budget's whole answer so later turns fit; one that is
