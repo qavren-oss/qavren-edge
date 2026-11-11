@@ -9,7 +9,8 @@ public static class SqliteNativeBuilderExtensions
 {
     /// <summary>
     /// Registers the plain (unencrypted) native SQLite provider. Calling this together with
-    /// <c>UseSqliteNativeCipher()</c> is a configuration error caught when a database is resolved.
+    /// <c>UseSqliteNativeCipher()</c> is a configuration error that faults startup when the first
+    /// database is opened.
     /// </summary>
     public static EdgeBuilder UseSqliteNative(this EdgeBuilder builder, Action<QedgeSqliteNativeProvider>? configure = null)
     {

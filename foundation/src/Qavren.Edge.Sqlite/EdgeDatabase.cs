@@ -22,14 +22,28 @@ public sealed class EdgeDatabase : IEdgeDatabase, IDisposable
             EdgeEventIds.CheckpointFailed,
             "Checkpoint of database {Database} failed.");
 
+    private const string InMemory = ":memory:";
+
     private readonly SqliteOptions _options;
     private readonly Func<IEdgeHost> _host;
     private readonly Func<ISqliteNativeProvider> _native;
     private readonly ILogger<EdgeDatabase> _logger;
     private readonly SemaphoreSlim _keyGate = new(1, 1);
 
+    /// <summary>
+    /// Null for a file. For <c>:memory:</c>, the data source every connection of this database
+    /// opens instead - see <see cref="GetConnectionStringAsync"/>.
+    /// </summary>
+    private readonly string? _memoryDataSource;
+
     private string? _connectionString;
     private SqliteKey? _resolvedKey;
+
+    /// <summary>
+    /// The connection that keeps an in-memory database in existence. Opened with the first
+    /// connection string and closed by <see cref="Dispose"/>; nothing ever runs a statement on it.
+    /// </summary>
+    private SqliteConnection? _memoryAnchor;
 
     /// <summary>
     /// Creates a database over resolved options, paths, the host and the single native provider.
@@ -40,7 +54,9 @@ public sealed class EdgeDatabase : IEdgeDatabase, IDisposable
     /// constructor closes a container cycle (database -> host -> startup tasks -> database) that
     /// MSDI cannot see through a factory registration and that hangs instead of failing. Deferring
     /// also keeps "no native provider registered" a startup fault, as the plan's Step 8 note requires,
-    /// rather than a failure to resolve <see cref="IEdgeDatabase"/> at all.
+    /// rather than a failure to resolve <see cref="IEdgeDatabase"/> at all. The provider accessor is
+    /// called when the connection string is built - on the first open, and again after a rekey -
+    /// whether or not a key is configured.
     /// </remarks>
     public EdgeDatabase(
         string name,
@@ -59,9 +75,22 @@ public sealed class EdgeDatabase : IEdgeDatabase, IDisposable
         _native = native;
         _logger = logger;
 
-        Path = string.Equals(options.DatabaseName, ":memory:", StringComparison.Ordinal)
-            ? ":memory:"
-            : System.IO.Path.Combine(options.Directory ?? paths.Data, options.DatabaseName);
+        if (string.Equals(options.DatabaseName, InMemory, StringComparison.Ordinal))
+        {
+            Path = InMemory;
+
+            // SQLite's own ":memory:" is a new, empty database for every connection that opens it,
+            // and this class opens one connection per call: the migrator's tables were in a
+            // database nobody could reach again. The memdb VFS holds a database in memory under a
+            // name instead, and a name that starts with '/' is one database for every connection
+            // in the process that asks for it. The name is this instance's alone, so two
+            // registrations, or two hosts in one test run, never meet.
+            _memoryDataSource = "file:/qedge-" + Guid.NewGuid().ToString("N") + "?vfs=memdb";
+        }
+        else
+        {
+            Path = System.IO.Path.Combine(options.Directory ?? paths.Data, options.DatabaseName);
+        }
 
         IsEncrypted = options.Key is not null || options.KeyProvider is not null;
     }
@@ -132,7 +161,7 @@ public sealed class EdgeDatabase : IEdgeDatabase, IDisposable
     /// <summary>Applied once, at creation. Safe to re-run: setting the same journal_mode is a no-op.</summary>
     internal async Task ApplyCreationPragmasAsync(SqliteConnection connection, CancellationToken cancellationToken)
     {
-        if (string.Equals(Path, ":memory:", StringComparison.Ordinal))
+        if (_memoryDataSource is not null)
         {
             return;
         }
@@ -157,19 +186,25 @@ public sealed class EdgeDatabase : IEdgeDatabase, IDisposable
                 return _connectionString;
             }
 
+            // Asked for on every database, not only a keyed one. This is the first thing any open
+            // does, and it is where "no native provider" and "two of them" become the documented
+            // configuration error - for the open task, and equally for a startup task ordered ahead
+            // of it, which the host lets straight through to here.
+            var native = _native();
+
             var builder = new SqliteConnectionStringBuilder
             {
-                DataSource = Path,
-                Pooling = _options.Pooling,
+                DataSource = _memoryDataSource ?? Path,
+
+                // Never pooled in memory. A pooled handle outlives this object until somebody
+                // clears the pools, and a handle is all it takes to keep the whole database alive.
+                Pooling = _memoryDataSource is null && _options.Pooling,
                 ForeignKeys = _options.ForeignKeys,
-                Mode = string.Equals(Path, ":memory:", StringComparison.Ordinal)
-                    ? SqliteOpenMode.Memory
-                    : SqliteOpenMode.ReadWriteCreate,
+                Mode = SqliteOpenMode.ReadWriteCreate,
             };
 
             if (IsEncrypted)
             {
-                var native = _native();
                 if (!native.SupportsEncryption)
                 {
                     throw new EdgeConfigurationException(
@@ -188,7 +223,29 @@ public sealed class EdgeDatabase : IEdgeDatabase, IDisposable
                 builder.Password = _resolvedKey.ToConnectionStringPassword();
             }
 
-            _connectionString = builder.ToString();
+            var connectionString = builder.ToString();
+
+            if (_memoryDataSource is not null && _memoryAnchor is null)
+            {
+                // An in-memory database exists for as long as one connection to it does. Callers
+                // open and close theirs around every operation, so this one stays open underneath
+                // them all - through a pool clear too, which only ever closes idle pooled handles -
+                // until the container disposes this object.
+                var anchor = new SqliteConnection(connectionString);
+                try
+                {
+                    await anchor.OpenAsync(cancellationToken).ConfigureAwait(false);
+                }
+                catch
+                {
+                    await anchor.DisposeAsync().ConfigureAwait(false);
+                    throw;
+                }
+
+                _memoryAnchor = anchor;
+            }
+
+            _connectionString = connectionString;
             return _connectionString;
         }
         finally
@@ -237,7 +294,7 @@ public sealed class EdgeDatabase : IEdgeDatabase, IDisposable
         SqliteConnection connection,
         CancellationToken cancellationToken)
     {
-        var fileSize = string.Equals(Path, ":memory:", StringComparison.Ordinal) || !File.Exists(Path)
+        var fileSize = _memoryDataSource is not null || !File.Exists(Path)
             ? 0L
             : new FileInfo(Path).Length;
 
@@ -318,7 +375,7 @@ public sealed class EdgeDatabase : IEdgeDatabase, IDisposable
     /// <inheritdoc />
     public async Task CheckpointAsync(CancellationToken cancellationToken = default)
     {
-        if (string.Equals(Path, ":memory:", StringComparison.Ordinal))
+        if (_memoryDataSource is not null)
         {
             return;
         }
@@ -339,6 +396,14 @@ public sealed class EdgeDatabase : IEdgeDatabase, IDisposable
         }
     }
 
-    /// <summary>Releases the key gate. The container owns this object's lifetime.</summary>
-    public void Dispose() => _keyGate.Dispose();
+    /// <summary>
+    /// Releases the key gate and, for an in-memory database, the connection that kept it in
+    /// existence. The container owns this object's lifetime.
+    /// </summary>
+    public void Dispose()
+    {
+        _memoryAnchor?.Dispose();
+        _memoryAnchor = null;
+        _keyGate.Dispose();
+    }
 }

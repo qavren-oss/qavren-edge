@@ -40,15 +40,20 @@ public static class SqliteEdgeBuilderExtensions
 
         builder.Services.Configure<SqliteOptions>(key, o => configure?.Invoke(o));
 
+        // Nothing registered here may need the native provider in order to be CONSTRUCTED. The host
+        // resolves every startup task before it runs the first, and the diagnostics service resolves
+        // every contributor before it reports on one, so a provider taken as a constructor argument
+        // made "none registered" a container error out of GetRequiredService<IEdgeHost>() - no
+        // startup, no fault on Started, no report. Each of them takes an accessor, or nothing, and
+        // the database looks when it is first opened: inside a startup task, where it is a fault.
         builder.Services.TryAddEnumerable(
-            ServiceDescriptor.Singleton<IEdgeDiagnosticsContributor, SqliteDiagnosticsContributor>());
+            ServiceDescriptor.Singleton<IEdgeDiagnosticsContributor, SqliteDiagnosticsContributor>(
+                sp => new SqliteDiagnosticsContributor(sp.GetServices<IEdgeDatabase>(), () => RequireNative(sp))));
         builder.Services.TryAddEnumerable(
             ServiceDescriptor.Singleton<IEdgeLifecycleObserver, SqliteLifecycleObserver>());
 
-        // The host and the provider are passed as accessors: the startup tasks below depend on this
-        // database, so resolving IEdgeHost here would close a container cycle, and resolving the
-        // native provider here would turn a missing provider into an unresolvable IEdgeDatabase
-        // instead of the startup fault the contract promises.
+        // The host is an accessor for a second reason: the startup tasks below depend on this
+        // database, so resolving IEdgeHost here would close a container cycle.
         builder.Services.AddKeyedSingleton<EdgeDatabase>(key, (sp, _) => new EdgeDatabase(
             key,
             sp.GetRequiredService<IOptionsMonitor<SqliteOptions>>().Get(key),
@@ -63,7 +68,6 @@ public static class SqliteEdgeBuilderExtensions
 
         builder.Services.AddSingleton<IEdgeStartupTask>(sp => new SqliteOpenStartupTask(
             sp.GetRequiredKeyedService<EdgeDatabase>(key),
-            RequireNative(sp),
             sp.GetRequiredService<ILogger<SqliteOpenStartupTask>>()));
 
         builder.Services.AddSingleton<IEdgeStartupTask>(sp => new EdgeMigrator(

@@ -7,10 +7,7 @@ namespace Qavren.Edge.Sqlite.Internal;
 /// Startup task order 10: open once, apply the creation-time pragmas, verify the key by reading
 /// <c>sqlite_master</c>, and capture the info for diagnostics.
 /// </summary>
-public sealed class SqliteOpenStartupTask(
-    EdgeDatabase database,
-    ISqliteNativeProvider native,
-    ILogger<SqliteOpenStartupTask> logger) : IEdgeStartupTask
+public sealed class SqliteOpenStartupTask : IEdgeStartupTask
 {
     // CA1848: cached delegate; the plan's LogInformation carries no explicit event id, so this
     // keeps id 0 with a name, exactly what the inline call would have emitted.
@@ -19,6 +16,35 @@ public sealed class SqliteOpenStartupTask(
             LogLevel.Information,
             new EventId(0, "DatabaseOpened"),
             "Opened database {Database} at {Path}.");
+
+    private readonly EdgeDatabase _database;
+    private readonly ILogger<SqliteOpenStartupTask> _logger;
+
+    /// <summary>Creates the task over an already-resolved native provider.</summary>
+    /// <param name="database">The database to open.</param>
+    /// <param name="native">The single registered native provider. Startup task 0 has installed it by the time this runs.</param>
+    /// <param name="logger">Receives the database-opened event.</param>
+    public SqliteOpenStartupTask(
+        EdgeDatabase database,
+        ISqliteNativeProvider native,
+        ILogger<SqliteOpenStartupTask> logger)
+        : this(database, logger)
+    {
+        _ = native;   // ordering dependency: startup task 0 must have installed the provider first
+    }
+
+    /// <summary>
+    /// What <c>AddSqlite</c> registers. It takes no provider, and that is the point: the host
+    /// resolves every startup task before it runs any, so a task that needed the provider to be
+    /// CONSTRUCTED turned "no native provider registered" into a host nothing could resolve. The
+    /// database looks for the provider when it is first opened, which is inside
+    /// <see cref="RunAsync"/>, where a failure is a startup fault.
+    /// </summary>
+    internal SqliteOpenStartupTask(EdgeDatabase database, ILogger<SqliteOpenStartupTask> logger)
+    {
+        _database = database;
+        _logger = logger;
+    }
 
     /// <inheritdoc />
     public int Order => EdgeStartupOrder.DatabaseOpen;
@@ -34,21 +60,19 @@ public sealed class SqliteOpenStartupTask(
     /// <inheritdoc />
     public async Task RunAsync(CancellationToken cancellationToken)
     {
-        _ = native;   // ordering dependency: startup task 0 must have installed the provider first
-
-        var connection = await database.OpenCoreAsync(cancellationToken).ConfigureAwait(false);
+        var connection = await _database.OpenCoreAsync(cancellationToken).ConfigureAwait(false);
         await using (connection.ConfigureAwait(false))
         {
-            await database.ApplyCreationPragmasAsync(connection, cancellationToken).ConfigureAwait(false);
+            await _database.ApplyCreationPragmasAsync(connection, cancellationToken).ConfigureAwait(false);
 
             // Forces decryption on a cipher database, so a wrong key fails here rather than later.
             _ = await connection
                 .ScalarAsync<long>("SELECT count(*) FROM sqlite_master", cancellationToken: cancellationToken)
                 .ConfigureAwait(false);
 
-            Info = await database.ReadInfoAsync(connection, cancellationToken).ConfigureAwait(false);
+            Info = await _database.ReadInfoAsync(connection, cancellationToken).ConfigureAwait(false);
 
-            s_databaseOpened(logger, database.Name, database.Path, null);
+            s_databaseOpened(_logger, _database.Name, _database.Path, null);
         }
     }
 }

@@ -307,6 +307,51 @@ public class CipherTests
         Assert.Equal(EdgeErrorCode.EncryptionKeyWithoutCipherProvider, ex.Code);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task AnInMemoryDatabaseIsOneDatabaseUnderTheCipherBuildWithOrWithoutAKey(bool keyed)
+    {
+        Assert.SkipUnless(NativePresent, "qedge_sqlcipher was not built on this machine.");
+
+        var ct = TestContext.Current.CancellationToken;
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddSingleton<IEdgePaths>(new FixedPaths(NewRoot()));
+        services.AddQavrenEdge(edge => edge
+            .AddSqlite(o =>
+            {
+                o.DatabaseName = ":memory:";
+                o.Key = keyed ? SqliteKey.FromRawBytes(KeyA) : null;
+            })
+            .UseSqliteNativeCipher());
+
+        var sp = services.BuildServiceProvider();
+        await using (sp.ConfigureAwait(true))
+        {
+            await sp.GetRequiredService<IEdgeHost>().EnsureStartedAsync(ct).ConfigureAwait(true);
+            var db = sp.GetRequiredService<IEdgeDatabase>();
+
+            var writer = await db.OpenConnectionAsync(ct).ConfigureAwait(true);
+            await using (writer.ConfigureAwait(true))
+            {
+                await writer.ExecuteAsync("CREATE TABLE t(x TEXT)", cancellationToken: ct).ConfigureAwait(true);
+                await writer.ExecuteAsync("INSERT INTO t VALUES('hello')", cancellationToken: ct).ConfigureAwait(true);
+            }
+
+            // A second connection, opened after the first has closed. With a key it also has to
+            // read pages the first one encrypted, so each connection keying itself is not enough:
+            // they have to be keying the same database.
+            var reader = await db.OpenConnectionAsync(ct).ConfigureAwait(true);
+            await using (reader.ConfigureAwait(true))
+            {
+                Assert.Equal(
+                    "hello",
+                    await reader.ScalarAsync<string>("SELECT x FROM t", cancellationToken: ct).ConfigureAwait(true));
+            }
+        }
+    }
+
     private static async Task<ServiceProvider> StartAsync(string root, SqliteKey? key, CancellationToken ct)
     {
         var services = new ServiceCollection();
