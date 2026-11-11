@@ -5,8 +5,9 @@ on:
     tags: ['v*']
   workflow_dispatch:
 
+# Nothing may write, or mint an OIDC token, unless its own job says so. Only `publish` does.
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   # Rebuild the natives from the tagged commit rather than trusting a stale artifact, so the
@@ -25,16 +26,15 @@ jobs:
       contents: read
       actions: read
 
-  release:
+  # Builds everything a release consists of and hands it to `publish` as one artifact. It holds
+  # no `id-token: write` and no `contents: write`, on purpose: this is the job that restores every
+  # NuGet package the solution references and runs their build targets, and the SBOM action. None
+  # of that can mint the token nuget.org trusts, or touch the repository, from here.
+  pack:
     needs: natives
     runs-on: windows-2025
-    # OIDC trusted publishing, no long-lived key and no secret: the policy on nuget.org (owner
-    # Qavren, repository qavren-oss/qavren-edge, workflow release.yml) lets NuGet/login exchange
-    # the GitHub OIDC token for a one-hour API key at publish time. id-token: write is what mints
-    # that token; the job-level block replaces the workflow-level one, so contents: write stays.
     permissions:
-      contents: write
-      id-token: write
+      contents: read
     steps:
       - uses: actions/checkout@v7
         with:
@@ -95,12 +95,14 @@ jobs:
             Set-Content artifacts/SHA256SUMS.txt
           Get-Content artifacts/SHA256SUMS.txt
 
-      # workflow_dispatch is the dry run: everything above ran, nothing below does, and the
-      # would-be release assets are inspectable as a workflow artifact.
+      # The hand-over. On workflow_dispatch this is where the run ends: the dry run's would-be
+      # release assets, inspectable as `release-dry-run`. On a tag it is `release-assets`, the only
+      # thing `publish` takes from this job. The paths share `artifacts/` as their root, so the
+      # artifact holds packages/, native/, sbom.spdx.json and SHA256SUMS.txt.
       - uses: actions/upload-artifact@v7
-        if: "!startsWith(github.ref, 'refs/tags/v')"
         with:
-          name: release-dry-run
+          name: ${{ startsWith(github.ref, 'refs/tags/v') && 'release-assets' || 'release-dry-run' }}
+          if-no-files-found: error
           path: |
             artifacts/packages/*.nupkg
             artifacts/packages/*.snupkg
@@ -108,18 +110,59 @@ jobs:
             artifacts/sbom.spdx.json
             artifacts/SHA256SUMS.txt
 
+  # The only job that can publish, and it builds nothing: it downloads what `pack` produced,
+  # checks it against the checksum file `pack` wrote, pushes and creates the release. A tag is the
+  # only way in; workflow_dispatch never reaches it.
+  publish:
+    needs: pack
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: windows-2025
+    # OIDC trusted publishing, no long-lived key and no secret: the policy on nuget.org (owner
+    # Qavren, repository qavren-oss/qavren-edge, workflow release.yml) lets NuGet/login exchange
+    # the GitHub OIDC token for a one-hour API key at publish time. id-token: write is what mints
+    # that token, and contents: write is what creates the GitHub release.
+    permissions:
+      contents: write
+      id-token: write
+    steps:
+      # For global.json only. Nothing from the checkout is built or run in this job.
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: release-assets
+          path: artifacts
+
+      # The files this job is about to publish are the files `pack` hashed: the same count, the
+      # same names, the same bytes.
+      - name: Verify the hand-over against SHA256SUMS
+        shell: pwsh
+        run: |
+          $lines = @(Get-Content artifacts/SHA256SUMS.txt | Where-Object { $_ })
+          if ($lines.Count -ne 38) { throw "expected 38 checksum lines (17 .nupkg, 17 .snupkg, 3 zips, the SBOM), found $($lines.Count)" }
+          foreach ($line in $lines) {
+            $hash, $name = $line -split '  ', 2
+            $file = @(Get-ChildItem artifacts -Recurse -File -Filter $name)
+            if ($file.Count -ne 1) { throw "expected exactly one '$name' in the artifact, found $($file.Count)" }
+            $actual = (Get-FileHash $file[0].FullName -Algorithm SHA256).Hash
+            if ($actual -ne $hash) { throw "$name does not match SHA256SUMS.txt" }
+          }
+          "verified $($lines.Count) files"
+
       # One push per package, enumerated by PowerShell: on the Windows runner `dotnet nuget push`
       # does not expand a forward-slash glob ("File does not exist (artifacts/packages/*.nupkg)",
       # run 34721241400). The matching .snupkg beside each .nupkg is pushed with it.
       - name: NuGet login (OIDC -> temp API key)
-        if: startsWith(github.ref, 'refs/tags/v')
         id: login
         uses: NuGet/login@8d196754b4036150537f80ac539e15c2f1028841 # v1.2.0
         with:
           user: stevenfackley
 
       - name: Push to NuGet.org
-        if: startsWith(github.ref, 'refs/tags/v')
         shell: pwsh
         env:
           NUGET_API_KEY: ${{ steps.login.outputs.NUGET_API_KEY }}
@@ -132,7 +175,6 @@ jobs:
           }
 
       - uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
-        if: startsWith(github.ref, 'refs/tags/v')
         with:
           prerelease: ${{ contains(github.ref_name, '-') }}
           files: |
