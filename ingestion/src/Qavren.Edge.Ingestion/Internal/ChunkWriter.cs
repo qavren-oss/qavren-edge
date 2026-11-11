@@ -76,7 +76,7 @@ internal sealed class ChunkWriter(
             // a1 — ONE call, strictly OUTSIDE any transaction.
             embeddings = await generator.GenerateAsync(texts, options: null, cancellationToken).ConfigureAwait(false);
         }
-        catch (Exception first) when (first is not OperationCanceledException)
+        catch (Exception first) when (first is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
         {
             // 6206: the embed threw. Halve the batch, log 918, retry the EMBED once. A second
             // failure suspends the run - it is never retried a third time and never silently
@@ -94,7 +94,7 @@ internal sealed class ChunkWriter(
                 embedCalls += retry.Calls;
                 embeddings = retry.Embeddings;
             }
-            catch (Exception second) when (second is not OperationCanceledException)
+            catch (Exception second) when (second is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
             {
                 throw new EdgeIngestionException(
                     EdgeErrorCode.IngestionEmbeddingFailed,
@@ -161,7 +161,7 @@ internal sealed class ChunkWriter(
             // a2 — ONE call. It opens the only transaction in the pair.
             await collection.UpsertAsync(records, cancellationToken).ConfigureAwait(false);
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        catch (Exception ex) when (ex is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
         {
             throw new EdgeIngestionException(
                 EdgeErrorCode.IngestionWriteFailed,
@@ -200,7 +200,7 @@ internal sealed class ChunkWriter(
             {
                 await collection.DeleteAsync(window, cancellationToken).ConfigureAwait(false);
             }
-            catch (Exception ex) when (ex is not OperationCanceledException)
+            catch (Exception ex) when (ex is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
             {
                 throw new EdgeIngestionException(
                     EdgeErrorCode.IngestionWriteFailed,

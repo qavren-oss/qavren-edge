@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Runtime.ExceptionServices;
 using Microsoft.Extensions.Logging;
 using Qavren.Edge.Sqlite;
 
@@ -127,13 +128,18 @@ internal sealed class IngestionRunner
                     break;
                 }
 
+                // Live BEFORE the filter. Pruning deletes what is no longer in the source, and a
+                // document the filter passed over this run is still in it: with the filter applied
+                // first, "only what changed since last sync" deleted every older document's chunks
+                // at the end of a completed run.
+                liveIds.Add(item.DocumentId);
+
                 if (options.Filter is { } filter && !filter(item))
                 {
                     continue;
                 }
 
                 counters.DocumentsSeen++;
-                liveIds.Add(item.DocumentId);
 
                 if (!seenIds.Add(item.DocumentId))
                 {
@@ -199,8 +205,11 @@ internal sealed class IngestionRunner
                     runFailure = Failure(ex);
                     break;
                 }
-                catch (Exception ex) when (ex is not OperationCanceledException)
+                catch (Exception ex) when (ex is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
                 {
+                    // The second half of the filter: an OperationCanceledException with the run's
+                    // own token untouched is somebody else's timeout - an HttpClient inside a cloud
+                    // embedder or a consumer's OpenAsync - and it fails this document, not the run.
                     var failure = Failure(ex);
                     documentRun = DocumentRun.Failed(item.DocumentId, failure, TimeSpan.Zero);
                     IngestionLog.DocumentFailed(_logger, item.DocumentId, failure.Code, failure.Message, ex);
@@ -253,7 +262,9 @@ internal sealed class IngestionRunner
                 {
                     if (failFast && documentRun.Thrown is { } original)
                     {
-                        throw original;
+                        // Throw(), not "throw original": the stack that says where the extractor
+                        // failed is the whole reason FailFast rethrows the original.
+                        ExceptionDispatchInfo.Throw(original);
                     }
 
                     if (consecutiveErrors >= opts.AbortAfterConsecutiveErrors)
@@ -518,6 +529,11 @@ internal sealed class IngestionRunner
         if (!options.Force
             && opts.SkipUnchangedByTimestamp
             && stored is not null
+
+            // Both present, not merely equal: a source that declares neither is null == null on
+            // both lines, and that skipped its documents for ever whatever happened to their bytes.
+            && item.SizeBytes is not null
+            && item.LastModifiedUtc is not null
             && stored.SizeBytes == item.SizeBytes
             && stored.ModifiedUtc == item.LastModifiedUtc
             && stored.RecipeHash == documentRecipe.HashValue
@@ -599,13 +615,25 @@ internal sealed class IngestionRunner
         {
             var failure = _extractors.NotFound(item);
             IngestionLog.DocumentUnsupported(_logger, item.DocumentId, item.MediaType);
+
+            // Chunks an earlier run wrote, when an extractor for this type was still registered.
+            // If the bytes are the ones those chunks came from they are still true, and keeping
+            // them makes re-registering the extractor free. If the bytes have changed they describe
+            // a document that no longer exists, and nothing would ever replace them.
+            var bytesUnchanged = stored is not null && stored.ContentHash == hash;
+            var orphaned = bytesUnchanged
+                ? 0
+                : await RemoveIndexedChunksAsync(source.Id, item.DocumentId, counters, cancellationToken)
+                    .ConfigureAwait(false);
+
             await WriteStateAsync(
-                source.Id, item, runId, hash, documentRecipe, extractorId: null, chunkCount: 0,
+                source.Id, item, runId, hash, documentRecipe, extractorId: null,
+                chunkCount: bytesUnchanged ? stored!.ChunkCount : 0,
                 IngestionDocumentStatus.Unsupported, failure.Message, cancellationToken).ConfigureAwait(false);
 
             return new DocumentRun(
                 new IngestionDocumentResult(
-                    item.DocumentId, IngestionDocumentOutcome.Unsupported, null, 0, 0, 0, 0, 0,
+                    item.DocumentId, IngestionDocumentOutcome.Unsupported, null, 0, orphaned, 0, 0, 0,
                     _time.GetElapsedTime(started), failure),
                 Abandoned: false,
                 SuspendReason: null,
@@ -633,7 +661,7 @@ internal sealed class IngestionRunner
                 item, source.Id, runId, stored, Failure(ex), started, cancellationToken, ex, hash, documentRecipe)
                 .ConfigureAwait(false);
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        catch (Exception ex) when (ex is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
         {
             // 6102 - the catch-all that stops a NullReferenceException in a third-party parser from
             // becoming an unhandled run fault. An extractor that does not know gets one honest code
@@ -673,13 +701,19 @@ internal sealed class IngestionRunner
                 extractor.Id,
                 "Run OCR over the document first, or exclude it from the source's search pattern.");
 
+            // A document that had text and no longer does - emptied, or replaced by a scan - still
+            // has its old chunks in the index. The row written below says it has none and the hash
+            // gate then skips it on every later run, so this is the only place they can go.
+            var orphaned = await RemoveIndexedChunksAsync(source.Id, item.DocumentId, counters, cancellationToken)
+                .ConfigureAwait(false);
+
             await WriteStateAsync(
                 source.Id, item, runId, hash, documentRecipe, extractor.Id, chunkCount: 0,
                 IngestionDocumentStatus.NoTextLayer, failure.Message, cancellationToken).ConfigureAwait(false);
 
             return new DocumentRun(
                 new IngestionDocumentResult(
-                    item.DocumentId, IngestionDocumentOutcome.NoTextLayer, extractor.Id, 0, 0, 0, 0, 0,
+                    item.DocumentId, IngestionDocumentOutcome.NoTextLayer, extractor.Id, 0, orphaned, 0, 0, 0,
                     _time.GetElapsedTime(started), failure),
                 Abandoned: false,
                 SuspendReason: null,
@@ -786,6 +820,28 @@ internal sealed class IngestionRunner
             : null;
     }
 
+    /// <summary>
+    /// Deletes whatever earlier runs indexed for a document this run has nothing to index for.
+    /// Read first, and by what is actually in the table rather than by the state row's count: a run
+    /// suspended mid-document leaves chunks and no row by design, and a document that never had any
+    /// should cost a read here, not a write transaction.
+    /// </summary>
+    private async Task<int> RemoveIndexedChunksAsync(
+        string sourceId, string documentId, RunCounters counters, CancellationToken cancellationToken)
+    {
+        var indexed = await ChunkDiff.ReadStoredAsync(
+            _database, _dataTable, sourceId, documentId, cancellationToken).ConfigureAwait(false);
+        if (indexed.Count == 0)
+        {
+            return 0;
+        }
+
+        var removed = await _writer.DeleteDocumentChunksAsync(sourceId, documentId, cancellationToken)
+            .ConfigureAwait(false);
+        counters.ChunksRemoved += removed;
+        return removed;
+    }
+
     private async Task<DocumentRun> RecordFailureAsync(
         DocumentSourceItem item,
         string sourceId,
@@ -866,7 +922,7 @@ internal sealed class IngestionRunner
             await _state.UpsertDocumentAsync(
                 _registration.CollectionName, row, cancellationToken).ConfigureAwait(false);
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        catch (Exception ex) when (ex is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
         {
             throw new EdgeIngestionException(
                 EdgeErrorCode.IngestionCheckpointWriteFailed,

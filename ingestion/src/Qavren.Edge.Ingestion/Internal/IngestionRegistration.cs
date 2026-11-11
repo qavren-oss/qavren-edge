@@ -236,12 +236,16 @@ internal sealed class IngestionRunControl
     /// <summary>True while a run is between its first document and its last.</summary>
     public bool IsRunning { get; private set; }
 
-    /// <summary>The write batch after memory pressure, floored at four.</summary>
+    /// <summary>
+    /// The write batch after memory pressure, floored at four - or at the configured size when that
+    /// is already smaller. The floor stops pressure shrinking a batch to nothing; it is not a
+    /// minimum, and a configured batch of one used to come back as four with no pressure at all.
+    /// </summary>
     public int ApplyShrink(int batchSize)
     {
         lock (_gate)
         {
-            return Math.Max(4, batchSize / _shrinkDivisor);
+            return Math.Max(Math.Min(4, batchSize), batchSize / _shrinkDivisor);
         }
     }
 
