@@ -1,4 +1,5 @@
 using Microsoft.Extensions.DependencyInjection;
+using Qavren.Edge.Diagnostics;
 using Qavren.Edge.Hosting;
 
 namespace Qavren.Edge.Sqlite.Native.Cipher;
@@ -21,6 +22,7 @@ public static class SqliteNativeCipherBuilderExtensions
 
         builder.Services.AddSingleton<Qavren.Edge.Sqlite.ISqliteNativeProvider>(provider);
         builder.Services.AddSingleton<IEdgeStartupTask, SqliteNativeInstallStartupTask>();
+        builder.Services.AddSingleton<IEdgeDiagnosticsContributor>(new NativeDiagnosticsContributor(provider));
         return builder;
     }
 }
