@@ -245,21 +245,29 @@ auto-provisioning run) before using it.
 
 Meaning: Downloading the model's bytes failed — network failure, a
 non-2xx/206 response, or a server that ignored a `Range` request and forced a
-restart that then also failed.
+restart that then also failed. It is also what a configured
+`HttpOnnxModelSourceOptions.BearerToken` produces when `BaseAddress` is plain
+HTTP to a host that is not loopback: the token is never sent in clear, so
+nothing is requested.
 
 Remediation: Check connectivity to the model source and retry; if the server
 consistently ignores `Range`, the download restarts from scratch each time by
-design.
+design. A partial file is kept and resumed; a file that already arrived whole
+is verified and not fetched again. For the token case, use an `https`
+`BaseAddress` or clear the token.
 
 ## 5054
 
 **ModelHashMismatch**
 
 Meaning: The SHA-256 of a downloaded or staged file does not match the
-manifest, even after the one automatic retry.
+manifest, even after the one automatic retry — or a server sent more bytes
+than the manifest declares for the file, in which case the transfer is stopped
+before they are written.
 
-Remediation: Delete the cached file and re-download; confirm the manifest's
-recorded hash still matches the current revision of the source.
+Remediation: The file that failed has already been deleted, so retrying
+re-downloads it; confirm the manifest's recorded hash and size still match the
+current revision of the source.
 
 ## 5055
 
