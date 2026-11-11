@@ -116,6 +116,71 @@ public class QueueingTests
     }
 
     [Fact]
+    public async Task TheCallerGetsItsFirstMoveNextBackWhileThePromptIsStillBeingPrepared()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        using var release = new ManualResetEventSlim(initialState: false);
+        using var harness = ClientHarness.Build();
+
+        // Stands in for the prefill: the generator exists and the prompt is being appended to it.
+        harness.Session.OnGeneratorCreated = _ => release.Wait(TimeSpan.FromSeconds(20));
+
+        var enumerator = harness.Client.GetStreamingResponseAsync(Ask(), null, ct).GetAsyncEnumerator(ct);
+        try
+        {
+            var clock = System.Diagnostics.Stopwatch.StartNew();
+            var first = enumerator.MoveNextAsync();
+            var cameBackAfter = clock.Elapsed;
+
+            // With a loaded model every await on the prepare path completes synchronously, so the
+            // whole of it - tokenizer, history reduction, prefill - used to run inside this call,
+            // on the caller's thread. In a MAUI app that thread is the UI.
+            Assert.False(first.IsCompleted);
+            Assert.True(
+                cameBackAfter < TimeSpan.FromSeconds(5),
+                $"MoveNextAsync held the caller for {cameBackAfter.TotalSeconds:F1} s while the prompt was prepared.");
+
+            release.Set();
+            Assert.True(await first.ConfigureAwait(true));
+        }
+        finally
+        {
+            release.Set();
+            await enumerator.DisposeAsync().ConfigureAwait(true);
+        }
+    }
+
+    [Fact]
+    public async Task AFailureBetweenThePrefillAndTheFirstTokenGivesTheGateAndTheLeaseBack()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        using var harness = ClientHarness.Build(o => o.TurnQueueTimeout = TimeSpan.FromSeconds(2));
+
+        // The one native call between the prefill and the decode loop is the terminate reset.
+        var fail = true;
+        harness.Session.OnGeneratorCreated = generator =>
+        {
+            if (fail)
+            {
+                generator.ThrowOnRuntimeOption = FakeGenerator.NativeFailure("Session in Terminated state");
+            }
+        };
+
+        await Assert.ThrowsAnyAsync<Exception>(
+            () => harness.Client.GetResponseAsync(Ask(), null, ct)).ConfigureAwait(true);
+
+        // It used to leave the gate held and the lease out: every later turn then waited out
+        // TurnQueueTimeout and was refused as ChatBusy, until the process was restarted.
+        Assert.Equal(0, harness.Host.ActiveLeases);
+        Assert.True(harness.Session.LastGenerator.Disposed);
+
+        fail = false;
+        var next = await harness.Client.GetResponseAsync(Ask(), null, ct).ConfigureAwait(true);
+
+        Assert.Equal("Hello world.", next.Text);
+    }
+
+    [Fact]
     public async Task TurnsNotAcceptedIs7105BeforeTheGate()
     {
         using var harness = ClientHarness.Build();

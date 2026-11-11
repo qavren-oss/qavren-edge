@@ -17,6 +17,46 @@ public class OptionRefusalTests
             () => harness.Client.GetResponseAsync(messages ?? Ask("hi"), options, TestContext.Current.CancellationToken))
             .ConfigureAwait(true);
 
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-5)]
+    public async Task AMaxOutputTokensThatAllowsNoTokenIs7108BeforeAnythingIsBuilt(int maxOutputTokens)
+    {
+        using var harness = ClientHarness.Build();
+
+        var exception = await RefusedAsync(harness, new ChatOptions { MaxOutputTokens = maxOutputTokens }).ConfigureAwait(true);
+
+        Assert.Equal(EdgeErrorCode.ChatOptionUnsupported, exception.Code);
+        Assert.Contains("MaxOutputTokens", exception.Message, StringComparison.Ordinal);
+        Assert.Empty(harness.Session.Generators);
+        Assert.Equal(0, harness.Client.GateEntries);
+    }
+
+    [Fact]
+    public async Task AMaxOutputTokensOfIntMaxValueIsAPromptThatDoesNotFitAndNeverANegativeMaxLength()
+    {
+        // "As much as you like." The sum with the prompt wrapped negative, slipped under the 7102
+        // check, and went to the native as a negative max_length.
+        using var harness = ClientHarness.Build(o => o.EnableConversationCache = false);
+
+        var exception = await RefusedAsync(harness, new ChatOptions { MaxOutputTokens = int.MaxValue }).ConfigureAwait(true);
+
+        Assert.Equal(EdgeErrorCode.ChatPromptTooLong, exception.Code);
+        Assert.Empty(harness.Session.Generators);
+    }
+
+    [Theory]
+    [InlineData(long.MinValue)]
+    [InlineData(long.MaxValue)]
+    public void ASearchOptionNoDoubleCanCarryIs7108AndNotAnArithmeticException(long value)
+    {
+        // Math.Abs(long.MinValue) throws OverflowException, which is not the refusal this promises.
+        var exception = Assert.Throws<EdgeChatException>(
+            () => Qavren.Edge.Chat.Internal.ChatTurnPipeline.ConvertSearchOption("num_beams", value));
+
+        Assert.Equal(EdgeErrorCode.ChatOptionUnsupported, exception.Code);
+    }
+
     [Fact]
     public async Task ToolsIs7107()
     {
