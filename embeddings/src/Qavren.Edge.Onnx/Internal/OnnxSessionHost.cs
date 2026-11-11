@@ -563,10 +563,25 @@ internal sealed class OnnxSessionHost : IOnnxSessionHost, IDisposable
             _loading[key] = sessionOptions;
             using (cancellationToken.Register(static state => ((SessionOptions)state!).SetLoadCancellationFlag(true), sessionOptions))
             {
-                session = registration.TestGraph is { } graph
-                    ? new InferenceSession(graph, sessionOptions)
-                    : new InferenceSession(graphPath, sessionOptions);
+                // On the pool, never on the caller. Nothing before this line has to await once the
+                // model is on disk - an uncontended gate, a provisioned store, an in-memory graph -
+                // so the native graph load and optimisation, hundreds of milliseconds for a real
+                // model, ran on whichever thread called AcquireAsync: in a MAUI app, the UI thread.
+                session = await Task.Run(
+                    () => registration.TestGraph is { } graph
+                        ? new InferenceSession(graph, sessionOptions)
+                        : new InferenceSession(graphPath, sessionOptions),
+                    CancellationToken.None).ConfigureAwait(false);
             }
+        }
+        catch (OnnxRuntimeException ex) when (cancellationToken.IsCancellationRequested)
+        {
+            // The caller's cancel, which the registration above turned into ORT's load-cancellation
+            // flag and ORT turned into this throw. It is the cancel that was asked for, and it is
+            // reported as one: "ORT refused to create a session" sent people looking for a broken
+            // model that was never broken.
+            throw new OperationCanceledException(
+                $"Loading the session for '{modelId}' was cancelled.", ex, cancellationToken);
         }
         catch (OnnxRuntimeException ex)
         {

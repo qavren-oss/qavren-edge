@@ -21,9 +21,17 @@ internal sealed class StubResourceMonitor : IEdgeResourceMonitor
             IsLowPowerMode: null,
             LastPressure: null);
 
+    /// <summary>
+    /// Called inside every <see cref="Read"/>. The session host's memory pre-flight reads once,
+    /// after the load gate and before the native session is built - which is where a test puts
+    /// something that has to happen "while the session loads".
+    /// </summary>
+    public Action? OnRead { get; set; }
+
     public EdgeResourceSnapshot Read()
     {
         ReadCount++;
+        OnRead?.Invoke();
         return Next with { LastPressure = LastPressure };
     }
 
