@@ -60,6 +60,7 @@ internal sealed class StubResourceMonitor : IEdgeResourceMonitor
 internal sealed class RecordingTokenizer(IEdgeTokenizer inner) : IEdgeTokenizer
 {
     private readonly List<string> _seen = [];
+    private readonly List<(int Rows, int SequenceLength)> _shapes = [];
     private int _concurrent;
     private int _mostConcurrent;
 
@@ -70,6 +71,21 @@ internal sealed class RecordingTokenizer(IEdgeTokenizer inner) : IEdgeTokenizer
             lock (_seen)
             {
                 return [.. _seen];
+            }
+        }
+    }
+
+    /// <summary>
+    /// The shape of every batch handed back, in order. The generator wraps those buffers in tensors
+    /// without reshaping them, so this is the shape ORT was fed.
+    /// </summary>
+    public IReadOnlyList<(int Rows, int SequenceLength)> Shapes
+    {
+        get
+        {
+            lock (_seen)
+            {
+                return [.. _shapes];
             }
         }
     }
@@ -108,7 +124,14 @@ internal sealed class RecordingTokenizer(IEdgeTokenizer inner) : IEdgeTokenizer
             }
 
             DuringEncodeBatch?.Invoke();
-            return inner.EncodeBatch(texts, maxSequenceLength, buckets);
+            var batch = inner.EncodeBatch(texts, maxSequenceLength, buckets);
+
+            lock (_seen)
+            {
+                _shapes.Add((batch.BatchSize, batch.SequenceLength));
+            }
+
+            return batch;
         }
         finally
         {
@@ -333,6 +356,12 @@ internal sealed class GeneratorFixture : IDisposable
     {
         preset ??= Preset("fixture-hidden-states");
 
+        // Built before the container, because a pinned shape belongs to the SESSION: it reaches
+        // ORT through the model registration below, which is where AddOnnxEmbeddings puts it.
+        var options = new OnnxEmbeddingOptions { Preset = preset, MaxBatchSize = 16 };
+        configure?.Invoke(options);
+        OnnxEmbeddingOptions.ApplyPinning(options);
+
         var root = Path.Combine(Path.GetTempPath(), "qedge-embed-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(root);
 
@@ -350,13 +379,17 @@ internal sealed class GeneratorFixture : IDisposable
             edge.AddOnnxModelFromBytes(
                 preset.Manifest.ModelId,
                 Convert.FromBase64String(graphBase64),
-                new OnnxSessionExpectation(declaredInputs, preset.OutputName, preset.Dimensions));
+                new OnnxSessionExpectation(declaredInputs, preset.OutputName, preset.Dimensions),
+                session =>
+                {
+                    foreach (var (dimension, value) in options.Session.FreeDimensionOverrides)
+                    {
+                        session.FreeDimensionOverrides[dimension] = value;
+                    }
+                });
         });
 
         var provider = services.BuildServiceProvider();
-
-        var options = new OnnxEmbeddingOptions { Preset = preset, MaxBatchSize = 16 };
-        configure?.Invoke(options);
 
         var tokenizer = new RecordingTokenizer(TestVocabulary.Tokenizer(preset.MaxSequenceLength));
         var tokenizers = new StubTokenizerProvider(tokenizer);
