@@ -104,7 +104,11 @@ public sealed class RrfDefaults
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(top);
         ArgumentOutOfRangeException.ThrowIfNegative(skip);
 
-        var wanted = (long)(top + skip) * CandidateMultiplier;
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(CandidateMultiplier);
+
+        // Widened BEFORE the addition: (long)(top + skip) adds as int first, and a large top with
+        // any skip wrapped negative and came back as a negative candidate count.
+        var wanted = ((long)top + skip) * CandidateMultiplier;
         return wanted > MaxCandidateCount ? MaxCandidateCount : (int)wanted;
     }
 }

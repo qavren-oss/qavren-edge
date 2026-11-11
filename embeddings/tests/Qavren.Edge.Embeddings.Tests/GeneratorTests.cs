@@ -142,6 +142,45 @@ public class GeneratorTests
     }
 
     [Fact]
+    public async Task TheQuerySiblingSharesItsParentsGateSoMaxConcurrencyBoundsThePair()
+    {
+        // MaxConcurrency is 1 by default "because a second inference doubles peak native memory on
+        // a phone". The query sibling built its own semaphore, so an ingestion batch on the document
+        // generator and a search on the sibling ran two ORT Runs at once, on one session and one
+        // tokenizer.
+        using var fixture = GeneratorFixture.CreateOverHiddenStatesFixture(TimeProvider.System);
+        var query = (IEmbeddingGenerator<string, Embedding<float>>)fixture.Generator
+            .GetService(typeof(IEmbeddingGenerator<string, Embedding<float>>), EdgeEmbeddings.QueryServiceKey)!;
+
+        Assert.NotSame(fixture.Generator, query);
+
+        // Long enough on the tokenizer that the two calls would overlap if anything let them.
+        fixture.Tokenizer.DuringEncodeBatch = () => Thread.Sleep(150);
+
+        var ct = TestContext.Current.CancellationToken;
+        await Task.WhenAll(
+            Task.Run(() => fixture.Generator.GenerateAsync(["b", "c"], cancellationToken: ct), ct),
+            Task.Run(() => query.GenerateAsync(["d", "e"], cancellationToken: ct), ct));
+
+        Assert.Equal(1, fixture.Tokenizer.MostConcurrentBatches);
+    }
+
+    [Fact]
+    public async Task DisposingTheQuerySiblingLeavesItsParentUsable()
+    {
+        using var fixture = GeneratorFixture.CreateOverHiddenStatesFixture(TimeProvider.System);
+        var query = (IEmbeddingGenerator<string, Embedding<float>>)fixture.Generator
+            .GetService(typeof(IEmbeddingGenerator<string, Embedding<float>>), EdgeEmbeddings.QueryServiceKey)!;
+
+        // The gate is the parent's. A sibling that disposed it would break every later embed.
+        query.Dispose();
+
+        var result = await fixture.Generator.GenerateAsync(["b"], cancellationToken: TestContext.Current.CancellationToken);
+
+        Assert.Single(result);
+    }
+
+    [Fact]
     public async Task GetServiceReturnsTheDocumentedSequence()
     {
         using var fixture = GeneratorFixture.CreateOverHiddenStatesFixture(TimeProvider.System);

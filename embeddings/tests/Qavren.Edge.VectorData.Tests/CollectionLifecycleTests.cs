@@ -314,6 +314,72 @@ public sealed class CollectionLifecycleTests
     }
 
     [Fact]
+    public async Task AHybridPageBeyondTheVec0LimitIsRejectedLikeAVectorOneAndNotReturnedEmpty()
+    {
+        using var host = await VectorTestHost.StartAsync();
+        var collection = NoteCollection(host);
+        await collection.EnsureCollectionExistsAsync(Token);
+
+        // Each lane can fetch at most 4096 candidates, so this page starts past everything either
+        // lane will ever return. It used to come back empty, which reads as "nothing matched".
+        var error = await Assert.ThrowsAsync<EdgeVectorStoreException>(
+            () => collection
+                .HybridSearchAsync("anything", ["anything"], top: 4000, new HybridSearchOptions<Note> { Skip = 200 }, Token)
+                .ToListAsync(Token)
+                .AsTask());
+
+        Assert.Equal(EdgeErrorCode.KnnLimitExceeded, error.Code);
+        Assert.Contains("4096", error.Message, StringComparison.Ordinal);
+        Assert.Equal(EdgeVectorStoreOperations.HybridSearch, error.OperationName);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-1)]
+    public async Task AHybridCandidateCountThatIsNotPositiveIsRefused(int candidateCount)
+    {
+        using var host = await VectorTestHost.StartAsync();
+        var collection = NoteCollection(host);
+        await collection.EnsureCollectionExistsAsync(Token);
+
+        // Zero is "k = 0" to vec0, and a negative LIMIT is no limit at all to SQLite.
+        await Assert.ThrowsAsync<ArgumentOutOfRangeException>(
+            () => collection
+                .HybridSearchAsync(
+                    "anything",
+                    ["anything"],
+                    top: 5,
+                    new EdgeHybridSearchOptions<Note> { CandidateCount = candidateCount },
+                    Token)
+                .ToListAsync(Token)
+                .AsTask());
+    }
+
+    [Fact]
+    public async Task AFloatColumnIsFoundByAnInlineFloatConstant()
+    {
+        using var host = await VectorTestHost.StartAsync();
+        var collection = new EdgeVectorStoreCollection<Guid, TypedRecord>(host.Database, "typed");
+        await collection.EnsureCollectionExistsAsync(Token);
+
+        var key = Guid.NewGuid();
+        await collection.UpsertAsync(
+            new TypedRecord { Key = key, Ratio = 0.1f, Text = "t", Embedding = UnitX }, Token);
+
+        // The column holds (double)0.1f. A constant rendered as "0.1" is a different double, so the
+        // inline form matched nothing while the same filter over a captured variable worked.
+        var inline = await collection.GetAsync(r => r.Ratio == 0.1f, top: 10, cancellationToken: Token).ToListAsync(Token);
+        var boundary = await collection.GetAsync(r => r.Ratio <= 0.1f, top: 10, cancellationToken: Token).ToListAsync(Token);
+
+        var ratio = 0.1f;
+        var captured = await collection.GetAsync(r => r.Ratio == ratio, top: 10, cancellationToken: Token).ToListAsync(Token);
+
+        Assert.Equal(key, Assert.Single(captured).Key);
+        Assert.Equal(key, Assert.Single(inline).Key);
+        Assert.Equal(key, Assert.Single(boundary).Key);
+    }
+
+    [Fact]
     public async Task TopPlusSkipAboveTheVec0LimitIsRejectedBeforeSqliteSeesIt()
     {
         using var host = await VectorTestHost.StartAsync();

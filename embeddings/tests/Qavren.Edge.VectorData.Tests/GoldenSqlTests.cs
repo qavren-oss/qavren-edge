@@ -434,6 +434,20 @@ public class GoldenSqlTests
         Assert.Equal(4, options.Rrf.CandidateMultiplier);
         Assert.Equal((10 + 5) * 4, options.Rrf.ResolveCandidateCount(top: 10, skip: 5));
         Assert.Equal(4096, options.Rrf.ResolveCandidateCount(top: 4000, skip: 1000));
+
+        // top + skip is added as long, not as int and then widened: this wrapped negative.
+        Assert.Equal(4096, options.Rrf.ResolveCandidateCount(top: int.MaxValue, skip: 1));
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-4)]
+    public void ACandidateMultiplierThatIsNotPositiveIsRefused(int multiplier)
+    {
+        var options = new EdgeVectorStoreOptions();
+        options.Rrf.CandidateMultiplier = multiplier;
+
+        Assert.Throws<ArgumentOutOfRangeException>(() => options.Rrf.ResolveCandidateCount(top: 10, skip: 0));
     }
 
     [Fact]

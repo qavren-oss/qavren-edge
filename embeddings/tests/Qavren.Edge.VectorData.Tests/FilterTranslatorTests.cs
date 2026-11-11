@@ -41,6 +41,19 @@ public class FilterTranslatorTests
     [Fact]
     public void Inequality() => Assert.Equal("\"Count\" <> 3", Sql(r => r.Count != 3));
 
+    [Fact]
+    public void AnInlineFloatConstantIsWrittenAsTheDoubleTheColumnHolds()
+    {
+        Expression<Func<TypedRecord, bool>> filter = r => r.Ratio == 0.1f;
+
+        var sql = new EdgeFilterTranslator()
+            .Translate(filter, ModelFactory.ModelFor<TypedRecord>("typed", typeof(Guid)))
+            .Sql;
+
+        // (double)0.1f, round-trippable - not "0.1", which SQLite reads as a different number.
+        Assert.Equal("\"Ratio\" = 0.10000000149011612", sql);
+    }
+
     [Theory]
     [InlineData("<")]
     [InlineData("<=")]
