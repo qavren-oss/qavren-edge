@@ -7,6 +7,7 @@ using Microsoft.ML.OnnxRuntimeGenAI;
 using Qavren.Edge.Hosting;
 using Qavren.Edge.Lifecycle;
 using Qavren.Edge.Onnx;
+using Qavren.Edge.Onnx.Internal;
 
 namespace Qavren.Edge.Chat.Internal;
 
@@ -386,7 +387,7 @@ internal sealed class ChatModelHost : IChatTurnHost, IChatLifecycleTarget, IDisp
         }
 
         // 3. Shape, from the provisioned config, then the field-by-field cross-check.
-        var configPath = ChatModelProvisioner.FilePath(directory, preset.GenAiConfigFile);
+        var configPath = OnnxModelLayout.FilePath(directory, preset.GenAiConfigFile);
         string configJson;
         try
         {
@@ -458,7 +459,7 @@ internal sealed class ChatModelHost : IChatTurnHost, IChatLifecycleTarget, IDisp
                     preset.Id,
                     preset.Manifest.ModelId,
                     directory,
-                    ChatModelProvisioner.Sha16(preset.Manifest),
+                    OnnxModelLayout.Sha16(preset.Manifest),
                     fromConfig,
                     decision,
                     resolvedContext,

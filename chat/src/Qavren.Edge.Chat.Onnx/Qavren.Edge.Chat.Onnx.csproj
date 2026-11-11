@@ -49,6 +49,15 @@
     <ProjectReference Include="..\..\..\embeddings\src\Qavren.Edge.Onnx\Qavren.Edge.Onnx.csproj" />
   </ItemGroup>
 
+  <!-- The model layout's path rules (directory, file path, staging name, free space, containment)
+       are ONE source file compiled into both packages. A link rather than an InternalsVisibleTo
+       grant from Qavren.Edge.Onnx: the two packages version independently on nuget.org, and a
+       grant would make those internals a binary contract between them that package validation
+       never sees. -->
+  <ItemGroup>
+    <Compile Include="..\..\..\embeddings\src\Qavren.Edge.Onnx\Internal\OnnxModelLayout.Paths.cs" Link="Internal\OnnxModelLayout.Paths.cs" />
+  </ItemGroup>
+
   <!-- Same Platforms\** + GetTargetPlatformIdentifier pattern Qavren.Edge.Onnx already uses.
        iOS and Mac Catalyst share one implementation (NSProcessInfo.PhysicalMemory). -->
   <ItemGroup>

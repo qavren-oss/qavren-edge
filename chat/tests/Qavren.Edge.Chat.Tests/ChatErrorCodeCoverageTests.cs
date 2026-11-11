@@ -3,6 +3,7 @@ using Qavren.Edge.Chat.Internal;
 using Qavren.Edge.Chat.Tests.Fakes;
 using Qavren.Edge.Chat.Tests.Fixtures;
 using Qavren.Edge.Onnx;
+using Qavren.Edge.Onnx.Internal;
 using Xunit;
 
 namespace Qavren.Edge.Chat.Tests;
@@ -86,7 +87,7 @@ public sealed class ChatErrorCodeCoverageTests : IDisposable
         configure?.Invoke(options);
 
         var paths = new FakeModelPaths(_root);
-        var store = new FakeModelStore(ChatModelProvisioner.DirectoryFor(paths.Models, Preset.Manifest));
+        var store = new FakeModelStore(OnnxModelLayout.DirectoryFor(paths.Models, Preset.Manifest));
         return new ChatModelProvisioner(Preset, options, store, paths, new RecordingLogger(), _ => freeDisk);
     }
 
