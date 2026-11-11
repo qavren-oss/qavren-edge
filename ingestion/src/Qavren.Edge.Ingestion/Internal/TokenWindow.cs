@@ -76,9 +76,12 @@ internal static class TokenWindow
     private static int Cut(
         string text, int pos, int end, ResolvedChunkOptions options, IChunkTokenizer tokenizer)
     {
-        var segment = text[pos..end];
-        var index = tokenizer.IndexByTokenCount(segment, options.MaxTokens, out _);
-        if (index >= segment.Length)
+        // A tokenizer that can search the range in place is asked to. The public member takes a
+        // string, and handing it the rest of the block is one copy of that remainder per window.
+        var index = tokenizer is IRangeTokenIndex ranged
+            ? ranged.IndexByTokenCount(text, pos, end, options.MaxTokens, out _)
+            : tokenizer.IndexByTokenCount(text[pos..end], options.MaxTokens, out _);
+        if (index >= end - pos)
         {
             return end;
         }
