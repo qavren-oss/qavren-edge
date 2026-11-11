@@ -60,6 +60,8 @@ internal sealed class StubResourceMonitor : IEdgeResourceMonitor
 internal sealed class RecordingTokenizer(IEdgeTokenizer inner) : IEdgeTokenizer
 {
     private readonly List<string> _seen = [];
+    private int _concurrent;
+    private int _mostConcurrent;
 
     public IReadOnlyList<string> Seen
     {
@@ -83,14 +85,35 @@ internal sealed class RecordingTokenizer(IEdgeTokenizer inner) : IEdgeTokenizer
     public int Encode(ReadOnlySpan<char> text, int maxTokens, Span<int> destination, out int charsConsumed)
         => inner.Encode(text, maxTokens, destination, out charsConsumed);
 
+    /// <summary>Runs inside every <see cref="EncodeBatch"/>, so a test can hold a batch on the tokenizer.</summary>
+    public Action? DuringEncodeBatch { get; set; }
+
+    /// <summary>The most batches that were ever on the tokenizer at the same moment.</summary>
+    public int MostConcurrentBatches => Volatile.Read(ref _mostConcurrent);
+
     public TokenizedBatch EncodeBatch(IReadOnlyList<string> texts, int maxSequenceLength, IReadOnlyList<int> buckets)
     {
-        lock (_seen)
+        var now = Interlocked.Increment(ref _concurrent);
+        int seen;
+        while (now > (seen = Volatile.Read(ref _mostConcurrent)))
         {
-            _seen.AddRange(texts);
+            Interlocked.CompareExchange(ref _mostConcurrent, now, seen);
         }
 
-        return inner.EncodeBatch(texts, maxSequenceLength, buckets);
+        try
+        {
+            lock (_seen)
+            {
+                _seen.AddRange(texts);
+            }
+
+            DuringEncodeBatch?.Invoke();
+            return inner.EncodeBatch(texts, maxSequenceLength, buckets);
+        }
+        finally
+        {
+            Interlocked.Decrement(ref _concurrent);
+        }
     }
 
     public int CountTokens(ReadOnlySpan<char> text) => inner.CountTokens(text);

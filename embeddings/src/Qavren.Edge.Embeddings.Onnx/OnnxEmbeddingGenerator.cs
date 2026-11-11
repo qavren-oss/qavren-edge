@@ -74,6 +74,7 @@ public sealed class OnnxEmbeddingGenerator : IEmbeddingGenerator<string, Embeddi
     private readonly TimeProvider _timeProvider;
     private readonly EmbeddingPreset _preset;
     private readonly SemaphoreSlim _gate;
+    private readonly bool _ownsGate;
     private readonly EmbeddingGeneratorMetadata _metadata;
     private readonly Lock _statistics = new();
     private readonly List<double> _runMilliseconds = [];
@@ -112,6 +113,24 @@ public sealed class OnnxEmbeddingGenerator : IEmbeddingGenerator<string, Embeddi
         EmbeddingInputKind inputKind,
         ILogger<OnnxEmbeddingGenerator> logger,
         TimeProvider timeProvider)
+        : this(sessionHost, tokenizers, resources, options, inputKind, logger, timeProvider, sharedGate: null)
+    {
+    }
+
+    /// <summary>
+    /// The real constructor. <paramref name="sharedGate"/> is how the query sibling comes to hold its
+    /// parent's semaphore instead of one of its own: the two run on the same ONNX session and the
+    /// same tokenizer, so <c>MaxConcurrency</c> is a bound on the pair or it is not a bound.
+    /// </summary>
+    private OnnxEmbeddingGenerator(
+        IOnnxSessionHost sessionHost,
+        IEdgeTokenizerProvider tokenizers,
+        IEdgeResourceMonitor resources,
+        IOptions<OnnxEmbeddingOptions> options,
+        EmbeddingInputKind inputKind,
+        ILogger<OnnxEmbeddingGenerator> logger,
+        TimeProvider timeProvider,
+        SemaphoreSlim? sharedGate)
     {
         ArgumentNullException.ThrowIfNull(sessionHost);
         ArgumentNullException.ThrowIfNull(tokenizers);
@@ -129,7 +148,8 @@ public sealed class OnnxEmbeddingGenerator : IEmbeddingGenerator<string, Embeddi
         _timeProvider = timeProvider;
 
         _preset = options.Value.Preset;
-        _gate = new SemaphoreSlim(Math.Max(1, options.Value.MaxConcurrency));
+        _ownsGate = sharedGate is null;
+        _gate = sharedGate ?? new SemaphoreSlim(Math.Max(1, options.Value.MaxConcurrency));
         _effectiveBatchSize = Math.Max(1, options.Value.MaxBatchSize);
         _metadata = new EmbeddingGeneratorMetadata(
             providerName: "Qavren.Edge.Embeddings.Onnx",
@@ -350,7 +370,12 @@ public sealed class OnnxEmbeddingGenerator : IEmbeddingGenerator<string, Embeddi
 
         _disposed = true;
         Interlocked.Exchange(ref _querySibling, null)?.Dispose();
-        _gate.Dispose();
+
+        // The sibling holds its parent's gate and must not dispose it out from under the parent.
+        if (_ownsGate)
+        {
+            _gate.Dispose();
+        }
     }
 
     internal EmbeddingDiagnosticsSnapshot Snapshot()
@@ -465,7 +490,8 @@ public sealed class OnnxEmbeddingGenerator : IEmbeddingGenerator<string, Embeddi
             _options,
             EmbeddingInputKind.Query,
             _logger,
-            _timeProvider);
+            _timeProvider,
+            sharedGate: _gate);
 
         var raced = Interlocked.CompareExchange(ref _querySibling, created, null);
         if (raced is null)
