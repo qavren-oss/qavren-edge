@@ -15,6 +15,13 @@ internal static class DocxDomFeed
         {
             walker.Text(text.Text);
         }
+        else if (IsUnknownText(root))
+        {
+            // The SDK types nothing inside an element it does not know - a Word 2003/2007
+            // w:smartTag above all, which current schemas dropped - so the w:t in there is an
+            // OpenXmlUnknownElement, not a Text, and its words were silently dropped.
+            walker.Text(root.InnerText);
+        }
 
         foreach (var child in root.ChildElements)
         {
@@ -23,6 +30,12 @@ internal static class DocxDomFeed
 
         walker.EndElement(root.NamespaceUri, root.LocalName);
     }
+
+    /// <summary>A <c>w:t</c> the SDK read as an <see cref="OpenXmlUnknownElement"/>.</summary>
+    internal static bool IsUnknownText(OpenXmlElement element) =>
+        element is OpenXmlUnknownElement
+        && string.Equals(element.LocalName, "t", StringComparison.Ordinal)
+        && string.Equals(element.NamespaceUri, DocxEventWalker.W, StringComparison.Ordinal);
 
     private static string? Val(OpenXmlElement element)
     {
@@ -59,7 +72,8 @@ internal static class DocxPartReaderFeed
     public static void Feed(OpenXmlPart part, DocxEventWalker walker)
     {
         using var reader = new OpenXmlPartReader(part, ReaderOptions);
-        while (reader.Read())
+        var more = reader.Read();
+        while (more)
         {
             if (reader.IsStartElement)
             {
@@ -70,6 +84,19 @@ internal static class DocxPartReaderFeed
                 if (string.Equals(localName, "t", StringComparison.Ordinal)
                     && string.Equals(namespaceUri, DocxEventWalker.W, StringComparison.Ordinal))
                 {
+                    if (reader.ElementType == typeof(OpenXmlUnknownElement))
+                    {
+                        // GetText answers only for a typed leaf, so the w:t inside a w:smartTag
+                        // read as empty - see DocxDomFeed. Loading the one element reads its text
+                        // and leaves the cursor on that element's own end tag (DocxFidelityTests
+                        // pins it), so the loop goes round WITHOUT another Read and reports that
+                        // end like any other.
+                        var element = reader.LoadCurrentElement();
+                        walker.Text(element?.InnerText ?? string.Empty);
+                        more = !reader.EOF;
+                        continue;
+                    }
+
                     walker.Text(reader.GetText());
                 }
             }
@@ -77,6 +104,8 @@ internal static class DocxPartReaderFeed
             {
                 walker.EndElement(reader.NamespaceUri, reader.LocalName);
             }
+
+            more = reader.Read();
         }
     }
 

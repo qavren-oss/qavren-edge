@@ -20,6 +20,7 @@ namespace Qavren.Edge.Ingestion.OpenXml.Internal;
 /// <item>A table's rows are <see cref="DocumentBlockKind.TableRow"/> blocks, cells joined <c>" | "</c>, header row first; a table nested in a cell flattens into that cell.</item>
 /// <item><c>w:txbxContent</c> paragraphs become their own blocks after the paragraph that anchors the box, when <see cref="DocxExtractorOptions.IncludeTextBoxes"/>.</item>
 /// <item><c>w:tab</c> is a tab, <c>w:br</c> and <c>w:cr</c> are newlines, tracked deletions are dropped, <c>mc:Fallback</c> is skipped so a text box is read once.</item>
+/// <item>A tracked property change (<c>w:pPrChange</c>) is skipped: the paragraph is classified by its current properties, never the ones it had.</item>
 /// </list>
 /// </remarks>
 internal sealed class DocxEventWalker
@@ -134,6 +135,10 @@ internal sealed class DocxEventWalker
             case "moveFrom":
             case "sectPr":
             case "rPr":
+            // A tracked change to the paragraph's properties carries the OLD w:pPr inside it. Read,
+            // its w:pStyle and w:outlineLvl overwrote the current ones: a paragraph restyled from
+            // Normal to Heading 1 with track changes on was indexed as Normal again.
+            case "pPrChange":
                 Skip();
                 break;
 
