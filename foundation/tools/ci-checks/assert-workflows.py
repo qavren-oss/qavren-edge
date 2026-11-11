@@ -1,6 +1,7 @@
 """Assert the workflow contract spec sections 13 and 14 require. Run: python assert-workflows.py [repo-root]"""
 import json
 import pathlib
+import re
 import sys
 
 import yaml
@@ -208,7 +209,7 @@ if rel_text.count("if: startsWith(github.ref, 'refs/tags/v')") != 3:
     problems.append("release.yml must guard exactly three steps (NuGet login, NuGet push, GitHub release) on startsWith(github.ref, 'refs/tags/v')")
 # Trusted publishing: the login step mints the key from the GitHub OIDC token, which needs
 # id-token: write on the release job; no NUGET_API_KEY secret may survive in the workflow.
-for token in ("uses: NuGet/login@v1", "id-token: write", "steps.login.outputs.NUGET_API_KEY"):
+for token in ("uses: NuGet/login@", "id-token: write", "steps.login.outputs.NUGET_API_KEY"):
     if token not in rel_text:
         problems.append("release.yml missing " + token)
 if "secrets.NUGET_API_KEY" in rel_text:
@@ -280,6 +281,21 @@ if "benchmarks.yml" in ci_text or "Qavren.Edge.Benchmarks" in ci_text:
 toc_text = (root / "docs" / "site" / "toc.yml").read_text(encoding="utf-8")
 if "href: benchmarks.md" not in toc_text:
     problems.append("docs/site/toc.yml does not link benchmarks.md")
+
+# --- Supply chain ---
+# A third-party action is pinned to a full commit SHA, with the release it corresponds to in a
+# trailing comment (the form Dependabot rewrites in place). A tag is a mutable pointer its owner,
+# or whoever takes the owner's account, can move: every step of release.yml's `release` job can
+# mint the OIDC token nuget.org trusts, so a moved `@v0` there publishes under the reserved
+# `Qavren.` prefix. GitHub's own `actions/*` and this repository's reusable workflows stay on tags.
+pinned_use = re.compile(r"^[\w.-]+/[\w./-]+@[0-9a-f]{40}\s+#\s*v\d+(\.\d+)*\s*$")
+for wf in sorted(w.glob("*.yml")):
+    for number, line in enumerate(wf.read_text(encoding="utf-8").splitlines(), 1):
+        used = re.match(r"\s*(?:-\s+)?uses:\s*(.+)$", line)
+        if not used or used.group(1).startswith(("actions/", "./")):
+            continue
+        if not pinned_use.match(used.group(1)):
+            problems.append("%s:%d: third-party action must be pinned as owner/repo@<40-hex sha> # vX.Y.Z (found: %s)" % (wf.name, number, used.group(1).strip()))
 
 win = ci["jobs"]["device-tests-windows"]["runs-on"]
 print("\n".join(problems) if problems else "OK: gates, 4 device lanes, JUnit, win-arm64, native artifact cache + reuse, SBOM and native release assets all present (windows lane on %s)" % win)
