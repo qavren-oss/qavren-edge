@@ -1,4 +1,5 @@
 using Microsoft.Data.Sqlite;
+using Qavren.Edge.Sqlite.Internal;
 
 namespace Qavren.Edge.Sqlite.Vec;
 
@@ -24,7 +25,9 @@ public static class Knn
         ArgumentException.ThrowIfNullOrWhiteSpace(table);
         ArgumentException.ThrowIfNullOrWhiteSpace(vectorColumn);
 
-        var sql = $"SELECT rowid, distance FROM \"{table}\" WHERE {vectorColumn} MATCH $query AND k = $k";
+        // vec0 takes any word as a column name, keywords included, and SQLite then refuses the
+        // keyword here: "WHERE order MATCH" is a syntax error. A keyword is the only name quoted.
+        var sql = $"SELECT rowid, distance FROM {SqlName.Quote(table)} WHERE {SqlName.AsOperand(vectorColumn)} MATCH $query AND k = $k";
         return string.IsNullOrWhiteSpace(where) ? sql : sql + " AND " + where;
     }
 

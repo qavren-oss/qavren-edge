@@ -2,6 +2,7 @@ using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.Text;
 using Microsoft.Data.Sqlite;
+using Qavren.Edge.Sqlite.Internal;
 
 namespace Qavren.Edge.Sqlite.Vec;
 
@@ -128,8 +129,10 @@ public static class VecTable
             parts.Add("chunk_size=" + size.ToString(CultureInfo.InvariantCulture));
         }
 
-        var sb = new StringBuilder("CREATE VIRTUAL TABLE IF NOT EXISTS \"");
-        sb.Append(name).Append("\" USING vec0(").Append(string.Join(", ", parts)).Append(')');
+        // Only the table name is SQLite's to read. The column list is vec0's own grammar and is
+        // written as given.
+        var sb = new StringBuilder("CREATE VIRTUAL TABLE IF NOT EXISTS ");
+        sb.Append(SqlName.Quote(name)).Append(" USING vec0(").Append(string.Join(", ", parts)).Append(')');
         return sb.ToString();
     }
 

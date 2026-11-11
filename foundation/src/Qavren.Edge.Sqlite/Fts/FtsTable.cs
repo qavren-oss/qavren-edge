@@ -1,5 +1,6 @@
 using System.Globalization;
 using Microsoft.Data.Sqlite;
+using Qavren.Edge.Sqlite.Internal;
 
 namespace Qavren.Edge.Sqlite.Fts;
 
@@ -46,7 +47,13 @@ public static class FtsTable
 {
     /// <summary>Builds the <c>CREATE VIRTUAL TABLE ... USING fts5(...)</c> statement for the given columns.</summary>
     /// <param name="name">The table name.</param>
-    /// <param name="columns">The indexed column names; at least one is required.</param>
+    /// <param name="columns">
+    /// The indexed column names; at least one is required. A name FTS5 could not read as it stands -
+    /// <c>created-at</c>, <c>my col</c> - is written between double quotes. An entry holding
+    /// <c>= , ( ) [ ]</c> or a quote character is written as given, because that is how an FTS5
+    /// option (<c>detail=column</c>) and an already-quoted name are spelled: quote such a name
+    /// yourself. <c>body UNINDEXED</c> is still a column and its option.
+    /// </param>
     /// <param name="tokenizer">The tokenizer to use.</param>
     /// <param name="contentTable">The external-content table name, or <see langword="null"/> to omit <c>content=</c>.</param>
     /// <returns>The complete <c>CREATE VIRTUAL TABLE</c> statement.</returns>
@@ -65,14 +72,14 @@ public static class FtsTable
             throw new ArgumentException("An FTS5 table needs at least one column.", nameof(columns));
         }
 
-        var parts = new List<string>(columns);
+        var parts = new List<string>(columns.Select(SqlName.AsFts5Column));
         if (!string.IsNullOrWhiteSpace(contentTable))
         {
             parts.Add($"content={Literal(contentTable)}");
         }
 
         parts.Add($"tokenize='{TokenizerToken(tokenizer)}'");
-        return $"CREATE VIRTUAL TABLE IF NOT EXISTS \"{name}\" USING fts5({string.Join(", ", parts)})";
+        return $"CREATE VIRTUAL TABLE IF NOT EXISTS {SqlName.Quote(name)} USING fts5({string.Join(", ", parts)})";
     }
 
     /// <summary>
@@ -99,7 +106,7 @@ public static class FtsTable
                 nameof(options), options.RemoveDiacritics, "remove_diacritics must be 0, 1 or 2.");
         }
 
-        var parts = new List<string>(columns);
+        var parts = new List<string>(columns.Select(SqlName.AsFts5Column));
         if (!string.IsNullOrWhiteSpace(options.ContentTable))
         {
             parts.Add($"content={Literal(options.ContentTable)}");
@@ -121,10 +128,15 @@ public static class FtsTable
         }
 
         parts.Add($"tokenize='{token}'");
-        return $"CREATE VIRTUAL TABLE IF NOT EXISTS \"{name}\" USING fts5({string.Join(", ", parts)})";
+        return $"CREATE VIRTUAL TABLE IF NOT EXISTS {SqlName.Quote(name)} USING fts5({string.Join(", ", parts)})";
     }
 
     /// <summary>External-content tables need triggers; FTS5 does not observe the content table itself.</summary>
+    /// <remarks>
+    /// A column name SQLite would not read bare - a keyword such as <c>From</c>, or a name that is
+    /// not one word, such as <c>created-at</c> - is written between double quotes. A plain name, and
+    /// a name the caller already quoted, is written as given.
+    /// </remarks>
     public static IReadOnlyList<string> BuildSyncTriggerSql(
         string ftsTable,
         string contentTable,
@@ -134,28 +146,14 @@ public static class FtsTable
         ArgumentException.ThrowIfNullOrWhiteSpace(contentTable);
         ArgumentNullException.ThrowIfNull(columns);
 
-        var columnList = string.Join(", ", columns);
-        var newValues = string.Join(", ", columns.Select(c => "new." + c));
-        var oldValues = string.Join(", ", columns.Select(c => "old." + c));
-
-        return
-        [
-            $"CREATE TRIGGER IF NOT EXISTS \"{ftsTable}_ai\" AFTER INSERT ON \"{contentTable}\" BEGIN " +
-            $"INSERT INTO \"{ftsTable}\"(rowid, {columnList}) VALUES (new.rowid, {newValues}); END",
-
-            $"CREATE TRIGGER IF NOT EXISTS \"{ftsTable}_ad\" AFTER DELETE ON \"{contentTable}\" BEGIN " +
-            $"INSERT INTO \"{ftsTable}\"(\"{ftsTable}\", rowid, {columnList}) VALUES ('delete', old.rowid, {oldValues}); END",
-
-            $"CREATE TRIGGER IF NOT EXISTS \"{ftsTable}_au\" AFTER UPDATE ON \"{contentTable}\" BEGIN " +
-            $"INSERT INTO \"{ftsTable}\"(\"{ftsTable}\", rowid, {columnList}) VALUES ('delete', old.rowid, {oldValues}); " +
-            $"INSERT INTO \"{ftsTable}\"(rowid, {columnList}) VALUES (new.rowid, {newValues}); END",
-        ];
+        return SyncTriggers(ftsTable, contentTable, columns, "rowid");
     }
 
     /// <summary>
     /// Sync triggers for an external-content table whose rowid alias is named
     /// <paramref name="contentRowId"/> rather than <c>rowid</c>.
     /// </summary>
+    /// <remarks>Column names are quoted as the three-argument overload describes.</remarks>
     public static IReadOnlyList<string> BuildSyncTriggerSql(
         string ftsTable,
         string contentTable,
@@ -167,22 +165,36 @@ public static class FtsTable
         ArgumentException.ThrowIfNullOrWhiteSpace(contentRowId);
         ArgumentNullException.ThrowIfNull(columns);
 
-        var rowid = $"\"{contentRowId}\"";
-        var columnList = string.Join(", ", columns);
-        var newValues = string.Join(", ", columns.Select(c => "new." + c));
-        var oldValues = string.Join(", ", columns.Select(c => "old." + c));
+        return SyncTriggers(ftsTable, contentTable, columns, SqlName.Quote(contentRowId));
+    }
+
+    private static string[] SyncTriggers(
+        string ftsTable,
+        string contentTable,
+        IReadOnlyList<string> columns,
+        string rowid)
+    {
+        var fts = SqlName.Quote(ftsTable);
+        var content = SqlName.Quote(contentTable);
+
+        // The same spelling in all three places a column appears, so the list a row is inserted
+        // under and the values it is inserted from can never name two different columns.
+        var names = columns.Select(SqlName.AsName).ToArray();
+        var columnList = string.Join(", ", names);
+        var newValues = string.Join(", ", names.Select(c => "new." + c));
+        var oldValues = string.Join(", ", names.Select(c => "old." + c));
 
         return
         [
-            $"CREATE TRIGGER IF NOT EXISTS \"{ftsTable}_ai\" AFTER INSERT ON \"{contentTable}\" BEGIN " +
-            $"INSERT INTO \"{ftsTable}\"(rowid, {columnList}) VALUES (new.{rowid}, {newValues}); END",
+            $"CREATE TRIGGER IF NOT EXISTS {SqlName.Quote(ftsTable + "_ai")} AFTER INSERT ON {content} BEGIN " +
+            $"INSERT INTO {fts}(rowid, {columnList}) VALUES (new.{rowid}, {newValues}); END",
 
-            $"CREATE TRIGGER IF NOT EXISTS \"{ftsTable}_ad\" AFTER DELETE ON \"{contentTable}\" BEGIN " +
-            $"INSERT INTO \"{ftsTable}\"(\"{ftsTable}\", rowid, {columnList}) VALUES ('delete', old.{rowid}, {oldValues}); END",
+            $"CREATE TRIGGER IF NOT EXISTS {SqlName.Quote(ftsTable + "_ad")} AFTER DELETE ON {content} BEGIN " +
+            $"INSERT INTO {fts}({fts}, rowid, {columnList}) VALUES ('delete', old.{rowid}, {oldValues}); END",
 
-            $"CREATE TRIGGER IF NOT EXISTS \"{ftsTable}_au\" AFTER UPDATE ON \"{contentTable}\" BEGIN " +
-            $"INSERT INTO \"{ftsTable}\"(\"{ftsTable}\", rowid, {columnList}) VALUES ('delete', old.{rowid}, {oldValues}); " +
-            $"INSERT INTO \"{ftsTable}\"(rowid, {columnList}) VALUES (new.{rowid}, {newValues}); END",
+            $"CREATE TRIGGER IF NOT EXISTS {SqlName.Quote(ftsTable + "_au")} AFTER UPDATE ON {content} BEGIN " +
+            $"INSERT INTO {fts}({fts}, rowid, {columnList}) VALUES ('delete', old.{rowid}, {oldValues}); " +
+            $"INSERT INTO {fts}(rowid, {columnList}) VALUES (new.{rowid}, {newValues}); END",
         ];
     }
 
