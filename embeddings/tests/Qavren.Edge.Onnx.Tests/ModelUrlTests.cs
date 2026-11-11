@@ -69,6 +69,24 @@ public class ModelUrlTests : IDisposable
     }
 
     [Fact]
+    public void ABaseAddressWithoutATrailingSlashKeepsItsPath()
+    {
+        // Plain RFC 3986 resolution replaces the last segment of a base with no trailing slash, so
+        // this mirror would have been asked for /sentence-transformers/... at the host root.
+        var options = new HttpOnnxModelSourceOptions
+        {
+            BaseAddress = new Uri("https://models.corp.example/mirror"),
+        };
+
+        var uri = HttpOnnxModelSource.ComposeUri(options, MiniLmL6V2Int8(), "vocab.txt");
+
+        Assert.Equal(
+            "https://models.corp.example/mirror/sentence-transformers/all-MiniLM-L6-v2/resolve/" +
+            MiniLmRevision + "/vocab.txt",
+            uri.ToString());
+    }
+
+    [Fact]
     public void TheRevisionIsThePinnedCommitShaAndNeverMain()
     {
         var manifest = MiniLmL6V2Int8();
