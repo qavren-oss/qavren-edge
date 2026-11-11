@@ -97,6 +97,14 @@ internal static class SourceStream
         var (encoding, detectFromBom, usedFallback) =
             await ResolveEncodingAsync(stream, strictUtf8, item, sourceId, cancellationToken).ConfigureAwait(false);
 
+        if (strictUtf8)
+        {
+            // The probe only reads the first 64 KiB. Decoding the rest with a replacing decoder
+            // turned an invalid byte at 65 KiB into U+FFFD under the very option that exists to
+            // refuse it - so under StrictUtf8 the whole read is strict, not just its head.
+            encoding = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false, throwOnInvalidBytes: true);
+        }
+
         stream.Seek(0, SeekOrigin.Begin);
 
         using var reader = new StreamReader(
@@ -112,6 +120,10 @@ internal static class SourceStream
                 builder.Append(block, 0, read);
             }
         }
+        catch (DecoderFallbackException ex) when (strictUtf8)
+        {
+            throw Undecodable(item, sourceId, ex);
+        }
         finally
         {
             ArrayPool<char>.Shared.Return(block);
@@ -119,6 +131,19 @@ internal static class SourceStream
 
         return (builder.ToString(), reader.CurrentEncoding, usedFallback);
     }
+
+    private static EdgeExtractionException Undecodable(DocumentSourceItem item, string sourceId, DecoderFallbackException inner) =>
+        new(
+            EdgeErrorCode.DocumentEncodingUndecodable,
+            $"Document '{item.DocumentId}' is not valid UTF-8 and PlainTextExtractorOptions.StrictUtf8 is set.",
+            inner)
+        {
+            SourceId = sourceId,
+            DocumentId = item.DocumentId,
+            Remediation =
+                "Re-save the document as UTF-8, or clear PlainTextExtractorOptions.StrictUtf8 to accept the " +
+                "byte-preserving Latin-1 fallback (logged as event 914).",
+        };
 
     private static async ValueTask<(Encoding Encoding, bool DetectFromBom, bool UsedLatin1Fallback)> ResolveEncodingAsync(
         Stream stream, bool strictUtf8, DocumentSourceItem item, string sourceId, CancellationToken cancellationToken)
@@ -153,17 +178,7 @@ internal static class SourceStream
                 // MPL-1.1 in an MIT suite, and it drags the legacy code-page tables into a phone.
                 if (strictUtf8)
                 {
-                    throw new EdgeExtractionException(
-                        EdgeErrorCode.DocumentEncodingUndecodable,
-                        $"Document '{item.DocumentId}' is not valid UTF-8 and PlainTextExtractorOptions.StrictUtf8 is set.",
-                        ex)
-                    {
-                        SourceId = sourceId,
-                        DocumentId = item.DocumentId,
-                        Remediation =
-                            "Re-save the document as UTF-8, or clear PlainTextExtractorOptions.StrictUtf8 to accept the " +
-                            "byte-preserving Latin-1 fallback (logged as event 914).",
-                    };
+                    throw Undecodable(item, sourceId, ex);
                 }
 
                 return (Encoding.Latin1, false, true);
