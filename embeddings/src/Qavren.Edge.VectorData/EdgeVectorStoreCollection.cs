@@ -325,38 +325,62 @@ public class EdgeVectorStoreCollection<TKey, TRecord>
         var insertVectorSql =
             $"INSERT INTO \"{Schema.VectorTable}\"(rowid, \"{Schema.VectorColumn}\") VALUES ($rowid, $embedding)";
 
+        var parameterNames = Schema.UpsertParameterNames;
+
         await ExecuteInTransactionAsync(
             EdgeVectorStoreOperations.Upsert,
             async (connection, transaction, token) =>
             {
-                for (var i = 0; i < materialised.Length; i++)
+                // The same three statements for every record of the batch, so each is compiled
+                // once and re-bound per record. Microsoft.Data.Sqlite prepares a command's
+                // statement on its first execution and keeps it for the command's lifetime; a
+                // command per record was a parse and a plan per record, thrown away after one use.
+                var upsert = Command(connection, transaction, upsertSql, []);
+                var deleteVector = Command(connection, transaction, deleteVectorSql, []);
+                var insertVector = Command(connection, transaction, insertVectorSql, []);
+                SqliteCommand? nextKey = null;
+
+                try
                 {
-                    var record = materialised[i];
-                    await AssignKeyIfGeneratedAsync(connection, transaction, record, token).ConfigureAwait(false);
+                    var deleteRowId = deleteVector.Parameters.Add("$rowid", SqliteType.Integer);
+                    var insertRowId = insertVector.Parameters.Add("$rowid", SqliteType.Integer);
+                    var embedding = insertVector.Parameters.Add("$embedding", SqliteType.Blob);
 
-                    var parameters = _dataProperties
-                        .Select(p => RecordMapper.Parameter("$" + p.StorageName, p.GetValueAsObject(record)))
-                        .ToArray();
+                    for (var i = 0; i < materialised.Length; i++)
+                    {
+                        var record = materialised[i];
+                        nextKey = await AssignKeyIfGeneratedAsync(connection, transaction, record, nextKey, token)
+                            .ConfigureAwait(false);
 
-                    var rowId = await ScalarAsync<long>(connection, transaction, upsertSql, parameters, token)
-                        .ConfigureAwait(false);
+                        upsert.Parameters.Clear();
+                        for (var p = 0; p < _dataProperties.Length; p++)
+                        {
+                            upsert.Parameters.Add(
+                                RecordMapper.Parameter(parameterNames[p], _dataProperties[p].GetValueAsObject(record)));
+                        }
 
-                    await ExecuteAsync(
-                        connection,
-                        transaction,
-                        deleteVectorSql,
-                        [new SqliteParameter("$rowid", rowId)],
-                        token).ConfigureAwait(false);
+                        var rowId = Convert.ToInt64(
+                            await upsert.ExecuteScalarAsync(token).ConfigureAwait(false),
+                            CultureInfo.InvariantCulture);
 
-                    await ExecuteAsync(
-                        connection,
-                        transaction,
-                        insertVectorSql,
-                        [
-                            new SqliteParameter("$rowid", rowId),
-                            new SqliteParameter("$embedding", RecordMapper.EncodeVector(vectors[i])),
-                        ],
-                        token).ConfigureAwait(false);
+                        deleteRowId.Value = rowId;
+                        await deleteVector.ExecuteNonQueryAsync(token).ConfigureAwait(false);
+
+                        insertRowId.Value = rowId;
+                        embedding.Value = RecordMapper.EncodeVector(vectors[i]);
+                        await insertVector.ExecuteNonQueryAsync(token).ConfigureAwait(false);
+                    }
+                }
+                finally
+                {
+                    if (nextKey is not null)
+                    {
+                        await nextKey.DisposeAsync().ConfigureAwait(false);
+                    }
+
+                    await insertVector.DisposeAsync().ConfigureAwait(false);
+                    await deleteVector.DisposeAsync().ConfigureAwait(false);
+                    await upsert.DisposeAsync().ConfigureAwait(false);
                 }
 
                 return true;
@@ -618,16 +642,23 @@ public class EdgeVectorStoreCollection<TKey, TRecord>
             OperationName = EdgeVectorStoreOperations.Upsert,
         };
 
-    private async Task AssignKeyIfGeneratedAsync(
+    /// <summary>
+    /// Assigns a store-generated key to a record that has none. For an integer key that is one
+    /// <c>MAX + 1</c> read, through <paramref name="nextKey"/> when the batch has already compiled
+    /// it - the returned command is the one to hand back in for the next record, and the caller
+    /// disposes it.
+    /// </summary>
+    private async Task<SqliteCommand?> AssignKeyIfGeneratedAsync(
         SqliteConnection connection,
         SqliteTransaction transaction,
         TRecord record,
+        SqliteCommand? nextKey,
         CancellationToken cancellationToken)
     {
         var key = Model.KeyProperty;
         if (!key.IsAutoGenerated)
         {
-            return;
+            return nextKey;
         }
 
         var current = key.GetValueAsObject(record);
@@ -641,28 +672,34 @@ public class EdgeVectorStoreCollection<TKey, TRecord>
                 key.SetValueAsObject(record, Guid.CreateVersion7());
             }
 
-            return;
+            return nextKey;
         }
 
         if (type != typeof(int) && type != typeof(long))
         {
-            return;
+            return nextKey;
         }
 
         if (current is not null && Convert.ToInt64(current, CultureInfo.InvariantCulture) != 0)
         {
-            return;
+            return nextKey;
         }
 
-        // Inside the write transaction, which SQLite serialises, so MAX + 1 cannot race.
-        var next = await ScalarAsync<long>(
+        // Inside the write transaction, which SQLite serialises, so MAX + 1 cannot race - and read
+        // per record, never worked out up front, so it sees every row the batch has written so far,
+        // a key set by hand included.
+        nextKey ??= Command(
             connection,
             transaction,
             $"SELECT COALESCE(MAX(\"{Schema.KeyColumn}\"), 0) + 1 FROM \"{Schema.DataTable}\"",
-            [],
-            cancellationToken).ConfigureAwait(false);
+            []);
+
+        var next = Convert.ToInt64(
+            await nextKey.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false),
+            CultureInfo.InvariantCulture);
 
         key.SetValueAsObject(record, type == typeof(int) ? (int)next : next);
+        return nextKey;
     }
 
     private async Task<IReadOnlyList<TRecord>> ReadByKeysAsync(
