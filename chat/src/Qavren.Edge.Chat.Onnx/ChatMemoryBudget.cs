@@ -291,9 +291,9 @@ public static class ChatMemoryBudget
             ? (long)(available.Value * options.SystemWideMemoryFraction)
             : available.Value;
 
-        // Rule 4. Walk the ladder from the first rung at or below the requested length. An
-        // off-ladder request that is still at or above MinContextTokens is evaluated on its own,
-        // so a consumer who asks for 2500 tokens is not silently given nothing to try.
+        // Rule 4. Walk down from the requested length: the request itself first when it is not a
+        // rung, then every rung at or below it. A consumer who asks for 2500 tokens gets 2500 when
+        // it fits and the 2048 rung, reported as a reduction, only when it does not.
         var candidates = Candidates(options, requested);
 
         (long Required, long KvCacheBytes, bool UsedMeasuredPeak) smallest = default;
@@ -399,20 +399,26 @@ public static class ChatMemoryBudget
     private static List<int> Candidates(ChatMemoryBudgetOptions options, int requested)
     {
         var candidates = new List<int>();
+        var requestedIsARung = false;
 
         foreach (var rung in options.ContextLadder)
         {
+            requestedIsARung |= rung == requested;
+
             if (rung <= requested && rung >= options.MinContextTokens)
             {
                 candidates.Add(rung);
             }
         }
 
-        // An off-ladder request - 2500 tokens against the default ladder's 2048 - already has rungs
-        // below it, so this only fires when the ladder has nothing at or below the request at all.
-        if (candidates.Count == 0 && requested >= options.MinContextTokens)
+        // The request itself is the first thing tried when it is not a rung. It used to be tried
+        // only when the ladder had nothing at or below it, so 2500 tokens against the default
+        // ladder was evaluated at 2048 and nowhere else: "reduced, 2500 did not fit" on a device
+        // with room to spare, and - because an explicit EdgeChatOptions.MaxContextTokens turns a
+        // reduction into a refusal - a 7005 that no amount of memory could ever clear.
+        if (!requestedIsARung && requested >= options.MinContextTokens)
         {
-            candidates.Add(requested);
+            candidates.Insert(0, requested);
         }
 
         return candidates;

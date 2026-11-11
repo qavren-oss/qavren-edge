@@ -276,9 +276,37 @@ public class ChatMemoryBudgetTests
     }
 
     [Fact]
-    public void AnOffLadderRequestFallsToTheRungBelowItRatherThanToNothing()
+    public void AnOffLadderRequestThatFitsIsGrantedAtItsOwnLength()
     {
+        // 2500 is not a rung. It used to be evaluated at 2048 only, so it came back "reduced" with
+        // 1.3 GB to spare - and an explicit EdgeChatOptions.MaxContextTokens of 2500, which turns a
+        // reduction into a refusal, was a 7005 on every device ever made.
         var decision = Resolve(Llama, 2500, 3_000_000_000L, StubDeviceProfile.Apple(StubDeviceProfile.Apple8Gb));
+
+        Assert.Equal(ChatMemoryVerdict.Allowed, decision.Verdict);
+        Assert.Equal(2500, decision.ContextTokens);
+
+        // 2048's 1,693,998,394 plus 452 more tokens at 32,768 bytes of KV each.
+        Assert.Equal(1_708_809_530L, decision.RequiredBytes);
+    }
+
+    [Fact]
+    public void AnOffLadderRequestThatDoesNotFitFallsToTheRungBelowItRatherThanToNothing()
+    {
+        // One byte short of what 2500 tokens need, which is still more than 2048 needs.
+        var decision = Resolve(Llama, 2500, 1_708_809_529L, StubDeviceProfile.Apple(StubDeviceProfile.Apple8Gb));
+
+        Assert.Equal(ChatMemoryVerdict.AllowedReduced, decision.Verdict);
+        Assert.Equal(2048, decision.ContextTokens);
+        Assert.Contains("the requested 2500 tokens did not fit and 2048 did", decision.Explanation, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ARequestOnARungIsNotTriedTwice()
+    {
+        // The rung IS the request, so the walk is the ladder and nothing else: one byte short of
+        // 3072 lands on 2048, not on a second look at 3072.
+        var decision = Resolve(Llama, 3072, 1_727_552_825L, StubDeviceProfile.Apple(StubDeviceProfile.Apple8Gb));
 
         Assert.Equal(ChatMemoryVerdict.AllowedReduced, decision.Verdict);
         Assert.Equal(2048, decision.ContextTokens);
