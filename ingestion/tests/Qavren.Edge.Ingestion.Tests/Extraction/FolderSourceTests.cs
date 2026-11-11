@@ -1,5 +1,6 @@
 using System.Runtime.CompilerServices;
 using System.Text;
+using Qavren.Edge.Ingestion.Internal;
 using Xunit;
 
 namespace Qavren.Edge.Ingestion.Tests.Extraction;
@@ -11,6 +12,8 @@ namespace Qavren.Edge.Ingestion.Tests.Extraction;
 public sealed class FolderSourceTests : IDisposable
 {
     private static readonly string[] AllFourIds = ["a.txt", "alpha/one.txt", "b.txt", "zeta/two.md"];
+    private static readonly string[] AllButAlphaIds = ["a.txt", "b.txt", "zeta/two.md"];
+    private static readonly string[] AllButZetaIds = ["a.txt", "alpha/one.txt", "b.txt"];
     private static readonly string[] TopLevelIds = ["a.txt", "b.txt"];
     private static readonly string[] MarkdownIds = ["zeta/two.md"];
     private static readonly string[] LazyIds = ["one", "two"];
@@ -180,6 +183,138 @@ public sealed class FolderSourceTests : IDisposable
                 await Task.Yield();
             }
         }
+    }
+
+    [Fact]
+    public async Task ASubDirectoryThatCannotBeListedIsSkippedAndReportedAndTheRestIsStillYielded()
+    {
+        var locked = Path.Combine(_root, "alpha");
+        var reads = FolderReads.FileSystem with
+        {
+            Files = (directory, pattern) => string.Equals(directory, locked, StringComparison.Ordinal)
+                ? throw new UnauthorizedAccessException("Access to the path is denied.")
+                : FolderReads.FileSystem.Files(directory, pattern),
+        };
+        var source = FolderIngestionSource.OverRoot(_root, "*", recursive: true, "notes", reads);
+
+        var (ids, skipped) = await WalkAsync(source);
+
+        // One locked sub-folder used to be an UnauthorizedAccessException out of the enumeration,
+        // and so a failed run over everything else in the tree.
+        Assert.Equal(AllButAlphaIds, ids);
+        var only = Assert.Single(skipped);
+        Assert.Equal(locked, only.Path);
+        Assert.Equal("alpha/", only.DocumentIdPrefix);
+        Assert.IsType<UnauthorizedAccessException>(only.Error);
+    }
+
+    [Fact]
+    public async Task ARootThatCannotBeListedStillFailsTheEnumeration()
+    {
+        var reads = FolderReads.FileSystem with
+        {
+            Files = (_, _) => throw new UnauthorizedAccessException("Access to the path is denied."),
+        };
+        var source = FolderIngestionSource.OverRoot(_root, "*", recursive: true, "notes", reads);
+
+        // Skipping the one directory that was asked for would report an empty folder.
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => WalkAsync(source));
+    }
+
+    [Fact]
+    public async Task ASubDirectoryThatIsALinkIsReportedAndNotEntered()
+    {
+        var link = Path.Combine(_root, "zeta");
+        var reads = FolderReads.FileSystem with
+        {
+            IsLink = directory => string.Equals(directory, link, StringComparison.Ordinal),
+        };
+        var source = FolderIngestionSource.OverRoot(_root, "*", recursive: true, "notes", reads);
+
+        var (ids, skipped) = await WalkAsync(source);
+
+        Assert.Equal(AllButZetaIds, ids);
+        var only = Assert.Single(skipped);
+        Assert.Equal("zeta/", only.DocumentIdPrefix);
+        Assert.Null(only.Error);
+    }
+
+    [Fact]
+    public async Task ARealLinkBackUpTheTreeIsNotFollowedRoundAndRound()
+    {
+        var loop = Path.Combine(_root, "alpha", "loop");
+        if (!TryLink(() => Directory.CreateSymbolicLink(loop, _root)))
+        {
+            Assert.Skip("This account cannot create a symbolic link (Windows without Developer Mode).");
+            return;
+        }
+
+        var (ids, skipped) = await WalkAsync(FolderIngestionSource.OverRoot(_root, "*", recursive: true, "notes"));
+
+        // Followed, this is alpha/loop/alpha/loop/... until the path is too long to open: every
+        // file indexed again at each depth, and then a fault.
+        Assert.Equal(AllFourIds, ids);
+        Assert.Equal("alpha/loop/", Assert.Single(skipped).DocumentIdPrefix);
+    }
+
+    [Fact]
+    public async Task ASymbolicLinkToAFileIsStillADocumentAndStillOpensItsTarget()
+    {
+        var outside = Path.Combine(Path.GetTempPath(), "qedge-sp3-linked-" + Guid.NewGuid().ToString("N") + ".txt");
+        Write(outside, "the target's bytes\n");
+        try
+        {
+            var link = Path.Combine(_root, "linked.txt");
+            if (!TryLink(() => File.CreateSymbolicLink(link, outside)))
+            {
+                Assert.Skip("This account cannot create a symbolic link (Windows without Developer Mode).");
+                return;
+            }
+
+            var items = await ItemsAsync(IngestionSource.Folder(_root, "linked.txt", sourceId: "notes"));
+
+            // Unchanged on purpose: a file link cannot loop, and it is one document somebody put in
+            // the folder. The id is the link's; the bytes are the target's.
+            var item = Assert.Single(items);
+            Assert.Equal("linked.txt", item.DocumentId);
+            var stream = await item.OpenAsync(TestContext.Current.CancellationToken).ConfigureAwait(true);
+            await using (stream.ConfigureAwait(true))
+            {
+                using var reader = new StreamReader(stream, Encoding.UTF8);
+                Assert.Equal("the target's bytes\n", await reader.ReadToEndAsync(TestContext.Current.CancellationToken));
+            }
+        }
+        finally
+        {
+            File.Delete(outside);
+        }
+    }
+
+    private static bool TryLink(Action create)
+    {
+        try
+        {
+            create();
+            return true;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or PlatformNotSupportedException)
+        {
+            return false;
+        }
+    }
+
+    private static async Task<(string[] Ids, List<SkippedDirectory> Skipped)> WalkAsync(FolderIngestionSource source)
+    {
+        var skipped = new List<SkippedDirectory>();
+        var ids = new List<string>();
+        await foreach (var item in source
+            .EnumerateAsync(skipped.Add, TestContext.Current.CancellationToken)
+            .ConfigureAwait(false))
+        {
+            ids.Add(item.DocumentId);
+        }
+
+        return ([.. ids], skipped);
     }
 
     private static void Write(string path, string content) =>

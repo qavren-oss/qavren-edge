@@ -36,7 +36,7 @@ internal sealed record IngestionDocumentState(
 /// <param name="Indexed">Rows whose status is <c>Indexed</c>.</param>
 /// <param name="Failed">Rows whose status is <c>Failed</c>.</param>
 /// <param name="NoTextLayer">Rows whose status is <c>NoTextLayer</c>.</param>
-/// <param name="Stale">Rows not stamped with the newest completed run's id.</param>
+/// <param name="Stale">Rows not stamped by the newest run over their own source.</param>
 /// <param name="RecipeStale">Rows whose stored recipe hash differs from the current one.</param>
 internal sealed record IngestionStateCounts(
     int Documents, int Indexed, int Failed, int NoTextLayer, int Stale, int RecipeStale);
@@ -280,36 +280,45 @@ internal sealed class IngestionStateStore
                     ct).ConfigureAwait(false),
             cancellationToken);
 
-    /// <summary>Deletes one document's state row.</summary>
+    /// <summary>
+    /// Deletes one document's state row inside a transaction the CALLER owns, so the row goes or
+    /// stays with the chunks it describes. A removal that committed the two separately could stop
+    /// between them and leave a row saying <c>Indexed</c> over chunks that no longer exist - which
+    /// the hash gate then skips for ever.
+    /// </summary>
     public Task<int> DeleteDocumentAsync(
-        string collection, string sourceId, string documentId, CancellationToken cancellationToken) =>
-        _database.ExecuteInTransactionAsync(
-            async (connection, transaction, ct) =>
-                await ExecuteAsync(
-                    connection,
-                    transaction,
-                    $"""
-                     DELETE FROM "{DocumentTable}"
-                     WHERE "collection" = $c AND "source_id" = $s AND "document_id" = $d
-                     """,
-                    [
-                        new SqliteParameter("$c", collection),
-                        new SqliteParameter("$s", sourceId),
-                        new SqliteParameter("$d", documentId),
-                    ],
-                    ct).ConfigureAwait(false),
+        SqliteConnection connection,
+        SqliteTransaction transaction,
+        string collection,
+        string sourceId,
+        string documentId,
+        CancellationToken cancellationToken) =>
+        ExecuteAsync(
+            connection,
+            transaction,
+            $"""
+             DELETE FROM "{DocumentTable}"
+             WHERE "collection" = $c AND "source_id" = $s AND "document_id" = $d
+             """,
+            [
+                new SqliteParameter("$c", collection),
+                new SqliteParameter("$s", sourceId),
+                new SqliteParameter("$d", documentId),
+            ],
             cancellationToken);
 
-    /// <summary>Deletes every state row under one source.</summary>
-    public Task<int> DeleteSourceAsync(string collection, string sourceId, CancellationToken cancellationToken) =>
-        _database.ExecuteInTransactionAsync(
-            async (connection, transaction, ct) =>
-                await ExecuteAsync(
-                    connection,
-                    transaction,
-                    $"""DELETE FROM "{DocumentTable}" WHERE "collection" = $c AND "source_id" = $s""",
-                    [new SqliteParameter("$c", collection), new SqliteParameter("$s", sourceId)],
-                    ct).ConfigureAwait(false),
+    /// <summary>Deletes every state row under one source, inside a transaction the caller owns.</summary>
+    public Task<int> DeleteSourceAsync(
+        SqliteConnection connection,
+        SqliteTransaction transaction,
+        string collection,
+        string sourceId,
+        CancellationToken cancellationToken) =>
+        ExecuteAsync(
+            connection,
+            transaction,
+            $"""DELETE FROM "{DocumentTable}" WHERE "collection" = $c AND "source_id" = $s""",
+            [new SqliteParameter("$c", collection), new SqliteParameter("$s", sourceId)],
             cancellationToken);
 
     /// <summary>Inserts the run row at the start of a run.</summary>
@@ -436,11 +445,18 @@ internal sealed class IngestionStateStore
     /// the population a recipe bump dirtied — comparing against a single hash would report every
     /// PDF stale in a Markdown-and-PDF corpus.
     /// </para>
+    /// <para>
+    /// Stale is counted per SOURCE for the same kind of reason. A run stamps only the rows of the
+    /// source it ran over, so each row is compared against the newest run of its own source: held
+    /// against the collection's newest run, every document of every other source feeding the
+    /// collection read as stale the moment one of them was ingested. A source with no run left in
+    /// the history table - never run, or trimmed out by <c>RunHistoryLimit</c> - has all of its
+    /// rows counted, which is what "nothing recent has confirmed these" means.
+    /// </para>
     /// </summary>
     public async Task<IngestionStateCounts> CountAsync(
         string collection,
         IReadOnlyList<ContentHash> currentRecipes,
-        string? latestRunId,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(currentRecipes);
@@ -451,7 +467,6 @@ internal sealed class IngestionStateStore
             new("$indexed", IngestionDocumentStatus.Indexed),
             new("$failed", IngestionDocumentStatus.Failed),
             new("$notext", IngestionDocumentStatus.NoTextLayer),
-            Nullable("$run", latestRunId),
         };
 
         var names = new string[currentRecipes.Count];
@@ -463,21 +478,26 @@ internal sealed class IngestionStateStore
 
         var staleClause = names.Length == 0
             ? "1"
-            : $"""CASE WHEN "recipe_hash" IS NULL OR "recipe_hash" NOT IN ({string.Join(",", names)}) THEN 1 ELSE 0 END""";
+            : $"""CASE WHEN d."recipe_hash" IS NULL OR d."recipe_hash" NOT IN ({string.Join(",", names)}) THEN 1 ELSE 0 END""";
 
         var connection = await _database.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
         await using (connection.ConfigureAwait(false))
         {
+            // IS NOT rather than <>: a source with no run row makes the subquery NULL, and NULL
+            // must count the row rather than drop out of the comparison.
             var rows = await connection.QueryAsync(
                 $"""
                  SELECT
                    COUNT(*),
-                   SUM(CASE WHEN "status" = $indexed THEN 1 ELSE 0 END),
-                   SUM(CASE WHEN "status" = $failed THEN 1 ELSE 0 END),
-                   SUM(CASE WHEN "status" = $notext THEN 1 ELSE 0 END),
-                   SUM(CASE WHEN $run IS NULL OR "last_run_id" IS NULL OR "last_run_id" <> $run THEN 1 ELSE 0 END),
+                   SUM(CASE WHEN d."status" = $indexed THEN 1 ELSE 0 END),
+                   SUM(CASE WHEN d."status" = $failed THEN 1 ELSE 0 END),
+                   SUM(CASE WHEN d."status" = $notext THEN 1 ELSE 0 END),
+                   SUM(CASE WHEN d."last_run_id" IS NULL OR d."last_run_id" IS NOT (
+                         SELECT r."run_id" FROM "{RunTable}" r
+                         WHERE r."collection" = $c AND r."source_id" = d."source_id"
+                         ORDER BY r."started_utc" DESC LIMIT 1) THEN 1 ELSE 0 END),
                    SUM({staleClause})
-                 FROM "{DocumentTable}" WHERE "collection" = $c
+                 FROM "{DocumentTable}" d WHERE d."collection" = $c
                  """,
                 reader => new IngestionStateCounts(
                     reader.GetInt32(0),

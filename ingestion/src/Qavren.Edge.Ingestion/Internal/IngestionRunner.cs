@@ -91,6 +91,7 @@ internal sealed class IngestionRunner
         var documents = new List<IngestionDocumentResult>();
         var seenIds = new HashSet<string>(StringComparer.Ordinal);
         var liveIds = new HashSet<string>(StringComparer.Ordinal);
+        var unreadable = new List<string>();
 
         var budget = options.Budget ?? IngestionBudget.Unlimited;
         var deleteMissing = options.DeleteMissing ?? opts.DeleteMissingDocuments;
@@ -114,7 +115,7 @@ internal sealed class IngestionRunner
 
         try
         {
-            await foreach (var item in source.EnumerateAsync(cancellationToken).ConfigureAwait(false))
+            await foreach (var item in Enumerate(source, unreadable, cancellationToken).ConfigureAwait(false))
             {
                 Report(IngestionStage.Enumerating, currentDocumentId: null, force: false);
 
@@ -254,9 +255,16 @@ internal sealed class IngestionRunner
 
                 counters.Apply(documentRun.Result);
                 documents.Add(documentRun.Result);
-                consecutiveErrors = documentRun.Result.Outcome is IngestionDocumentOutcome.Failed
-                    ? consecutiveErrors + 1
-                    : 0;
+
+                // A document over the size ceiling is a verdict on that document, not evidence that
+                // something systemic is failing: twenty videos in a folder are twenty videos. It
+                // neither extends a run of failures nor ends one.
+                if (documentRun.CountsTowardAbort)
+                {
+                    consecutiveErrors = documentRun.Result.Outcome is IngestionDocumentOutcome.Failed
+                        ? consecutiveErrors + 1
+                        : 0;
+                }
 
                 if (documentRun.Result.Outcome is IngestionDocumentOutcome.Failed)
                 {
@@ -267,7 +275,7 @@ internal sealed class IngestionRunner
                         ExceptionDispatchInfo.Throw(original);
                     }
 
-                    if (consecutiveErrors >= opts.AbortAfterConsecutiveErrors)
+                    if (documentRun.CountsTowardAbort && consecutiveErrors >= opts.AbortAfterConsecutiveErrors)
                     {
                         throw new EdgeIngestionException(
                             EdgeErrorCode.IngestionRunAborted,
@@ -293,7 +301,7 @@ internal sealed class IngestionRunner
                 // partial enumeration is not evidence a document is gone.
                 Report(IngestionStage.Pruning, currentDocumentId: null, force: true);
                 counters.DocumentsRemoved += await PruneAsync(
-                    source.Id, liveIds, cancellationToken).ConfigureAwait(false);
+                    source.Id, liveIds, unreadable, cancellationToken).ConfigureAwait(false);
             }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -427,38 +435,79 @@ internal sealed class IngestionRunner
     public async Task<int> PruneAsync(IngestionSource source, CancellationToken cancellationToken)
     {
         var live = new HashSet<string>(StringComparer.Ordinal);
-        await foreach (var item in source.EnumerateAsync(cancellationToken).ConfigureAwait(false))
+        var unreadable = new List<string>();
+        await foreach (var item in Enumerate(source, unreadable, cancellationToken).ConfigureAwait(false))
         {
             live.Add(item.DocumentId);
         }
 
-        return await PruneAsync(source.Id, live, cancellationToken).ConfigureAwait(false);
+        return await PruneAsync(source.Id, live, unreadable, cancellationToken).ConfigureAwait(false);
     }
 
-    public async Task<int> RemoveSourceAsync(string sourceId, CancellationToken cancellationToken)
+    /// <summary>
+    /// The source's items. A folder source also says which sub-directories it did not enter: each
+    /// is logged, and the id prefix of one it could not READ is added to
+    /// <paramref name="unreadable"/> so the sweep leaves the documents under it alone. A directory
+    /// that is a link is logged and nothing more - it is no longer part of the source, and what
+    /// was indexed through it is swept like anything else the source stopped yielding.
+    /// </summary>
+    private IAsyncEnumerable<DocumentSourceItem> Enumerate(
+        IngestionSource source, List<string> unreadable, CancellationToken cancellationToken)
     {
-        var rows = await _state.ListDocumentsAsync(
-            _registration.CollectionName, sourceId, cancellationToken).ConfigureAwait(false);
-
-        foreach (var row in rows)
+        if (source is not FolderIngestionSource folder)
         {
-            await _writer.DeleteDocumentChunksAsync(sourceId, row.DocumentId, cancellationToken).ConfigureAwait(false);
+            return source.EnumerateAsync(cancellationToken);
         }
 
-        await _state.DeleteSourceAsync(_registration.CollectionName, sourceId, cancellationToken).ConfigureAwait(false);
-        return rows.Count;
+        return folder.EnumerateAsync(
+            skipped =>
+            {
+                if (skipped.Error is { } error)
+                {
+                    unreadable.Add(skipped.DocumentIdPrefix);
+                    IngestionLog.SourceDirectoryUnreadable(_logger, source.Id, skipped.Path, error.GetType().Name);
+                }
+                else
+                {
+                    IngestionLog.SourceLinkNotFollowed(_logger, source.Id, skipped.Path);
+                }
+            },
+            cancellationToken);
     }
 
-    public async Task<int> RemoveDocumentAsync(
-        string sourceId, string documentId, CancellationToken cancellationToken)
-    {
-        await _writer.DeleteDocumentChunksAsync(sourceId, documentId, cancellationToken).ConfigureAwait(false);
-        return await _state.DeleteDocumentAsync(
-            _registration.CollectionName, sourceId, documentId, cancellationToken).ConfigureAwait(false);
-    }
+    /// <summary>
+    /// Every chunk and every state row under one source, in ONE transaction. The chunks and the
+    /// rows live in the same database - every direct read and write in this class already depends
+    /// on that - so there is no reason for a removal to be able to stop between them.
+    /// </summary>
+    /// <returns>The number of documents that had a state row.</returns>
+    public Task<int> RemoveSourceAsync(string sourceId, CancellationToken cancellationToken) =>
+        _database.ExecuteInTransactionAsync(
+            async (connection, transaction, ct) =>
+            {
+                await _writer.DeleteSourceChunksAsync(connection, transaction, sourceId, ct).ConfigureAwait(false);
+                return await _state.DeleteSourceAsync(
+                    connection, transaction, _registration.CollectionName, sourceId, ct).ConfigureAwait(false);
+            },
+            cancellationToken);
+
+    /// <summary>One document's chunks and its state row, in one transaction.</summary>
+    /// <returns>1 when the document had a state row, 0 otherwise.</returns>
+    public Task<int> RemoveDocumentAsync(
+        string sourceId, string documentId, CancellationToken cancellationToken) =>
+        _database.ExecuteInTransactionAsync(
+            async (connection, transaction, ct) =>
+            {
+                await _writer.DeleteDocumentChunksAsync(connection, transaction, sourceId, documentId, ct)
+                    .ConfigureAwait(false);
+                return await _state.DeleteDocumentAsync(
+                    connection, transaction, _registration.CollectionName, sourceId, documentId, ct)
+                    .ConfigureAwait(false);
+            },
+            cancellationToken);
 
     private async Task<int> PruneAsync(
-        string sourceId, HashSet<string> live, CancellationToken cancellationToken)
+        string sourceId, HashSet<string> live, List<string> unreadable, CancellationToken cancellationToken)
     {
         var rows = await _state.ListDocumentsAsync(
             _registration.CollectionName, sourceId, cancellationToken).ConfigureAwait(false);
@@ -471,9 +520,17 @@ internal sealed class IngestionRunner
                 continue;
             }
 
-            await _writer.DeleteDocumentChunksAsync(sourceId, row.DocumentId, cancellationToken).ConfigureAwait(false);
-            await _state.DeleteDocumentAsync(
-                _registration.CollectionName, sourceId, row.DocumentId, cancellationToken).ConfigureAwait(false);
+            // Not yielded - but from under a directory this enumeration could not list. Spec 9.6:
+            // a partial enumeration is not evidence a document is gone, and a permission that came
+            // and went must not cost a folder its index.
+            if (unreadable.Exists(prefix => row.DocumentId.StartsWith(prefix, StringComparison.Ordinal)))
+            {
+                continue;
+            }
+
+            // One transaction per document: a sweep that stops half way leaves whole documents for
+            // the next one, never a state row over chunks that are gone.
+            await RemoveDocumentAsync(sourceId, row.DocumentId, cancellationToken).ConfigureAwait(false);
             pruned++;
         }
 
@@ -519,9 +576,50 @@ internal sealed class IngestionRunner
         // opened at all (spec 9.1).
         if (item.SizeBytes is { } declared && declared > opts.MaxDocumentBytes)
         {
-            return await RecordFailureAsync(
-                item, source.Id, runId, stored, TooLarge(item, declared, opts.MaxDocumentBytes),
-                started, cancellationToken).ConfigureAwait(false);
+            // The message carries the declared size and the ceiling, so a row that already says
+            // exactly this has nothing new to be told: the same file against the same ceiling.
+            var tooLarge = TooLarge(item, declared, opts.MaxDocumentBytes);
+            if (!options.Force && Remembers(stored, tooLarge))
+            {
+                return await SkipRememberedAsync(collection, source.Id, item, runId, stored!, "size", started, cancellationToken)
+                    .ConfigureAwait(false);
+            }
+
+            return await RecordTooLargeAsync(item, source.Id, runId, stored, tooLarge, started, cancellationToken)
+                .ConfigureAwait(false);
+        }
+
+        // ---- Remembered verdicts. Two outcomes are settled by something hashing the file again
+        // cannot change - the counted read ran into the ceiling, or no extractor accepts the
+        // document and nothing of it is indexed - so while the source declares the size and time
+        // they were reached at, the file is not opened. This is the timestamp gate's evidence, and
+        // it is good enough here for the reason it is not good enough for an indexed document: a
+        // wrong "unchanged" leaves no stale chunk behind, only a verdict that was already true.
+        // An unsupported document that still carries chunks is NOT in this set, because whether
+        // those chunks are still true is exactly what the hash decides.
+        if (!options.Force
+            && stored is not null
+            && item.SizeBytes is not null
+            && item.LastModifiedUtc is not null
+            && stored.SizeBytes == item.SizeBytes
+            && stored.ModifiedUtc == item.LastModifiedUtc)
+        {
+            // Status first: the message is only worth composing for a row that failed.
+            if (stored.Status == IngestionDocumentStatus.Failed
+                && Remembers(stored, TooLarge(item, null, opts.MaxDocumentBytes)))
+            {
+                return await SkipRememberedAsync(collection, source.Id, item, runId, stored, "size", started, cancellationToken)
+                    .ConfigureAwait(false);
+            }
+
+            if (extractor is null
+                && stored.Status == IngestionDocumentStatus.Unsupported
+                && stored.ChunkCount == 0
+                && stored.RecipeHash == documentRecipe.HashValue)
+            {
+                return await SkipRememberedAsync(collection, source.Id, item, runId, stored, "unsupported", started, cancellationToken)
+                    .ConfigureAwait(false);
+            }
         }
 
         // ---- Timestamp gate (spec 9.4 step 1). Off by default: matching size and mtime is not
@@ -560,7 +658,7 @@ internal sealed class IngestionRunner
         // would make a later shrink of the file look unchanged.
         if (contentHash is not { } hash)
         {
-            return await RecordFailureAsync(
+            return await RecordTooLargeAsync(
                 item, source.Id, runId, stored, TooLarge(item, null, opts.MaxDocumentBytes),
                 started, cancellationToken).ConfigureAwait(false);
         }
@@ -840,6 +938,51 @@ internal sealed class IngestionRunner
             .ConfigureAwait(false);
         counters.ChunksRemoved += removed;
         return removed;
+    }
+
+    /// <summary>
+    /// 6052, recorded. The row is the memory: it stores the size and time the source declared and a
+    /// message that names the ceiling, which is what lets the next run recognise the same verdict
+    /// without opening the file (see <see cref="Remembers"/>).
+    /// </summary>
+    private async Task<DocumentRun> RecordTooLargeAsync(
+        DocumentSourceItem item,
+        string sourceId,
+        string runId,
+        IngestionDocumentState? stored,
+        IngestionFailure failure,
+        long started,
+        CancellationToken cancellationToken)
+    {
+        var recorded = await RecordFailureAsync(item, sourceId, runId, stored, failure, started, cancellationToken)
+            .ConfigureAwait(false);
+        return recorded with { CountsTowardAbort = false };
+    }
+
+    /// <summary>True when the stored row is a failure that already says exactly <paramref name="failure"/>.</summary>
+    private static bool Remembers(IngestionDocumentState? stored, IngestionFailure failure) =>
+        stored is { Status: IngestionDocumentStatus.Failed }
+        && string.Equals(stored.Error, failure.Message, StringComparison.Ordinal);
+
+    /// <summary>
+    /// The skip for a verdict an earlier run recorded and nothing has overturned. Stamped like any
+    /// other skip, so the row still reads as seen by this run; the row itself, and so its status in
+    /// <c>GetStatusAsync</c>, is left as it was.
+    /// </summary>
+    private async Task<DocumentRun> SkipRememberedAsync(
+        string collection,
+        string sourceId,
+        DocumentSourceItem item,
+        string runId,
+        IngestionDocumentState stored,
+        string gate,
+        long started,
+        CancellationToken cancellationToken)
+    {
+        await _state.StampAsync(collection, sourceId, item.DocumentId, runId, cancellationToken)
+            .ConfigureAwait(false);
+        IngestionLog.DocumentSkipped(_logger, item.DocumentId, gate);
+        return DocumentRun.Skipped(item.DocumentId, stored.ExtractorId, _time.GetElapsedTime(started));
     }
 
     private async Task<DocumentRun> RecordFailureAsync(
@@ -1169,6 +1312,12 @@ internal sealed class IngestionRunner
     private sealed record DocumentRun(
         IngestionDocumentResult Result, bool Abandoned, string? SuspendReason, Exception? Thrown)
     {
+        /// <summary>
+        /// False for a failure that says something about the document rather than about the run,
+        /// which <c>AbortAfterConsecutiveErrors</c> must not read as a symptom.
+        /// </summary>
+        public bool CountsTowardAbort { get; init; } = true;
+
         public static DocumentRun Skipped(string documentId, string? extractorId, TimeSpan duration) =>
             new(
                 new IngestionDocumentResult(

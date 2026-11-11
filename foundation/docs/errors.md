@@ -577,9 +577,14 @@ call.
 
 Meaning: `IngestionPipeline.RunAsync` was called while a run is already
 active on the same pipeline. The message names the active run id.
+`PruneAsync`, `RemoveSourceAsync` and `RemoveDocumentAsync` take the same
+gate: each is refused with this code while a run is active, and a run or a
+second removal is refused while one of them is in progress (the message
+then names the member, since a removal has no run id).
 
-Remediation: Await the active run's `IngestionRunResult` before starting
-another on the same pipeline, or use a separate pipeline/collection.
+Remediation: Await the active run's `IngestionRunResult` — or call
+`RequestStop` and await it — before starting another run or a removal on
+the same pipeline, or use a separate pipeline/collection.
 
 ## 6009
 
@@ -645,6 +650,14 @@ Meaning: A document exceeded `MaxDocumentBytes`. Recorded `Failed` (event
 the hash pass's counted read aborts at the ceiling and no content hash is
 stored, so a later shrink is retried automatically.
 
+The verdict is recorded once and remembered. While the source declares the
+same size and modified time (and the ceiling is unchanged), later runs skip
+the document without opening it — it is reported `Skipped`, and its state
+row stays `Failed`. A source that declares neither is read to the ceiling
+again on every run, because nothing else says the file is the same one.
+6052 never counts towards `AbortAfterConsecutiveErrors`: a folder of
+oversized files is not a failing run.
+
 Remediation: Raise `MaxDocumentBytes`, or exclude the oversized document
 from the source.
 
@@ -690,7 +703,10 @@ Remediation: Supply a non-empty, stable `sourceId` — state rows are keyed on
 **ExtractorNotFound**
 
 Meaning: No registered `IDocumentExtractor` claims the document's extension.
-Recorded `Unsupported`.
+Recorded `Unsupported`. With nothing of the document in the index, later
+runs skip it without opening it for as long as the source declares the same
+size and modified time; registering an extractor for it changes its recipe
+and it is picked up on the next run.
 
 Remediation: Register the matching satellite — call `AddPdfExtractor()` for
 `.pdf`, `AddDocxExtractor()` for `.docx` — or register a custom
@@ -725,7 +741,10 @@ or exclude the document from the source.
 **DocumentMalformed**
 
 Meaning: `PdfTextExtractor` or `DocxTextExtractor` could not parse the
-document's structure — for example a broken cross-reference table.
+document's structure — for example a broken cross-reference table. A DOCX
+is also refused with this code, before it is parsed, when one of its XML
+parts inflates past 256 MiB or nests elements more than 256 deep: no word
+processor writes either, and both exist to exhaust the reader.
 
 Remediation: Re-export or repair the source document; PdfPig's
 `UseLenientParsing` (on by default) already tolerates the common cases.
@@ -757,14 +776,18 @@ fallback, or re-save the source file as valid UTF-8.
 **DocumentPageBudgetExceeded**
 
 Meaning: A PDF's cumulative page-parse time passed `PageBudget`, checked at
-a page boundary. Pages already parsed are kept, extraction stops there, and
-the document is recorded `Failed` naming the page reached (event 924). This
-is a between-pages watchdog, not a page-level abort — PdfPig's page API
-takes no `CancellationToken`.
+a page boundary. Extraction stops there and the document is recorded
+`Failed` naming the page reached (event 924). The pages parsed up to that
+point are discarded with the rest — a partial document is never indexed —
+and chunks an earlier run indexed for it are left alone. This is a
+between-pages watchdog, not a page-level abort — PdfPig's page API takes no
+`CancellationToken`.
 
-Remediation: Raise `PdfExtractorOptions.PageBudget`, or exclude the
-document. A single page that never returns is not something `PageBudget`
-can defend against — only the consumer's own process-level budget can.
+Remediation: Raise `PdfExtractorOptions.PageBudget` and re-run with
+`IngestionRunOptions.Force` (an unchanged file that already failed is
+skipped on the hash gate), or exclude the document. A single page that
+never returns is not something `PageBudget` can defend against — only the
+consumer's own process-level budget can.
 
 ### Sub-project 3 — `Qavren.Edge.Ingestion` (6151–6155): chunking
 

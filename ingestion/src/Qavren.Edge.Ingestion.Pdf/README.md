@@ -52,9 +52,15 @@ consumer who wants the lookup sets `o.SkipMissingFonts = false`.
 
 `PdfExtractorOptions.PageBudget` (20 s) is a **cumulative** budget checked **between pages**. At
 each page boundary the extractor compares the time spent so far against the budget; when it is
-passed, extraction stops there, every page already parsed is kept, the document is recorded
-`Failed` with `DocumentPageBudgetExceeded` (6107) naming the last page parsed, and event 924 is
-logged.
+passed, extraction stops there, the document is recorded `Failed` with
+`DocumentPageBudgetExceeded` (6107) naming the last page parsed, and event 924 is logged.
+
+Nothing from that attempt is indexed. The pages parsed before the budget ran out are discarded
+with the ones never started: a document recorded `Failed` that was quietly searchable up to page
+212 would be a truncation nobody was told about. Whatever an earlier, successful run indexed for
+the document stays as it was. The failure is remembered against the file's hash like any other, so
+after raising the budget re-run with `IngestionRunOptions.Force` — an unchanged file is otherwise
+skipped on the hash gate and never sees the new value.
 
 It does **not** interrupt a page that has started. PdfPig's per-page surface is fully synchronous
 and accepts no `CancellationToken`: `GetPages()`, `Page.Letters`, `ContentOrderTextExtractor.GetText`

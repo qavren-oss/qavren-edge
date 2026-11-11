@@ -277,23 +277,57 @@ internal sealed class ChunkWriter(
     public Task<int> DeleteDocumentChunksAsync(
         string sourceId, string documentId, CancellationToken cancellationToken) =>
         database.ExecuteInTransactionAsync(
-            async (connection, transaction, ct) =>
-            {
-                var command = connection.CreateCommand();
-                await using (command.ConfigureAwait(false))
-                {
-                    command.Transaction = transaction;
-                    command.CommandText =
-                        $"""
-                         DELETE FROM "{dataTable}"
-                         WHERE "{IngestionColumns.SourceId}" = $s AND "{IngestionColumns.DocumentId}" = $d
-                         """;
-                    command.Parameters.Add(new SqliteParameter("$s", sourceId));
-                    command.Parameters.Add(new SqliteParameter("$d", documentId));
-                    return await command.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
-                }
-            },
+            (connection, transaction, ct) =>
+                DeleteDocumentChunksAsync(connection, transaction, sourceId, documentId, ct),
             cancellationToken);
+
+    /// <summary>
+    /// The same delete inside a transaction the CALLER owns, which is how a removal takes a
+    /// document's chunks and its state row together. Plain SQL on the caller's connection: no SP2
+    /// collection method, so the transaction invariant holds.
+    /// </summary>
+    public async Task<int> DeleteDocumentChunksAsync(
+        SqliteConnection connection,
+        SqliteTransaction transaction,
+        string sourceId,
+        string documentId,
+        CancellationToken cancellationToken)
+    {
+        var command = connection.CreateCommand();
+        await using (command.ConfigureAwait(false))
+        {
+            command.Transaction = transaction;
+            command.CommandText =
+                $"""
+                 DELETE FROM "{dataTable}"
+                 WHERE "{IngestionColumns.SourceId}" = $s AND "{IngestionColumns.DocumentId}" = $d
+                 """;
+            command.Parameters.Add(new SqliteParameter("$s", sourceId));
+            command.Parameters.Add(new SqliteParameter("$d", documentId));
+            return await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>
+    /// Deletes every chunk carrying one source id, inside a transaction the caller owns. By source
+    /// rather than document by document, so chunks no state row accounts for - a run suspended
+    /// mid-document leaves exactly those - go with the rest.
+    /// </summary>
+    public async Task<int> DeleteSourceChunksAsync(
+        SqliteConnection connection,
+        SqliteTransaction transaction,
+        string sourceId,
+        CancellationToken cancellationToken)
+    {
+        var command = connection.CreateCommand();
+        await using (command.ConfigureAwait(false))
+        {
+            command.Transaction = transaction;
+            command.CommandText = $"""DELETE FROM "{dataTable}" WHERE "{IngestionColumns.SourceId}" = $s""";
+            command.Parameters.Add(new SqliteParameter("$s", sourceId));
+            return await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        }
+    }
 
     private static Dictionary<string, object?> ToRecord(
         IdentifiedChunk chunk, DocumentFacts facts, ReadOnlyMemory<float> embedding)

@@ -122,6 +122,28 @@ internal static class IngestionLog
             Id(EdgeIngestionEventIds.RunSuspended, nameof(EdgeIngestionEventIds.RunSuspended)),
             "The lifecycle grace window elapsed before the runner reached a committed checkpoint: {Phase}.");
 
+    // The two source warnings are logged under 923, the one "non-fatal warning" id spec 11 defines.
+    // A dedicated id would be a new public constant on EdgeIngestionEventIds, and that surface is
+    // frozen at 1.0.0; nothing else has ever been logged under 923, so a filter on it sees these.
+    private static readonly Action<ILogger, string, string, string, Exception?> SourceDirectoryUnreadableCore =
+        LoggerMessage.Define<string, string, string>(
+            LogLevel.Warning,
+            Id(EdgeIngestionEventIds.ExtractionWarning, nameof(SourceDirectoryUnreadable)),
+            "Source '{SourceId}': directory '{Directory}' could not be listed ({Reason}) and was skipped. " +
+            "Documents already indexed from it are kept, not pruned.");
+
+    private static readonly Action<ILogger, string, string, Exception?> SourceLinkNotFollowedCore =
+        LoggerMessage.Define<string, string>(
+            LogLevel.Information,
+            Id(EdgeIngestionEventIds.ExtractionWarning, nameof(SourceLinkNotFollowed)),
+            "Source '{SourceId}': directory '{Directory}' is a symbolic link or a junction and was not followed.");
+
+    public static void SourceDirectoryUnreadable(ILogger logger, string sourceId, string directory, string reason) =>
+        SourceDirectoryUnreadableCore(logger, sourceId, directory, reason, null);
+
+    public static void SourceLinkNotFollowed(ILogger logger, string sourceId, string directory) =>
+        SourceLinkNotFollowedCore(logger, sourceId, directory, null);
+
     public static void RunStarted(ILogger logger, string runId, string sourceId, string collection) =>
         RunStartedCore(logger, runId, sourceId, collection, null);
 

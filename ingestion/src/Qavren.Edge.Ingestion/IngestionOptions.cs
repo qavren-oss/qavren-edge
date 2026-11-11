@@ -69,6 +69,11 @@ public sealed class IngestionOptions
     public string ChunkerId { get; set; } = ChunkerIds.Auto;
 
     /// <summary>The source-byte ceiling. 32 MiB; over it is 6052, and the extractor is never reached.</summary>
+    /// <remarks>
+    /// The verdict is recorded once. While the source declares the same size and modified time, later
+    /// runs skip the document without opening it, and it never counts towards
+    /// <see cref="AbortAfterConsecutiveErrors"/>.
+    /// </remarks>
     public long MaxDocumentBytes { get; set; } = 32L * 1024 * 1024;
 
     /// <summary>Chunks per embed + upsert pair (spec 9.5 step a).</summary>
@@ -96,7 +101,11 @@ public sealed class IngestionOptions
     /// <summary>Record a document failure and keep going.</summary>
     public bool ContinueOnDocumentError { get; set; } = true;
 
-    /// <summary>Consecutive document failures that abort the run with 6010.</summary>
+    /// <summary>
+    /// Consecutive document failures that abort the run with 6010. A document over
+    /// <see cref="MaxDocumentBytes"/> is not one of them: it says something about that document,
+    /// not about the run.
+    /// </summary>
     public int AbortAfterConsecutiveErrors { get; set; } = 20;
 
     /// <summary>

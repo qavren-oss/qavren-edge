@@ -171,10 +171,7 @@ internal sealed class IngestionDiagnosticsContributor(
                 ? RecipeComposition.CurrentHashes(
                     baseline, IngestionServiceResolution.BuildRegistry(services, registration.Options))
                 : [];
-            var latest = store.LatestRunAsync(registration.CollectionName, CancellationToken.None)
-                .GetAwaiter().GetResult();
-            var counts = store.CountAsync(
-                registration.CollectionName, recipes, latest?.RunId, CancellationToken.None)
+            var counts = store.CountAsync(registration.CollectionName, recipes, CancellationToken.None)
                 .GetAwaiter().GetResult();
             var chunks = store.ChunkCountAsync(
                 registration.DataTable ?? registration.CollectionName, CancellationToken.None)

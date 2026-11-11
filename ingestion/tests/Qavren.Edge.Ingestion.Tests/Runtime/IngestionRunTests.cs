@@ -320,6 +320,32 @@ public sealed class IngestionRunTests
     }
 
     [Fact]
+    public async Task Two_sources_feeding_one_collection_do_not_make_each_others_documents_stale()
+    {
+        using var host = await IngestionTestHost.StartAsync();
+        var notes = new RecordingSource("notes").Add("a.txt", "alpha").Add("b.txt", "beta");
+        var mail = new RecordingSource("mail").Add("c.txt", "gamma");
+
+        await host.Pipeline.RunAsync(notes, cancellationToken: Token);
+        host.Time.Advance(TimeSpan.FromSeconds(1));
+        await host.Pipeline.RunAsync(mail, cancellationToken: Token);
+
+        // Every row was stamped by the newest run over ITS source. Held against the collection's
+        // newest run - the one over "mail" - both of "notes"'s documents read as stale.
+        var status = await host.Pipeline.GetStatusAsync(ct: Token);
+        Assert.Equal(3, status.DocumentCount);
+        Assert.Equal(0, status.StaleDocumentCount);
+
+        // And a row its own source's newest run did not see is still counted.
+        host.Time.Advance(TimeSpan.FromSeconds(1));
+        notes.Remove("b.txt");
+        await host.Pipeline.RunAsync(
+            notes, options: new IngestionRunOptions { DeleteMissing = false }, cancellationToken: Token);
+
+        Assert.Equal(1, (await host.Pipeline.GetStatusAsync(ct: Token)).StaleDocumentCount);
+    }
+
+    [Fact]
     public async Task A_timeout_inside_the_embedder_is_retried_like_any_other_embed_failure()
     {
         using var host = await IngestionTestHost.StartAsync();
