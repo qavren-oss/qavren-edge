@@ -1,4 +1,5 @@
 using System.Diagnostics.CodeAnalysis;
+using System.Globalization;
 using System.Reflection;
 using Microsoft.Data.Sqlite;
 using Qavren.Edge.Sqlite.Vec;
@@ -49,7 +50,17 @@ public static class SqliteConnectionExtensions
         await using (command.ConfigureAwait(false))
         {
             var value = await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
-            return value is null or DBNull ? default : (T)Convert.ChangeType(value, typeof(T), provider: null);
+            return value switch
+            {
+                null or DBNull => default,
+                T typed => typed,
+
+                // Convert.ChangeType cannot target Nullable<T>, and ScalarAsync<long?> is the only
+                // way to tell a NULL from a 0. Invariant, never the current culture: the text SQLite
+                // hands back was not written in the user's locale.
+                _ => (T)Convert.ChangeType(
+                    value, Nullable.GetUnderlyingType(typeof(T)) ?? typeof(T), CultureInfo.InvariantCulture),
+            };
         }
     }
 
