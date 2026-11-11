@@ -51,7 +51,7 @@ public class SatelliteRegistrationTests
         Assert.False(options.IncludeNotes);
         Assert.Equal(2L * 1024 * 1024, options.StreamingThresholdBytes);
 
-        Assert.Equal("docx:1, text:1, markdown:1", provider.GetRequiredService<IDocumentExtractorRegistry>().Describe());
+        Assert.Equal("docx:2, text:1, markdown:1", provider.GetRequiredService<IDocumentExtractorRegistry>().Describe());
     }
 
     [Fact]
@@ -60,8 +60,8 @@ public class SatelliteRegistrationTests
         using var after = Build(edge => edge.AddIngestion(1).AddPdfExtractor().AddDocxExtractor());
         using var before = Build(edge => edge.AddPdfExtractor().AddDocxExtractor().AddIngestion(1));
 
-        Assert.Equal("pdf:1, docx:1, text:1, markdown:1", after.GetRequiredService<IDocumentExtractorRegistry>().Describe());
-        Assert.Equal("pdf:1, docx:1, text:1, markdown:1", before.GetRequiredService<IDocumentExtractorRegistry>().Describe());
+        Assert.Equal("pdf:1, docx:2, text:1, markdown:1", after.GetRequiredService<IDocumentExtractorRegistry>().Describe());
+        Assert.Equal("pdf:1, docx:2, text:1, markdown:1", before.GetRequiredService<IDocumentExtractorRegistry>().Describe());
     }
 
     [Fact]

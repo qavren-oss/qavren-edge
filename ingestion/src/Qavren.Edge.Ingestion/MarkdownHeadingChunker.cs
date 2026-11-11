@@ -61,7 +61,11 @@ public sealed class MarkdownHeadingChunker : IChunker
     public string Id => ChunkerIds.MarkdownHeading;
 
     /// <inheritdoc/>
-    public int Version => 1;
+    /// <remarks>
+    /// 2: a heading's closing <c>#</c> run is only dropped when a space separates it from the text,
+    /// so <c># Intro to C#</c> is no longer filed under "Intro to C".
+    /// </remarks>
+    public int Version => 2;
 
     /// <inheritdoc/>
     public IEnumerable<ChunkDraft> Chunk(
@@ -347,8 +351,8 @@ public sealed class MarkdownHeadingChunker : IChunker
     }
 
     /// <summary>
-    /// The display title of a heading block. ATX drops the leading and trailing <c>#</c> run;
-    /// setext keeps the first line and drops the underline.
+    /// The display title of a heading block: the ATX markers dropped (<see cref="AtxHeadingContent"/>),
+    /// or for setext the first line, without the underline.
     /// </summary>
     private static string HeadingTitle(string text, DocumentBlock block)
     {
@@ -359,8 +363,51 @@ public sealed class MarkdownHeadingChunker : IChunker
             raw = raw[..newline];
         }
 
-        raw = raw.TrimStart('#').Trim();
-        return raw.TrimEnd('#').Trim();
+        return AtxHeadingContent(raw.Trim());
+    }
+
+    /// <summary>
+    /// CommonMark 4.2's ATX heading content. The opening run of one to six <c>#</c> is a marker
+    /// only when whitespace or the end of the line follows it, and a closing run only when
+    /// whitespace precedes it or it is all that is left. Anything else is the heading's text:
+    /// <c># Intro to C#</c> is "Intro to C#" and <c># foo#</c> is "foo#", where trimming every
+    /// <c>#</c> from both ends made them "Intro to C" and "foo".
+    /// </summary>
+    /// <param name="line">The heading's first line, trimmed.</param>
+    /// <returns>The heading's text.</returns>
+    internal static string AtxHeadingContent(string line)
+    {
+        var open = 0;
+        while (open < line.Length && line[open] == '#')
+        {
+            open++;
+        }
+
+        if (open is 0 or > 6 || (open < line.Length && line[open] is not (' ' or '\t')))
+        {
+            // Not an opening marker - a setext heading's text, or text that merely starts with #.
+            return line;
+        }
+
+        var content = line[open..].Trim();
+        var close = content.Length;
+        while (close > 0 && content[close - 1] == '#')
+        {
+            close--;
+        }
+
+        if (close == 0)
+        {
+            // "## ##": the closing run is all there is, and the heading is empty.
+            return string.Empty;
+        }
+
+        if (close < content.Length && content[close - 1] is ' ' or '\t')
+        {
+            content = content[..close];
+        }
+
+        return content.Trim();
     }
 
     private sealed record Section(

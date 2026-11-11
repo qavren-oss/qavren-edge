@@ -51,7 +51,11 @@ public sealed class DocxTextExtractor : IDocumentExtractor
     public string Id => "docx";
 
     /// <inheritdoc/>
-    public int Version => 1;
+    /// <remarks>
+    /// 2: a tracked paragraph-property change no longer overwrites the paragraph's current style,
+    /// and text inside a <c>w:smartTag</c> is no longer dropped.
+    /// </remarks>
+    public int Version => 2;
 
     /// <inheritdoc/>
     public IReadOnlyList<string> Extensions => ExtensionList;

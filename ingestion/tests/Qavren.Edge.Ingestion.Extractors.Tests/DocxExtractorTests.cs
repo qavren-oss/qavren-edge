@@ -176,7 +176,7 @@ public class DocxExtractorTests
         Assert.Empty(document.Blocks);
         Assert.True(document.HasTextLayer);
         Assert.Equal("docx", document.ExtractorId);
-        Assert.Equal(1, document.ExtractorVersion);
+        Assert.Equal(2, document.ExtractorVersion);
         Assert.Equal(IngestionMediaTypes.Docx, document.MediaType);
     }
 
@@ -270,7 +270,7 @@ public class DocxExtractorTests
 
         var extractor = new DocxTextExtractor();
         Assert.Equal("docx", extractor.Id);
-        Assert.Equal(1, extractor.Version);
+        Assert.Equal(2, extractor.Version);
         Assert.Equal([".docx"], extractor.Extensions);
         Assert.Equal([IngestionMediaTypes.Docx], extractor.MediaTypes);
     }
