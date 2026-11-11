@@ -91,9 +91,13 @@ public sealed class BundledOnnxModelSource : IOnnxModelSource
                 };
             }
 
+            // Staged, verified, then renamed: an asset copy that is interrupted, or that turns out to
+            // be the wrong bytes, never sits at the destination the length-only fast path trusts.
+            var staged = OnnxModelLayout.PartPath(destination);
+
             await using (asset.ConfigureAwait(false))
             {
-                var target = new FileStream(destination, FileMode.Create, FileAccess.Write, FileShare.None, 81920, useAsync: true);
+                var target = new FileStream(staged, FileMode.Create, FileAccess.Write, FileShare.None, 81920, useAsync: true);
                 await using (target.ConfigureAwait(false))
                 {
                     await asset.CopyToAsync(target, cancellationToken).ConfigureAwait(false);
@@ -101,8 +105,10 @@ public sealed class BundledOnnxModelSource : IOnnxModelSource
             }
 
             var actual = await OnnxModelLayout
-                .VerifyAsync(destination, file, manifest.ModelId, sourceUri: null, cancellationToken)
+                .VerifyAsync(staged, file, manifest.ModelId, sourceUri: null, cancellationToken)
                 .ConfigureAwait(false);
+
+            File.Move(staged, destination, overwrite: true);
 
             if (string.Equals(file.RelativePath, manifest.GraphFile, StringComparison.Ordinal))
             {

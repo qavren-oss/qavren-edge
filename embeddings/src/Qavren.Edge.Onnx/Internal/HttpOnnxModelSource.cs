@@ -29,15 +29,21 @@ public sealed class HttpOnnxModelSourceOptions
     public int MaxAttempts { get; set; } = 4;
 
     /// <summary>
-    /// The body's own budget. <c>HttpClient.Timeout</c> stops applying once the response headers
-    /// are read, so without this a stalled body hangs forever.
+    /// The longest a response body may go without delivering a byte. <c>HttpClient.Timeout</c>
+    /// stops applying once the response headers are read, so without this a stalled body hangs
+    /// forever. The clock restarts every time bytes arrive: it bounds a stall, not the transfer, so
+    /// a slow link that keeps moving finishes a gigabyte-sized file in one attempt.
     /// </summary>
     public TimeSpan BodyTimeout { get; set; } = TimeSpan.FromMinutes(10);
 
     /// <summary>Headroom kept free on the volume, on top of the bytes still to fetch.</summary>
     public long FreeDiskMarginBytes { get; set; } = 32L * 1024 * 1024;
 
-    /// <summary>A Hub token, for a gated repo.</summary>
+    /// <summary>
+    /// A Hub token, for a gated repo. Sent only over HTTPS or to a loopback address: with any other
+    /// <see cref="BaseAddress"/> the download is refused rather than the token put on the wire in
+    /// clear.
+    /// </summary>
     public string? BearerToken { get; set; }
 
     /// <summary>
@@ -86,6 +92,8 @@ public sealed class HttpOnnxModelSource : IOnnxModelSource
             new EventId(EdgeAiEventIds.ModelDownloadFailed, nameof(EdgeAiEventIds.ModelDownloadFailed)),
             "{ModelId}/{RelativePath} failed after {Attempts} attempts.");
 
+    private static readonly TimeSpan s_progressInterval = TimeSpan.FromMilliseconds(100);
+
     private readonly HttpClient _httpClient;
     private readonly IEdgeModelPaths _paths;
     private readonly IOptions<HttpOnnxModelSourceOptions> _options;
@@ -120,7 +128,7 @@ public sealed class HttpOnnxModelSource : IOnnxModelSource
     /// Free bytes on the volume holding a directory, or null for "unknown". Replaced by tests, which
     /// is the only way to assert the refusal without filling a real disk.
     /// </summary>
-    internal Func<string, long?> FreeSpaceProvider { get; set; } = DefaultFreeSpace;
+    internal Func<string, long?> FreeSpaceProvider { get; set; } = OnnxModelLayout.FreeSpace;
 
     /// <summary>
     /// The backoff sleep. Replaced by tests so the retry ladder is asserted in milliseconds rather
@@ -156,7 +164,16 @@ public sealed class HttpOnnxModelSource : IOnnxModelSource
             .Replace("{revision}", manifest.HuggingFaceRevision, StringComparison.Ordinal)
             .Replace("{path}", relativePath, StringComparison.Ordinal);
 
-        return new Uri(options.BaseAddress, relative);
+        // RFC 3986 resolution replaces the last segment of a base that does not end in '/', so
+        // "https://models.corp.example/mirror" would lose "mirror" and every request would be a
+        // 404 against the host's root. A base address is a prefix here, with or without the slash.
+        var baseAddress = options.BaseAddress;
+        if (!baseAddress.AbsolutePath.EndsWith('/'))
+        {
+            baseAddress = new UriBuilder(baseAddress) { Path = baseAddress.AbsolutePath + "/" }.Uri;
+        }
+
+        return new Uri(baseAddress, relative);
     }
 
     /// <inheritdoc />
@@ -185,6 +202,8 @@ public sealed class HttpOnnxModelSource : IOnnxModelSource
                 SourceUri = ComposeUri(options, manifest, manifest.GraphFile),
             };
         }
+
+        RefuseATokenInClear(options, manifest);
 
         Directory.CreateDirectory(directory);
         var graphSha = OnnxModelLayout.Graph(manifest).Sha256;
@@ -222,7 +241,15 @@ public sealed class HttpOnnxModelSource : IOnnxModelSource
         var destination = OnnxModelLayout.FilePath(directory, file.RelativePath);
         Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
 
-        var part = destination + ".part";
+        var part = OnnxModelLayout.PartPath(destination);
+
+        var present = await AdoptAsync(manifest, file, destination, part, progress, cancellationToken)
+            .ConfigureAwait(false);
+        if (present is not null)
+        {
+            return present;
+        }
+
         string? etag = null;
         var attempt = 0;
         var hashFailures = 0;
@@ -244,10 +271,12 @@ public sealed class HttpOnnxModelSource : IOnnxModelSource
             catch (EdgeModelProvisioningException ex) when (ex.Code == EdgeErrorCode.ModelHashMismatch)
             {
                 // One retry, and one only: the same wrong bytes twice is a wrong manifest, not a
-                // wire error, and a third fetch of 23 MB proves nothing.
+                // wire error, and a third fetch of 23 MB proves nothing. When the attempts have run
+                // out as well it is still rethrown as itself: the two digests are the diagnosis, and
+                // "could not be downloaded" would bury them in an InnerException.
                 hashFailures++;
                 etag = null;
-                if (hashFailures >= 2)
+                if (hashFailures >= 2 || attempt >= options.MaxAttempts)
                 {
                     throw;
                 }
@@ -304,6 +333,21 @@ public sealed class HttpOnnxModelSource : IOnnxModelSource
         var partInfo = new FileInfo(part);
         var offset = partInfo.Exists ? partInfo.Length : 0;
 
+        if (offset > file.SizeBytes)
+        {
+            // Longer than the file it is supposed to be a prefix of. No range request repairs that.
+            File.Delete(part);
+            offset = 0;
+        }
+        else if (partInfo.Exists && offset == file.SizeBytes)
+        {
+            // Every byte arrived and the call was cancelled, or the process died, before the digest
+            // was checked. Asking the server for "bytes=<size>-" is a 416, which is not retryable,
+            // so without this branch the model could never be provisioned on this device again.
+            return await CompleteAsync(manifest, file, uri, part, destination, cancellationToken)
+                .ConfigureAwait(false);
+        }
+
         using var request = new HttpRequestMessage(HttpMethod.Get, uri);
         if (!string.IsNullOrEmpty(options.BearerToken))
         {
@@ -325,6 +369,17 @@ public sealed class HttpOnnxModelSource : IOnnxModelSource
 
         if (!response.IsSuccessStatusCode)
         {
+            if (offset > 0 && response.StatusCode == HttpStatusCode.RequestedRangeNotSatisfiable)
+            {
+                // The server holds fewer bytes than the partial file claims to continue from. The
+                // partial file is the thing that is wrong, so it goes and the ladder starts over.
+                File.Delete(part);
+                throw new HttpRequestException(
+                    $"{uri} answered 416 to a resume from byte {offset}; the partial file was discarded.",
+                    inner: null,
+                    statusCode: response.StatusCode);
+            }
+
             throw Failed(manifest, file, uri, response.StatusCode);
         }
 
@@ -365,30 +420,70 @@ public sealed class HttpOnnxModelSource : IOnnxModelSource
 
         var total = offset + remaining;
         await CopyBodyAsync(
-            response, part, offset, resumed, total, options.BodyTimeout, manifest, file, progress, cancellationToken)
+            response, part, offset, resumed, total, options.BodyTimeout, manifest, file, uri, progress, cancellationToken)
             .ConfigureAwait(false);
 
-        var actual = await OnnxModelLayout.HashAsync(part, cancellationToken).ConfigureAwait(false);
-        if (!string.Equals(actual, file.Sha256, StringComparison.OrdinalIgnoreCase))
-        {
-            var length = new FileInfo(part).Length;
-            File.Delete(part);
-            s_hashMismatch(_logger, manifest.ModelId, file.RelativePath, actual, file.Sha256, null);
+        return await CompleteAsync(manifest, file, uri, part, destination, cancellationToken).ConfigureAwait(false);
+    }
 
-            throw new EdgeModelProvisioningException(
-                EdgeErrorCode.ModelHashMismatch,
-                manifest.ModelId,
-                file.RelativePath,
-                $"'{file.RelativePath}' hashes to {actual} but the manifest declares {file.Sha256}. " +
-                "The file was deleted rather than used: an inference session created over the wrong bytes " +
-                "produces vectors that are silently incomparable with every vector already in the store.")
+    /// <summary>
+    /// A file an earlier, interrupted call already fetched, verified and renamed is not fetched
+    /// again. In a multi-file bundle the weights are rarely the last file, so without this a failure
+    /// on a 17 MB tokenizer re-downloads 1.2 GB that is sitting in place and correct.
+    /// </summary>
+    /// <returns>The file's digest when it is in place and right; null when it has to be fetched.</returns>
+    private static async Task<string?> AdoptAsync(
+        OnnxModelManifest manifest,
+        OnnxModelFile file,
+        string destination,
+        string part,
+        IProgress<ModelProvisioningProgress>? progress,
+        CancellationToken cancellationToken)
+    {
+        var placed = new FileInfo(destination);
+        if (!placed.Exists)
+        {
+            return null;
+        }
+
+        if (placed.Length == file.SizeBytes)
+        {
+            var actual = await OnnxModelLayout.HashAsync(destination, cancellationToken).ConfigureAwait(false);
+            if (string.Equals(actual, file.Sha256, StringComparison.OrdinalIgnoreCase))
             {
-                ExpectedSha256 = file.Sha256,
-                ActualSha256 = actual,
-                ExpectedBytes = file.SizeBytes,
-                ActualBytes = length,
-                SourceUri = uri,
-            };
+                File.Delete(part);
+                progress?.Report(new ModelProvisioningProgress(
+                    manifest.ModelId, file.RelativePath, file.SizeBytes, file.SizeBytes, Resumed: true));
+                return actual;
+            }
+        }
+
+        // The wrong length, or the right length and the wrong bytes: not this manifest's file. It
+        // would be overwritten by the rename anyway, and until then it is unverified content at a
+        // path the fast path trusts by length alone.
+        File.Delete(destination);
+        return null;
+    }
+
+    private async Task<string> CompleteAsync(
+        OnnxModelManifest manifest,
+        OnnxModelFile file,
+        Uri uri,
+        string part,
+        string destination,
+        CancellationToken cancellationToken)
+    {
+        string actual;
+        try
+        {
+            actual = await OnnxModelLayout
+                .VerifyAsync(part, file, manifest.ModelId, uri, cancellationToken)
+                .ConfigureAwait(false);
+        }
+        catch (EdgeModelProvisioningException ex) when (ex.Code == EdgeErrorCode.ModelHashMismatch)
+        {
+            s_hashMismatch(_logger, manifest.ModelId, file.RelativePath, ex.ActualSha256 ?? "unknown", file.Sha256, null);
+            throw;
         }
 
         // Same volume, so this is a rename rather than a copy.
@@ -406,14 +501,21 @@ public sealed class HttpOnnxModelSource : IOnnxModelSource
         TimeSpan bodyTimeout,
         OnnxModelManifest manifest,
         OnnxModelFile file,
+        Uri uri,
         IProgress<ModelProvisioningProgress>? progress,
         CancellationToken cancellationToken)
     {
         // Its OWN linked token: HttpClient.Timeout stops applying the moment the headers are read,
-        // so a body that stalls forever is otherwise never cancelled.
-        using var bodyTimeoutSource = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        bodyTimeoutSource.CancelAfter(bodyTimeout);
-        var bodyToken = bodyTimeoutSource.Token;
+        // so a body that stalls forever is otherwise never cancelled. It is re-armed after every
+        // read that delivered bytes, which is what makes it a stall timeout and not a deadline: an
+        // absolute ten minutes is 16 Mbit/s for a 1.2 GB file, and a slower link that never stops
+        // moving would fail every attempt it was given.
+        using var stall = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        stall.CancelAfter(bodyTimeout);
+        var bodyToken = stall.Token;
+
+        var completed = offset;
+        var overran = false;
 
         var body = await response.Content.ReadAsStreamAsync(bodyToken).ConfigureAwait(false);
         await using (body.ConfigureAwait(false))
@@ -429,17 +531,74 @@ public sealed class HttpOnnxModelSource : IOnnxModelSource
             await using (target.ConfigureAwait(false))
             {
                 var buffer = new byte[81920];
-                var completed = offset;
+                long lastReport = 0;
                 int read;
                 while ((read = await body.ReadAsync(buffer, bodyToken).ConfigureAwait(false)) > 0)
                 {
+                    if (completed + read > file.SizeBytes)
+                    {
+                        // The digest check would catch this too - after the volume was full.
+                        overran = true;
+                        break;
+                    }
+
                     await target.WriteAsync(buffer.AsMemory(0, read), bodyToken).ConfigureAwait(false);
                     completed += read;
-                    progress?.Report(new ModelProvisioningProgress(
-                        manifest.ModelId, file.RelativePath, completed, total, resumed));
+                    stall.CancelAfter(bodyTimeout);
+
+                    // One report per network read is ~15,000 posts to a UI thread for a 1.2 GB file.
+                    if (progress is not null &&
+                        (completed >= total || lastReport == 0 || Stopwatch.GetElapsedTime(lastReport) >= s_progressInterval))
+                    {
+                        lastReport = Stopwatch.GetTimestamp();
+                        progress.Report(new ModelProvisioningProgress(
+                            manifest.ModelId, file.RelativePath, completed, total, resumed));
+                    }
                 }
             }
         }
+
+        if (overran)
+        {
+            File.Delete(part);
+            throw new EdgeModelProvisioningException(
+                EdgeErrorCode.ModelHashMismatch,
+                manifest.ModelId,
+                file.RelativePath,
+                $"{uri} sent more than the {file.SizeBytes} bytes the manifest declares for '{file.RelativePath}'. " +
+                "The transfer was stopped and the partial file deleted: a body that long cannot hash to the " +
+                "pinned digest, and writing it out to learn that is how a wrong mirror fills a device.")
+            {
+                ExpectedSha256 = file.Sha256,
+                ExpectedBytes = file.SizeBytes,
+                SourceUri = uri,
+            };
+        }
+    }
+
+    private static void RefuseATokenInClear(HttpOnnxModelSourceOptions options, OnnxModelManifest manifest)
+    {
+        if (string.IsNullOrEmpty(options.BearerToken))
+        {
+            return;
+        }
+
+        var uri = ComposeUri(options, manifest, manifest.GraphFile);
+        if (string.Equals(uri.Scheme, Uri.UriSchemeHttps, StringComparison.Ordinal) || uri.IsLoopback)
+        {
+            return;
+        }
+
+        throw new EdgeModelProvisioningException(
+            EdgeErrorCode.ModelDownloadFailed,
+            manifest.ModelId,
+            manifest.GraphFile,
+            $"HttpOnnxModelSourceOptions.BearerToken is set and {uri.GetLeftPart(UriPartial.Authority)} is not " +
+            "HTTPS, so nothing was requested: a bearer token sent in clear is readable by everything on the " +
+            "path. Use an https BaseAddress, or clear BearerToken for a mirror that does not need one.")
+        {
+            SourceUri = uri,
+        };
     }
 
     private static EdgeModelProvisioningException Failed(
@@ -482,22 +641,6 @@ public sealed class HttpOnnxModelSource : IOnnxModelSource
         // and at one call per failed attempt the cost is irrelevant.
         var jitter = RandomNumberGenerator.GetInt32(0, 101);
         return TimeSpan.FromMilliseconds(baseDelay + jitter);
-    }
-
-    private static long? DefaultFreeSpace(string directory)
-    {
-        try
-        {
-            var root = Path.GetPathRoot(Path.GetFullPath(directory));
-            return string.IsNullOrEmpty(root) ? null : new DriveInfo(root).AvailableFreeSpace;
-        }
-        catch (Exception ex) when (ex is ArgumentException or IOException or UnauthorizedAccessException
-                                      or NotSupportedException or PlatformNotSupportedException)
-        {
-            // Unknown is never a refusal: a platform that will not report free space is not a
-            // platform that is out of space.
-            return null;
-        }
     }
 
     private static void ReassertNoBackup(string path)

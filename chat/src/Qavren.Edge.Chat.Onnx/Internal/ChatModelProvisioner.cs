@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Logging;
 using Qavren.Edge.Onnx;
+using Qavren.Edge.Onnx.Internal;
 
 namespace Qavren.Edge.Chat.Internal;
 
@@ -59,56 +60,17 @@ internal sealed class ChatModelProvisioner : IChatModelProvisioner
         _store = store;
         _modelPaths = modelPaths;
         _logger = logger;
-        _freeDiskProbe = freeDiskProbe ?? ReadFreeDisk;
-    }
-
-    /// <summary>The 16-character content-addressed directory segment: the graph's digest, truncated.</summary>
-    /// <param name="manifest">The manifest.</param>
-    /// <returns>The segment.</returns>
-    /// <remarks>
-    /// Re-derived here rather than taken from sub-project 2's <c>OnnxModelLayout</c>, which is
-    /// <c>internal</c> to <c>Qavren.Edge.Onnx</c> and whose <c>InternalsVisibleTo</c> does not name
-    /// this assembly. The rule it implements is public, stated on <c>ProvisionedModel.Directory</c>,
-    /// and asserted against a real <c>EnsureAsync</c> in the tier-2 lane.
-    /// </remarks>
-    public static string Sha16(OnnxModelManifest manifest)
-    {
-        ArgumentNullException.ThrowIfNull(manifest);
-
-        foreach (var file in manifest.Files)
-        {
-            if (string.Equals(file.RelativePath, manifest.GraphFile, StringComparison.Ordinal))
-            {
-                return file.Sha256.Length <= 16 ? file.Sha256 : file.Sha256[..16];
-            }
-        }
-
-        throw new ArgumentException(
-            $"Manifest '{manifest.ModelId}' names GraphFile '{manifest.GraphFile}', which is not one " +
-            $"of its Files; there is no digest to name the model directory after.",
-            nameof(manifest));
-    }
-
-    /// <summary><c>&lt;Models&gt;/&lt;modelId&gt;/&lt;sha16&gt;</c>.</summary>
-    /// <param name="models">The model root.</param>
-    /// <param name="manifest">The manifest.</param>
-    /// <returns>The absolute model directory.</returns>
-    public static string DirectoryFor(string models, OnnxModelManifest manifest) =>
-        Path.Combine(models, manifest.ModelId, Sha16(manifest));
-
-    /// <summary>The absolute path of one manifest-relative file.</summary>
-    /// <param name="directory">The model directory.</param>
-    /// <param name="relativePath">The manifest-relative path, forward-slashed.</param>
-    /// <returns>The absolute path.</returns>
-    public static string FilePath(string directory, string relativePath)
-    {
-        ArgumentNullException.ThrowIfNull(relativePath);
-        return Path.Combine(directory, relativePath.Replace('/', Path.DirectorySeparatorChar));
+        _freeDiskProbe = freeDiskProbe ?? OnnxModelLayout.FreeSpace;
     }
 
     /// <summary>Where this registration's bytes live.</summary>
+    /// <remarks>
+    /// The layout rule is sub-project 2's own source, compiled into this assembly (see
+    /// <c>OnnxModelLayout.Paths.cs</c>), so the directory this names and the directory the store
+    /// writes cannot drift apart.
+    /// </remarks>
     public string Directory =>
-        _options.ModelDirectoryOverride ?? DirectoryFor(_modelPaths.Models, _preset.Manifest);
+        _options.ModelDirectoryOverride ?? OnnxModelLayout.DirectoryFor(_modelPaths.Models, _preset.Manifest);
 
     /// <inheritdoc />
     public bool IsProvisioned =>
@@ -127,12 +89,10 @@ internal sealed class ChatModelProvisioner : IChatModelProvisioner
         foreach (var file in manifest.Files)
         {
             // A stat, and nothing more. Never a hash and never a request: this is the method a
-            // consent sheet calls on the UI thread.
-            var info = new FileInfo(FilePath(directory, file.RelativePath));
-            if (info.Exists)
-            {
-                present += Math.Min(info.Length, file.SizeBytes);
-            }
+            // consent sheet calls on the UI thread. It counts what the downloader will not fetch
+            // again - a file already in place, or the staging file a ranged GET resumes from - so
+            // an interrupted 1.2 GB transfer is quoted, and disk-checked, as what is left of it.
+            present += OnnxModelLayout.BytesOnDisk(directory, file);
         }
 
         var total = manifest.TotalSizeBytes;
@@ -161,6 +121,14 @@ internal sealed class ChatModelProvisioner : IChatModelProvisioner
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
+
+        if (_options.ModelDirectoryOverride is { } overrideDirectory)
+        {
+            // An override is a directory the app staged itself and the host loads from as it is.
+            // There is nothing to provision into it, and provisioning the standard directory
+            // instead would move a gigabyte the host never reads.
+            return UseOverride(overrideDirectory);
+        }
 
         if (!IsProvisioned)
         {
@@ -229,18 +197,38 @@ internal sealed class ChatModelProvisioner : IChatModelProvisioner
         return free >= bytesToTransfer + _options.Provisioning.FreeDiskMarginBytes;
     }
 
-    private static long? ReadFreeDisk(string directory)
+    private ProvisionedModel UseOverride(string overrideDirectory)
     {
-        try
+        var manifest = _preset.Manifest;
+
+        if (!System.IO.Directory.Exists(overrideDirectory))
         {
-            var root = Path.GetPathRoot(Path.GetFullPath(directory));
-            return string.IsNullOrEmpty(root) ? null : new DriveInfo(root).AvailableFreeSpace;
+            throw new EdgeChatException(
+                EdgeErrorCode.ChatModelNotProvisioned,
+                $"EdgeChatOptions.ModelDirectoryOverride names '{overrideDirectory}', which does not exist. " +
+                "An override is used as it is and never downloaded into.")
+            {
+                PresetId = _preset.Id,
+                ModelId = manifest.ModelId,
+                Remediation =
+                    "Stage the model's files in that directory, or clear ModelDirectoryOverride to " +
+                    "provision the preset into the model root.",
+            };
         }
-#pragma warning disable CA1031 // A free-space reading nobody can take is unknown, never a failure.
-        catch (Exception)
-#pragma warning restore CA1031
+
+        var files = new Dictionary<string, string>(manifest.Files.Count, StringComparer.Ordinal);
+        foreach (var file in manifest.Files)
         {
-            return null;
+            files[file.RelativePath] = OnnxModelLayout.FilePath(overrideDirectory, file.RelativePath);
         }
+
+        return new ProvisionedModel(
+            manifest.ModelId,
+            overrideDirectory,
+            OnnxModelLayout.FilePath(overrideDirectory, manifest.GraphFile),
+            OnnxModelLayout.Graph(manifest).Sha256,
+            files,
+            ModelProvisioningSource.AlreadyPresent,
+            TimeSpan.Zero);
     }
 }

@@ -9,62 +9,15 @@ namespace Qavren.Edge.Onnx.Internal;
 
 /// <summary>
 /// The on-disk layout every model source writes into, and the marker every source's output is
-/// described by. It lives beside the store rather than in its own file because the store is the
-/// only writer of the marker and the sources are the only writers of the files - splitting the two
-/// halves of one invariant across two files is how they drift.
+/// described by. This half lives beside the store rather than in its own file because the store is
+/// the only writer of the marker and the sources are the only writers of the files - splitting the
+/// two halves of one invariant across two files is how they drift. The path rules themselves are in
+/// <c>OnnxModelLayout.Paths.cs</c>, which the chat package compiles too.
 /// </summary>
-internal static class OnnxModelLayout
+internal static partial class OnnxModelLayout
 {
     /// <summary>The provisioning marker's filename.</summary>
     public const string MarkerFileName = ".qavren-model.json";
-
-    /// <summary>The manifest entry ORT is handed.</summary>
-    /// <param name="manifest">The manifest.</param>
-    /// <returns>The graph file entry.</returns>
-    public static OnnxModelFile Graph(OnnxModelManifest manifest)
-    {
-        ArgumentNullException.ThrowIfNull(manifest);
-
-        foreach (var file in manifest.Files)
-        {
-            if (string.Equals(file.RelativePath, manifest.GraphFile, StringComparison.Ordinal))
-            {
-                return file;
-            }
-        }
-
-        throw new ArgumentException(
-            $"Manifest '{manifest.ModelId}' names GraphFile '{manifest.GraphFile}', which is not one of its Files. " +
-            "The graph must be listed like every other file, because its declared SHA-256 is what the model " +
-            "directory and the CoreML cache key are named after.",
-            nameof(manifest));
-    }
-
-    /// <summary>The first 16 hex characters of the graph's digest: the content-addressed directory name.</summary>
-    /// <param name="manifest">The manifest.</param>
-    /// <returns>The 16-character directory segment.</returns>
-    public static string Sha16(OnnxModelManifest manifest)
-    {
-        var sha = Graph(manifest).Sha256;
-        return sha.Length <= 16 ? sha : sha[..16];
-    }
-
-    /// <summary><c>&lt;Models&gt;/&lt;modelId&gt;/&lt;sha16&gt;</c>.</summary>
-    /// <param name="models">The model root.</param>
-    /// <param name="manifest">The manifest.</param>
-    /// <returns>The absolute model directory.</returns>
-    public static string DirectoryFor(string models, OnnxModelManifest manifest)
-        => Path.Combine(models, manifest.ModelId, Sha16(manifest));
-
-    /// <summary>The absolute path of one manifest-relative file.</summary>
-    /// <param name="directory">The model directory.</param>
-    /// <param name="relativePath">The manifest-relative path, forward-slashed.</param>
-    /// <returns>The absolute path.</returns>
-    public static string FilePath(string directory, string relativePath)
-    {
-        ArgumentNullException.ThrowIfNull(relativePath);
-        return Path.Combine(directory, relativePath.Replace('/', Path.DirectorySeparatorChar));
-    }
 
     /// <summary>Whether every file exists at exactly its declared length.</summary>
     /// <param name="directory">The model directory.</param>
@@ -101,9 +54,14 @@ internal static class OnnxModelLayout
 
     /// <summary>
     /// Hashes the file on disk and compares it to the manifest. The digest is always taken from
-    /// the completed file, never from an in-flight buffer.
+    /// the completed file, never from an in-flight buffer, and a file that fails is deleted before
+    /// the exception leaves: wrong bytes left at a path the layout owns are one stale marker away
+    /// from being trusted by the length-only fast path.
     /// </summary>
-    /// <param name="path">The absolute path to verify.</param>
+    /// <param name="path">
+    /// The absolute path to verify. Always a path inside the model directory - a staging file or a
+    /// destination - and never a consumer's own copy, because a mismatch deletes it.
+    /// </param>
     /// <param name="file">The manifest entry.</param>
     /// <param name="modelId">The model id, for the exception.</param>
     /// <param name="sourceUri">Where the bytes came from, when they came from somewhere.</param>
@@ -125,6 +83,8 @@ internal static class OnnxModelLayout
         }
 
         var length = new FileInfo(path).Length;
+        File.Delete(path);
+
         throw new EdgeModelProvisioningException(
             EdgeErrorCode.ModelHashMismatch,
             modelId,
@@ -318,7 +278,21 @@ internal sealed class OnnxModelStore : IOnnxModelStore, IDisposable
                 return present;
             }
 
+            // Every path is resolved before any source writes one, so a manifest path that climbs
+            // out of the model directory fails the whole manifest, not just the files listed after
+            // the ones already copied.
+            _ = OnnxModelLayout.Resolve(directory, manifest);
+
             PurgeStaleRevisions(manifest);
+
+            // The marker says "every file here was verified". From this line until the new one is
+            // written that is no longer known, and a source that fails halfway must not leave the
+            // old claim standing over whatever it managed to write.
+            var staleMarker = Path.Combine(directory, OnnxModelLayout.MarkerFileName);
+            if (File.Exists(staleMarker))
+            {
+                File.Delete(staleMarker);
+            }
 
             var model = await ProvisionAsync(manifest, directory, progress, cancellationToken).ConfigureAwait(false);
             await WriteMarkerAsync(directory, manifest, model, cancellationToken).ConfigureAwait(false);
@@ -334,28 +308,40 @@ internal sealed class OnnxModelStore : IOnnxModelStore, IDisposable
     }
 
     /// <inheritdoc />
-    public ValueTask RemoveAsync(string modelId, CancellationToken cancellationToken = default)
+    public async ValueTask RemoveAsync(string modelId, CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(modelId);
-        cancellationToken.ThrowIfCancellationRequested();
 
-        var modelDirectory = Path.Combine(_paths.Models, modelId);
-        if (Directory.Exists(modelDirectory))
+        // Resolved before anything is deleted: an id of ".." is the parent of the model root.
+        var modelDirectory = OnnxModelLayout.ModelRoot(_paths.Models, modelId);
+        var cacheDirectory = OnnxModelLayout.ModelRoot(_paths.OrtCache, modelId);
+
+        // The gate EnsureAsync holds. Without it a removal pulls the directory out from under a
+        // download in flight: an IOException on Windows, and on Unix a transfer that completes
+        // into an unlinked tree and then writes a marker for nothing.
+        var gate = _gates.GetOrAdd(modelId, static _ => new SemaphoreSlim(1, 1));
+        await gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
         {
-            Directory.Delete(modelDirectory, recursive: true);
-        }
+            if (Directory.Exists(modelDirectory))
+            {
+                Directory.Delete(modelDirectory, recursive: true);
+            }
 
-        // The CoreML cache is keyed on <modelId>/<sha16>, and a cache entry that outlives its
-        // model is a compile ORT will never be asked for again.
-        var cacheDirectory = Path.Combine(_paths.OrtCache, modelId);
-        if (Directory.Exists(cacheDirectory))
+            // The CoreML cache is keyed on <modelId>/<sha16>, and a cache entry that outlives its
+            // model is a compile ORT will never be asked for again.
+            if (Directory.Exists(cacheDirectory))
+            {
+                Directory.Delete(cacheDirectory, recursive: true);
+                s_ortCachePurged(_logger, modelId, cacheDirectory, null);
+            }
+
+            _provisioned.TryRemove(modelId, out _);
+        }
+        finally
         {
-            Directory.Delete(cacheDirectory, recursive: true);
-            s_ortCachePurged(_logger, modelId, cacheDirectory, null);
+            gate.Release();
         }
-
-        _provisioned.TryRemove(modelId, out _);
-        return ValueTask.CompletedTask;
     }
 
     /// <inheritdoc />
@@ -411,8 +397,8 @@ internal sealed class OnnxModelStore : IOnnxModelStore, IDisposable
     {
         var keep = OnnxModelLayout.Sha16(manifest);
 
-        PurgeSiblings(Path.Combine(_paths.Models, manifest.ModelId), keep, cache: false, manifest.ModelId);
-        PurgeSiblings(Path.Combine(_paths.OrtCache, manifest.ModelId), keep, cache: true, manifest.ModelId);
+        PurgeSiblings(OnnxModelLayout.ModelRoot(_paths.Models, manifest.ModelId), keep, cache: false, manifest.ModelId);
+        PurgeSiblings(OnnxModelLayout.ModelRoot(_paths.OrtCache, manifest.ModelId), keep, cache: true, manifest.ModelId);
     }
 
     private void PurgeSiblings(string parent, string keep, bool cache, string modelId)
@@ -424,7 +410,8 @@ internal sealed class OnnxModelStore : IOnnxModelStore, IDisposable
 
         foreach (var stale in Directory.EnumerateDirectories(parent))
         {
-            if (string.Equals(Path.GetFileName(stale), keep, StringComparison.Ordinal))
+            var name = Path.GetFileName(stale);
+            if (string.Equals(name, keep, StringComparison.Ordinal) || !IsRevisionDirectory(name))
             {
                 continue;
             }
@@ -435,6 +422,30 @@ internal sealed class OnnxModelStore : IOnnxModelStore, IDisposable
                 s_ortCachePurged(_logger, modelId, stale, null);
             }
         }
+    }
+
+    /// <summary>
+    /// Whether a directory under <c>&lt;modelId&gt;/</c> is one the layout made: sixteen hex
+    /// characters of a graph digest. <c>&lt;modelId&gt;/</c> is also where the file source looks for
+    /// files a consumer staged by hand, and a manifest whose graph lives in <c>onnx/</c> stages an
+    /// <c>onnx</c> directory there - which is somebody's model, not a stale revision.
+    /// </summary>
+    private static bool IsRevisionDirectory(string name)
+    {
+        if (name.Length != 16)
+        {
+            return false;
+        }
+
+        foreach (var c in name)
+        {
+            if (!char.IsAsciiHexDigit(c))
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     private static async Task WriteMarkerAsync(

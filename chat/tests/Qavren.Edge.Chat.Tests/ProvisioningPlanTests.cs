@@ -1,5 +1,7 @@
 using Qavren.Edge.Chat.Internal;
 using Qavren.Edge.Chat.Tests.Fakes;
+using Qavren.Edge.Onnx;
+using Qavren.Edge.Onnx.Internal;
 using Xunit;
 
 namespace Qavren.Edge.Chat.Tests;
@@ -36,7 +38,7 @@ public sealed class ProvisioningPlanTests : IDisposable
     {
         var options = new EdgeChatOptions { Preset = Preset };
         var paths = new FakeModelPaths(_root);
-        var store = new FakeModelStore(ChatModelProvisioner.DirectoryFor(paths.Models, Preset.Manifest))
+        var store = new FakeModelStore(OnnxModelLayout.DirectoryFor(paths.Models, Preset.Manifest))
         {
             Provisioned = provisioned,
         };
@@ -91,6 +93,79 @@ public sealed class ProvisioningPlanTests : IDisposable
 
         Assert.Equal(353, plan.BytesAlreadyPresent);
         Assert.Equal(plan.TotalBytes - 353, plan.BytesToTransfer);
+    }
+
+    [Fact]
+    public void PlanCountsTheStagingFileAnInterruptedDownloadResumesFrom()
+    {
+        // The downloader resumes a ranged GET from <file>.part and nowhere else. A plan that looked
+        // only at final names quoted the whole 1.24 GB again after an interruption 800 MB in, and
+        // then refused the resume for want of disk the partial file itself was holding.
+        var (provisioner, _, _) = Build(freeDisk: 100L * 1024 * 1024 * 1024);
+        var directory = provisioner.Plan().Directory;
+
+        Directory.CreateDirectory(directory);
+        File.WriteAllBytes(
+            OnnxModelLayout.PartPath(Path.Combine(directory, "model.onnx.data")), new byte[4096]);
+
+        var plan = provisioner.Plan();
+
+        Assert.Equal(4096, plan.BytesAlreadyPresent);
+        Assert.Equal(plan.TotalBytes - 4096, plan.BytesToTransfer);
+    }
+
+    [Fact]
+    public void PlanDoesNotCountAFileInPlaceAtTheWrongLength()
+    {
+        // The downloader deletes it and fetches the file whole, so the plan must quote it whole.
+        var (provisioner, _, _) = Build(freeDisk: 100L * 1024 * 1024 * 1024);
+        var directory = provisioner.Plan().Directory;
+
+        Directory.CreateDirectory(directory);
+        File.WriteAllText(Path.Combine(directory, "tokenizer_config.json"), "truncated");
+
+        var plan = provisioner.Plan();
+
+        Assert.Equal(0, plan.BytesAlreadyPresent);
+        Assert.Equal(plan.TotalBytes, plan.BytesToTransfer);
+    }
+
+    [Fact]
+    public async Task AnOverrideDirectoryIsUsedAsItIsAndNothingIsProvisionedBesideIt()
+    {
+        // The host loads from the override. Provisioning the standard directory anyway moved a
+        // gigabyte nothing would ever read, past both of the checks this class exists to make.
+        var (provisioner, store, options) = Build(freeDisk: 1);
+        options.Provisioning.IsTransferPermitted = () => false;
+
+        var staged = Path.Combine(_root, "staged");
+        Directory.CreateDirectory(staged);
+        options.ModelDirectoryOverride = staged;
+
+        var provisioned = await provisioner
+            .ProvisionAsync(cancellationToken: TestContext.Current.CancellationToken)
+            .ConfigureAwait(true);
+
+        Assert.Equal(0, store.Ensures);
+        Assert.Equal(staged, provisioned.Directory);
+        Assert.Equal(Path.Combine(staged, "model.onnx"), provisioned.GraphPath);
+        Assert.Equal(ModelProvisioningSource.AlreadyPresent, provisioned.Source);
+        Assert.Equal(Preset.Manifest.Files.Count, provisioned.Files.Count);
+    }
+
+    [Fact]
+    public async Task AMissingOverrideDirectoryIs7051AndNothingIsDownloadedInItsPlace()
+    {
+        var (provisioner, store, options) = Build(freeDisk: 100L * 1024 * 1024 * 1024);
+        options.ModelDirectoryOverride = Path.Combine(_root, "never-staged");
+
+        var exception = await Assert.ThrowsAsync<EdgeChatException>(
+            () => provisioner.ProvisionAsync(cancellationToken: TestContext.Current.CancellationToken).AsTask())
+            .ConfigureAwait(true);
+
+        Assert.Equal(EdgeErrorCode.ChatModelNotProvisioned, exception.Code);
+        Assert.Equal(0, store.Ensures);
+        Assert.NotNull(exception.Remediation);
     }
 
     [Fact]

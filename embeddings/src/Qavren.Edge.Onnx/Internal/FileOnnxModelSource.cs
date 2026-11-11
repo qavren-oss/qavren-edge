@@ -75,14 +75,21 @@ public sealed class FileOnnxModelSource : IOnnxModelSource
                 };
 
             var destination = OnnxModelLayout.FilePath(directory, file.RelativePath);
-            if (!string.Equals(found, destination, StringComparison.OrdinalIgnoreCase))
+
+            // A file that is already where the store puts it is verified in place. Anything else is
+            // copied to a staging name and renamed only once its digest is right, so a copy that is
+            // interrupted, or that turns out to be the wrong bytes, never sits at the destination.
+            var inPlace = string.Equals(found, destination, StringComparison.OrdinalIgnoreCase);
+            var staged = inPlace ? destination : OnnxModelLayout.PartPath(destination);
+
+            if (!inPlace)
             {
                 Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
 
                 var source = new FileStream(found, FileMode.Open, FileAccess.Read, FileShare.Read, 81920, useAsync: true);
                 await using (source.ConfigureAwait(false))
                 {
-                    var target = new FileStream(destination, FileMode.Create, FileAccess.Write, FileShare.None, 81920, useAsync: true);
+                    var target = new FileStream(staged, FileMode.Create, FileAccess.Write, FileShare.None, 81920, useAsync: true);
                     await using (target.ConfigureAwait(false))
                     {
                         await source.CopyToAsync(target, cancellationToken).ConfigureAwait(false);
@@ -91,8 +98,13 @@ public sealed class FileOnnxModelSource : IOnnxModelSource
             }
 
             var actual = await OnnxModelLayout
-                .VerifyAsync(destination, file, manifest.ModelId, sourceUri: null, cancellationToken)
+                .VerifyAsync(staged, file, manifest.ModelId, sourceUri: null, cancellationToken)
                 .ConfigureAwait(false);
+
+            if (!inPlace)
+            {
+                File.Move(staged, destination, overwrite: true);
+            }
 
             if (string.Equals(file.RelativePath, manifest.GraphFile, StringComparison.Ordinal))
             {
@@ -114,7 +126,7 @@ public sealed class FileOnnxModelSource : IOnnxModelSource
     }
 
     private string Root(OnnxModelManifest manifest)
-        => _directoryOverride ?? Path.Combine(_paths.Models, manifest.ModelId);
+        => _directoryOverride ?? OnnxModelLayout.ModelRoot(_paths.Models, manifest.ModelId);
 
     private string? Locate(OnnxModelManifest manifest, OnnxModelFile file)
     {
@@ -123,7 +135,7 @@ public sealed class FileOnnxModelSource : IOnnxModelSource
         var candidates = new[]
         {
             OnnxModelLayout.FilePath(Root(manifest), file.RelativePath),
-            OnnxModelLayout.FilePath(Path.Combine(_directoryOverride ?? _paths.Models, manifest.ModelId), file.RelativePath),
+            OnnxModelLayout.FilePath(OnnxModelLayout.ModelRoot(_directoryOverride ?? _paths.Models, manifest.ModelId), file.RelativePath),
             OnnxModelLayout.FilePath(OnnxModelLayout.DirectoryFor(_paths.Models, manifest), file.RelativePath),
         };
 
