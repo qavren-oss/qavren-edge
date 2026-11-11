@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Reflection;
+using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.DependencyInjection;
 using Qavren.Edge.Diagnostics;
 using Qavren.Edge.Sqlite;
@@ -183,6 +184,14 @@ internal sealed class IngestionDiagnosticsContributor(
         {
             // Diagnostics never fails a report: an un-migrated or absent state table reports
             // "(disabled)" rather than throwing out of Describe().
+            return null;
+        }
+        catch (SqliteException)
+        {
+            // The same rule for the failure the state store does not translate - a state table
+            // dropped or renamed underneath it, a locked or corrupt file. A raw SqliteException
+            // used to escape Describe() and take the whole report down with it, including every
+            // other component's keys, at exactly the moment someone opened it to find out why.
             return null;
         }
     }

@@ -225,6 +225,32 @@ public sealed class DiagnosticsContributorTests
         Assert.Equal("usage", Describe(host)["tokensEmbeddedSource"]);
     }
 
+    [Fact]
+    public async Task A_state_table_dropped_underneath_the_counts_reports_disabled_instead_of_throwing()
+    {
+        // The state store translates "not migrated" into an EdgeException, which Describe() caught.
+        // A table that disappeared after startup arrives as a raw SqliteException, which it did not -
+        // and a contributor that throws takes the whole diagnostics report down with it.
+        using var host = await IngestionTestHost.StartAsync(o => o.IncludeCountsInDiagnostics = true);
+        await host.Pipeline.RunAsync(new RecordingSource().Add("a.txt", "alpha"), cancellationToken: Token);
+
+        var connection = await host.Database.OpenConnectionAsync(Token);
+        await using (connection)
+        {
+            await connection.ExecuteAsync("DROP TABLE \"qedge_ingest_document\"", cancellationToken: Token);
+        }
+
+        var details = Describe(host);
+
+        foreach (var key in CountKeys)
+        {
+            Assert.Equal("(disabled)", details[key]);
+        }
+
+        // Everything that does not need the table is still reported.
+        Assert.False(string.IsNullOrEmpty(details["recipeHash"]));
+    }
+
     private static IReadOnlyDictionary<string, string?> Describe(IngestionTestHost host) =>
         host.Services.GetServices<IEdgeDiagnosticsContributor>()
             .First(c => c.ComponentName == "Qavren.Edge.Ingestion")
