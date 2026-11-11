@@ -172,6 +172,16 @@ public interface IChatModelHost
     /// </summary>
     void TerminateActiveGeneration();
 
-    /// <summary>False between <c>MemoryPressure(Moderate)</c> and the next <c>Resumed</c>.</summary>
+    /// <summary>
+    /// False while memory pressure holds new turns back, and once the app is stopping.
+    /// </summary>
+    /// <remarks>
+    /// A <c>MemoryPressure(Moderate)</c> or <c>(Critical)</c> event turns it false. It turns true
+    /// again at the next <c>Resumed</c>, or - because a warning received in the foreground is never
+    /// followed by one - on its own, the first time it is read at least 30 seconds after the last
+    /// pressure event with the device no longer reporting low memory. That is not a promise that a
+    /// model fits: the memory budget decides that, against a fresh reading, when the next turn
+    /// loads one.
+    /// </remarks>
     bool IsAcceptingTurns { get; }
 }

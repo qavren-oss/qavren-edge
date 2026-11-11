@@ -282,15 +282,30 @@ internal sealed class OnnxSessionHost : IOnnxSessionHost, IDisposable
             {
                 if (slot.Current is { } entry)
                 {
+                    // Marked, and freed only when nothing holds it: the container can be disposed
+                    // with a Run still in flight, and disposing a session under one is a native
+                    // access violation, not an exception. The last lease to return disposes it,
+                    // exactly as after DropAsync.
+                    entry.DropRequested = true;
                     slot.Current = null;
-                    DisposeEntry(slot, entry);
+
+                    if (entry.Leases == 0)
+                    {
+                        DisposeEntry(slot, entry);
+                    }
+                    else
+                    {
+                        slot.LastInfo = entry.Info with { IsLoaded = true, ActiveLeases = entry.Leases };
+                    }
                 }
             }
 
             slot.LoadGate.Dispose();
         }
 
-        _slots.Clear();
+        // The slots stay: a lease that is still out reports through its slot until it returns, and
+        // an acquire against a disposed host meets a disposed load gate rather than quietly
+        // loading a session nothing will ever free.
     }
 
     /// <summary>

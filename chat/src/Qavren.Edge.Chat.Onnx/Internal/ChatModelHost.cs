@@ -115,11 +115,16 @@ internal sealed class ChatModelHost : IChatTurnHost, IChatLifecycleTarget, IDisp
     private readonly ILogger _logger;
     private readonly SemaphoreSlim _loadGate = new(1, 1);
     private readonly Lock _sync = new();
+    private readonly TimeProvider _timeProvider;
+    private readonly ChatPressureGate _pressure;
 
     // Left null until the first load rather than defaulted in the constructor: building the default
     // delegate would load the GenAI types during composition, and spec section 8.1's rule is that
     // nothing DI builds eagerly names one.
     private ChatModelFactory? _modelFactory;
+
+    // Read and written only under _loadGate.
+    private AbandonedLoad? _abandonedLoad;
     private ModelEntry? _current;
     private ChatModelInfo? _lastInfo;
     private int _loadCount;
@@ -140,6 +145,7 @@ internal sealed class ChatModelHost : IChatTurnHost, IChatLifecycleTarget, IDisp
     /// Builds the native objects. Null takes the real ORT GenAI one; the tests inject a lambda,
     /// which is how every spec section 9.1 failure is asserted with no model on disk.
     /// </param>
+    /// <param name="timeProvider">The clock the memory-pressure cool-down runs on. Null is the system clock.</param>
     public ChatModelHost(
         ChatRegistration registration,
         IEdgeHost host,
@@ -147,7 +153,8 @@ internal sealed class ChatModelHost : IChatTurnHost, IChatLifecycleTarget, IDisp
         IEdgeResourceMonitor monitor,
         ChatEnvironmentState environment,
         ILogger logger,
-        ChatModelFactory? modelFactory = null)
+        ChatModelFactory? modelFactory = null,
+        TimeProvider? timeProvider = null)
     {
         ArgumentNullException.ThrowIfNull(registration);
         ArgumentNullException.ThrowIfNull(host);
@@ -163,6 +170,8 @@ internal sealed class ChatModelHost : IChatTurnHost, IChatLifecycleTarget, IDisp
         _environment = environment;
         _logger = logger;
         _modelFactory = modelFactory;
+        _timeProvider = timeProvider ?? TimeProvider.System;
+        _pressure = new ChatPressureGate(monitor, _timeProvider);
     }
 
     /// <summary>The preset this host loads.</summary>
@@ -178,7 +187,11 @@ internal sealed class ChatModelHost : IChatTurnHost, IChatLifecycleTarget, IDisp
     public bool TerminationRequested => _terminationRequested;
 
     /// <inheritdoc />
-    public bool IsAcceptingTurns => _acceptingTurns;
+    /// <remarks>
+    /// Two independent reasons to say no: the app is stopping (or was told so and never resumed),
+    /// and a memory-pressure pause that has not yet passed - see <see cref="ChatPressureGate"/>.
+    /// </remarks>
+    public bool IsAcceptingTurns => _acceptingTurns && !_pressure.IsPaused;
 
     /// <inheritdoc />
     public async ValueTask<ChatModelLease> AcquireAsync(CancellationToken cancellationToken = default)
@@ -263,14 +276,21 @@ internal sealed class ChatModelHost : IChatTurnHost, IChatLifecycleTarget, IDisp
     /// </summary>
     /// <param name="setRuntimeOption">The live generator's runtime-option setter, or null.</param>
     /// <remarks>The decode loop owns both calls; the host only holds the reference.</remarks>
-    public void SetActiveGeneration(Action<string, string>? setRuntimeOption)
-    {
+    public void SetActiveGeneration(Action<string, string>? setRuntimeOption) =>
         Volatile.Write(ref _activeGenerationRuntimeOption, setRuntimeOption);
-        if (setRuntimeOption is not null)
-        {
-            _terminationRequested = false;
-        }
-    }
+
+    /// <summary>
+    /// A turn has entered the turn gate: whatever was terminated before this moment was some other
+    /// turn's business.
+    /// </summary>
+    /// <remarks>
+    /// The abort flag used to be cleared when the generator was registered, which is AFTER the
+    /// model load, the tokenizer and the prefill. A terminate that arrived during any of them -
+    /// critical memory pressure while 1.2 GB of weights were being mapped is the likely one - set
+    /// the flag, found no generator to stop, and was then erased by the registration: the turn it
+    /// was meant to stop ran to completion.
+    /// </remarks>
+    public void BeginTurn() => _terminationRequested = false;
 
     /// <summary>Registers the conversation cache's drop, so the lifecycle observer can reach it.</summary>
     /// <param name="drop">The cache's drop, or null.</param>
@@ -280,7 +300,19 @@ internal sealed class ChatModelHost : IChatTurnHost, IChatLifecycleTarget, IDisp
     public void DropConversationCache() => Volatile.Read(ref _dropConversationCache)?.Invoke();
 
     /// <inheritdoc />
-    public void SetAcceptingTurns(bool accepting) => _acceptingTurns = accepting;
+    public void SetAcceptingTurns(bool accepting)
+    {
+        _acceptingTurns = accepting;
+
+        if (accepting)
+        {
+            // Resumed. Whatever pressure there was, the OS has since let the app back in.
+            _pressure.Clear();
+        }
+    }
+
+    /// <inheritdoc />
+    public void PauseTurnsForMemoryPressure() => _pressure.OnPressure();
 
     /// <inheritdoc />
     public void SetSuspendRequested(bool suspended) => _suspendRequested = suspended;
@@ -299,8 +331,21 @@ internal sealed class ChatModelHost : IChatTurnHost, IChatLifecycleTarget, IDisp
         {
             if (_current is { } entry)
             {
+                // Marked, and freed only when nothing holds it: the container can be disposed with
+                // a turn still decoding, and freeing the model under a running Generator is a
+                // native access violation, not an exception. The last lease to return disposes it,
+                // exactly as after UnloadAsync.
+                entry.DropRequested = true;
                 _current = null;
-                DisposeEntry(entry);
+
+                if (entry.Leases == 0)
+                {
+                    DisposeEntry(entry);
+                }
+                else
+                {
+                    _lastInfo = entry.Info with { IsLoaded = true, ActiveLeases = entry.Leases };
+                }
             }
         }
 
@@ -353,8 +398,11 @@ internal sealed class ChatModelHost : IChatTurnHost, IChatLifecycleTarget, IDisp
         GenAiConfigOverlay.ThrowIfSearchOptionsDeclareMaxLength(options.SearchOptions);
 
         // There is no load-cancellation flag in GenAI, so the mitigation is to refuse to START a
-        // load under critical pressure rather than to pretend one can be aborted.
-        if (_monitor.LastPressure == EdgeMemoryPressure.Critical)
+        // load under critical pressure rather than to pretend one can be aborted. The monitor's
+        // latch is cleared only by Resumed, so it is believed until this host's own pressure pause
+        // has run its course: after that the memory budget below, against a fresh reading, is
+        // what decides whether there is room.
+        if (_monitor.LastPressure == EdgeMemoryPressure.Critical && !_pressure.IsRelieved)
         {
             throw new EdgeChatException(
                 EdgeErrorCode.ChatBusy,
@@ -364,7 +412,9 @@ internal sealed class ChatModelHost : IChatTurnHost, IChatLifecycleTarget, IDisp
                 "aborted - refusing to start one is the whole mitigation.")
             {
                 PresetId = preset.Id,
-                Remediation = "Retry after the app is resumed, which clears the pressure latch.",
+                Remediation =
+                    "Retry shortly: the refusal lifts on its own once the pressure has passed, and " +
+                    "at once when the app is resumed, which clears the pressure latch.",
             };
         }
 
@@ -518,39 +568,23 @@ internal sealed class ChatModelHost : IChatTurnHost, IChatLifecycleTarget, IDisp
         // Cancelled BEFORE the load, which is the only place cancellation can be honoured.
         cancellationToken.ThrowIfCancellationRequested();
 
-        var factory = _modelFactory ??= CreateGenAiResources;
-        var load = Task.Run(() => factory(directory, overlay, cancellationToken), CancellationToken.None);
+        var load = await AdoptOrStartLoadAsync(preset, options, directory, overlay, cancellationToken)
+            .ConfigureAwait(false);
 
         try
         {
-            return await load.WaitAsync(options.LoadTimeout, cancellationToken).ConfigureAwait(false);
+            return await load.WaitAsync(options.LoadTimeout, _timeProvider, cancellationToken).ConfigureAwait(false);
         }
         catch (TimeoutException ex)
         {
-            // The load itself keeps running - nothing can stop it - so whatever it produces is
-            // disposed rather than leaked. That is the honest half of "there is no load
-            // cancellation flag".
-            DisposeWhenItArrives(load);
-
-            s_loadFailed(_logger, preset.Manifest.ModelId, ex);
-            throw new EdgeChatException(
-                EdgeErrorCode.ChatModelLoadFailed,
-                $"Loading the chat model in '{directory}' did not finish inside the " +
-                $"{options.LoadTimeout} EdgeChatOptions.LoadTimeout. ORT GenAI has no equivalent " +
-                "of ORT's SessionOptions.SetLoadCancellationFlag, so the load is still running " +
-                "and its result will be disposed when it arrives.",
-                ex)
-            {
-                PresetId = preset.Id,
-                ModelId = preset.Manifest.ModelId,
-                Remediation =
-                    "Raise EdgeChatOptions.LoadTimeout, or pick a preset whose weights this device " +
-                    "can map faster.",
-            };
+            // The load itself keeps running - nothing can stop it. That is the honest half of
+            // "there is no load cancellation flag"; the other half is in Abandon.
+            Abandon(load, directory, overlay);
+            throw LoadTimedOut(preset, options, directory, ex);
         }
         catch (OperationCanceledException)
         {
-            DisposeWhenItArrives(load);
+            Abandon(load, directory, overlay);
             throw;
         }
 #pragma warning disable CA1031 // Every load failure becomes 7002 with the inner message preserved.
@@ -573,12 +607,121 @@ internal sealed class ChatModelHost : IChatTurnHost, IChatLifecycleTarget, IDisp
         }
     }
 
-    private static void DisposeWhenItArrives(Task<GenAiChatModelResources> load) =>
+    /// <summary>
+    /// The load this acquire waits on: the one a previous caller walked away from, when it is the
+    /// same load and nobody has disposed its result yet, and otherwise a new one - started only
+    /// once no other load is still running.
+    /// </summary>
+    /// <remarks>
+    /// A caller that timed out or cancelled used to leave its load running and release the load
+    /// gate, so the retry started a SECOND native load beside it: twice the weights mapped at once,
+    /// on the device that was already too slow to load them once. And a load that needs longer
+    /// than <c>LoadTimeout</c> could never succeed, because every retry began again from zero.
+    /// Runs under the load gate, like everything else that touches <c>_abandonedLoad</c>.
+    /// </remarks>
+    private async ValueTask<Task<GenAiChatModelResources>> AdoptOrStartLoadAsync(
+        ChatPreset preset,
+        EdgeChatOptions options,
+        string directory,
+        string overlay,
+        CancellationToken cancellationToken)
+    {
+        if (_abandonedLoad is { } abandoned)
+        {
+            var pending = abandoned.Load;
+
+            if (abandoned.Matches(directory, overlay) && !pending.IsFaulted && !pending.IsCanceled && abandoned.TryClaim())
+            {
+                // The same directory and the same overlay, still running or finished a moment ago:
+                // it IS the load this caller wants, with a head start.
+                _abandonedLoad = null;
+                return pending;
+            }
+
+            if (!pending.IsCompleted)
+            {
+                // A different shape - the budget resolved another context this time - is still
+                // being built. It cannot be used and it cannot be stopped, so it is waited out;
+                // its own continuation disposes whatever it produces.
+                try
+                {
+                    await ((Task)pending).WaitAsync(options.LoadTimeout, _timeProvider, cancellationToken).ConfigureAwait(false);
+                }
+#pragma warning disable CA1031 // However the abandoned load ended, it ended, and that is all this caller needed from it.
+                catch (Exception) when (pending.IsCompleted)
+#pragma warning restore CA1031
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                }
+                catch (TimeoutException ex)
+                {
+                    throw LoadTimedOut(preset, options, directory, ex);
+                }
+            }
+
+            _abandonedLoad = null;
+            cancellationToken.ThrowIfCancellationRequested();
+        }
+
+        var factory = _modelFactory ??= CreateGenAiResources;
+        return Task.Run(() => factory(directory, overlay, cancellationToken), CancellationToken.None);
+    }
+
+    /// <summary>
+    /// Records a load whose caller stopped waiting. Whatever it produces goes to exactly one of two
+    /// places: the next acquire, if one adopts it first, or <c>Dispose</c> the moment it arrives.
+    /// </summary>
+    private void Abandon(Task<GenAiChatModelResources> load, string directory, string overlay)
+    {
+        var abandoned = new AbandonedLoad(load, directory, overlay);
+        _abandonedLoad = abandoned;
+
         _ = load.ContinueWith(
-            static completed => completed.Result.Dispose(),
+            static (completed, state) =>
+            {
+                if (!completed.IsCompletedSuccessfully)
+                {
+                    // Observed, so a load that failed after everyone left is not an unobserved
+                    // task exception as well.
+                    _ = completed.Exception;
+                    return;
+                }
+
+                if (((AbandonedLoad)state!).TryClaim())
+                {
+                    completed.Result.Dispose();
+                }
+            },
+            abandoned,
             CancellationToken.None,
-            TaskContinuationOptions.OnlyOnRanToCompletion,
+            TaskContinuationOptions.None,
             TaskScheduler.Default);
+    }
+
+    private EdgeChatException LoadTimedOut(
+        ChatPreset preset,
+        EdgeChatOptions options,
+        string directory,
+        TimeoutException inner)
+    {
+        s_loadFailed(_logger, preset.Manifest.ModelId, inner);
+        return new EdgeChatException(
+            EdgeErrorCode.ChatModelLoadFailed,
+            $"Loading the chat model in '{directory}' did not finish inside the " +
+            $"{options.LoadTimeout} EdgeChatOptions.LoadTimeout. ORT GenAI has no equivalent " +
+            "of ORT's SessionOptions.SetLoadCancellationFlag, so the load is still running: an " +
+            "acquire that arrives before it finishes takes it over rather than starting another, " +
+            "and its result is disposed when it arrives if nobody does.",
+            inner)
+        {
+            PresetId = preset.Id,
+            ModelId = preset.Manifest.ModelId,
+            Remediation =
+                "Acquire again - the load already in flight is reused, not restarted - or raise " +
+                "EdgeChatOptions.LoadTimeout, or pick a preset whose weights this device can map " +
+                "faster.",
+        };
+    }
 
     private int ApplyBudget(
         ChatPreset preset,
@@ -862,6 +1005,25 @@ internal sealed class ChatModelHost : IChatTurnHost, IChatLifecycleTarget, IDisp
         }
 
         s_dropped(_logger, entry.Info.ModelId, null);
+    }
+
+    /// <summary>A native load nobody is waiting on any more, and what it was asked to build.</summary>
+    private sealed class AbandonedLoad(Task<GenAiChatModelResources> load, string directory, string overlay)
+    {
+        private int _claimed;
+
+        public Task<GenAiChatModelResources> Load { get; } = load;
+
+        public bool Matches(string otherDirectory, string otherOverlay) =>
+            string.Equals(directory, otherDirectory, StringComparison.Ordinal)
+            && string.Equals(overlay, otherOverlay, StringComparison.Ordinal);
+
+        /// <summary>
+        /// True for exactly one caller: the acquire that adopts the result, or the continuation
+        /// that disposes it. Never both, which is what keeps an adopted model from being freed
+        /// under the lease that was just handed out over it.
+        /// </summary>
+        public bool TryClaim() => Interlocked.Exchange(ref _claimed, 1) == 0;
     }
 
     private sealed class ModelEntry(GenAiChatModelResources resources, ChatModelInfo info)

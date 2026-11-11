@@ -265,11 +265,34 @@ public sealed class EdgeChatClient : IChatClient
         }
 
         // (b) Gate: the queue half.
-        await EnterGateAsync(cancellationToken).ConfigureAwait(false);
+        var waited = await EnterGateAsync(cancellationToken).ConfigureAwait(false);
 
         Turn turn;
         try
         {
+            // The turn owns the gate, so from here "termination requested" means THIS turn: a
+            // terminate that lands while the model loads, the prompt is tokenised or the prefill
+            // runs is still standing when the decode loop first looks.
+            _host.BeginTurn();
+
+            if (waited)
+            {
+                // The pre-flight above is as old as the wait, which can be the whole
+                // TurnQueueTimeout. A turn queued behind one that memory pressure has just stopped
+                // would otherwise walk straight into the prefill that pressure was raised to stop.
+                snapshot = _monitor.Read();
+                try
+                {
+                    ChatTurnPipeline.PreFlight(_host, snapshot, edge);
+                }
+                catch (EdgeChatException ex)
+                {
+                    _statistics.TurnRejected();
+                    ChatTurnLog.TurnRejected(_logger, ex.Message);
+                    throw;
+                }
+            }
+
             // On the pool, never on the caller. Once the model is loaded every await on the prepare
             // path completes synchronously - the gate, the lease, the reducer - so without this hop
             // the tokenizer, the history reduction and the whole prefill ran on whichever thread
@@ -303,11 +326,11 @@ public sealed class EdgeChatClient : IChatClient
                 SingleWriter = true,
             });
 
-            // Start clean BEFORE anything can terminate this turn: a cached generator whose previous
-            // turn's terminate lost a race with FinishTurn would otherwise report done at once.
-            ChatTurnPipeline.Resume(turn.Generator);
+            // The generator arrives already registered with the host and, when it came out of the
+            // conversation cache, already resumed: PrepareTurnAsync does both BEFORE the prefill,
+            // which is the only way a terminate can reach one. Resuming it again here would erase
+            // a terminate that landed since.
             termination = cancellationToken.Register(static state => TryTerminate((IChatGenerator)state!), turn.Generator);
-            _host.SetActiveGeneration(turn.Generator.SetRuntimeOption);
 
             var context = new ChatDecodeContext
             {
@@ -414,14 +437,15 @@ public sealed class EdgeChatClient : IChatClient
         }
     }
 
-    private async Task EnterGateAsync(CancellationToken cancellationToken)
+    /// <returns>Whether the turn had to queue for the gate, rather than finding it free.</returns>
+    private async Task<bool> EnterGateAsync(CancellationToken cancellationToken)
     {
         var edge = _registration.Options;
 
         if (_gate.Wait(0, CancellationToken.None))
         {
             Interlocked.Increment(ref _gateEntries);
-            return;
+            return false;
         }
 
         var depth = Interlocked.Increment(ref _queued);
@@ -450,6 +474,7 @@ public sealed class EdgeChatClient : IChatClient
             }
 
             Interlocked.Increment(ref _gateEntries);
+            return true;
         }
         finally
         {
@@ -557,11 +582,16 @@ public sealed class EdgeChatClient : IChatClient
 
                 if (held + (ulong)deltaTokens.Length + (ulong)maxOutput <= (ulong)candidate.MaxLength)
                 {
-                    // Prefill is not interruptible; it is bracketed instead.
+                    // A caller's cancel cannot interrupt the prefill; it is bracketed instead. A
+                    // terminate can, once the generator is registered - so it is resumed (a cached
+                    // generator whose last turn's terminate lost a race with FinishTurn would
+                    // refuse the append) and registered first.
                     cancellationToken.ThrowIfCancellationRequested();
+                    ChatTurnPipeline.Resume(candidate.Generator);
+                    _host.SetActiveGeneration(candidate.Generator.SetRuntimeOption);
                     if (deltaTokens.Length > 0)
                     {
-                        candidate.Generator.AppendTokens(deltaTokens);
+                        Prefill(candidate.Generator, deltaTokens);
                     }
 
                     cancellationToken.ThrowIfCancellationRequested();
@@ -620,7 +650,12 @@ public sealed class EdgeChatClient : IChatClient
 
             cancellationToken.ThrowIfCancellationRequested();
             freshGenerator = session.CreateGenerator(searchOptions, guidance);
-            freshGenerator.AppendTokens(tokens);
+
+            // Registered BEFORE the prefill, not after it: the prefill is the multi-second native
+            // call TerminateActiveGeneration exists to stop, and a generator the host has not been
+            // told about cannot be stopped at all.
+            _host.SetActiveGeneration(freshGenerator.SetRuntimeOption);
+            Prefill(freshGenerator, tokens);
             cancellationToken.ThrowIfCancellationRequested();
 
             var turn = new Turn
@@ -647,11 +682,32 @@ public sealed class EdgeChatClient : IChatClient
         }
         catch
         {
+            // Before the generators go: the host must not be left holding the setter of one that
+            // is about to be freed.
+            _host.SetActiveGeneration(null);
             freshGenerator?.Dispose();
             freshLease?.Dispose();
             candidate?.Dispose();
             _cache.Release();
             throw;
+        }
+    }
+
+    /// <summary>
+    /// Appends the prompt. A terminate that lands inside it - critical memory pressure, or the OS
+    /// suspending the app - makes GenAI throw out of the native call; that is the prefill being
+    /// stopped as asked, not a failure, so the turn carries on to the decode loop, which finds the
+    /// host's termination flag still set and completes the stream with the honest stop reason
+    /// before generating anything.
+    /// </summary>
+    private void Prefill(IChatGenerator generator, ReadOnlySpan<int> tokens)
+    {
+        try
+        {
+            generator.AppendTokens(tokens);
+        }
+        catch (OnnxRuntimeGenAIException) when (_host.TerminationRequested)
+        {
         }
     }
 

@@ -77,6 +77,11 @@ public class LifecycleTests
         Assert.Equal(0, harness.Host.Unloads);
         Assert.Equal(0, harness.Host.Terminations);
 
+        // The pause that ends on its own, NOT the switch only Resumed turns back on: a memory
+        // warning the app receives in the foreground is never followed by a Resumed.
+        Assert.Equal(1, harness.Host.PressurePauses);
+        Assert.Empty(harness.Host.AcceptingTurnsChanges);
+
         await harness.Provider.DisposeAsync().ConfigureAwait(true);
     }
 
@@ -91,6 +96,8 @@ public class LifecycleTests
         Assert.Equal(1, harness.Host.Terminations);
         Assert.Equal(1, harness.Host.CacheDrops);
         Assert.Equal(1, harness.Host.Unloads);
+        Assert.Equal(1, harness.Host.PressurePauses);
+        Assert.Empty(harness.Host.AcceptingTurnsChanges);
 
         await harness.Provider.DisposeAsync().ConfigureAwait(true);
     }

@@ -243,7 +243,9 @@ public static class ChatOnnxEdgeBuilderExtensions
                 : sp.GetRequiredKeyedService<ChatModelProvisioner>(registration.Name),
             sp.GetRequiredService<IEdgeResourceMonitor>(),
             sp.GetRequiredService<ChatEnvironmentState>(),
-            Logger<ChatModelHost>(sp));
+            Logger<ChatModelHost>(sp),
+            modelFactory: null,
+            sp.GetService<TimeProvider>() ?? TimeProvider.System);
 
     /// <summary>
     /// The leaf <c>IChatClient</c> for one registration.

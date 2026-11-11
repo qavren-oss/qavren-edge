@@ -110,21 +110,7 @@ public sealed class ConcurrencyAndUnloadTests(TinyChatModelFixture fixture)
         // The access-violation guard: the model is still usable under the lease. Disposing it
         // under a live Generator would be a native access violation, and this is the assertion
         // that it was not disposed.
-        using (var prompt = lease.Tokenizer.Encode("hi"))
-        using (var parameters = new GeneratorParams(lease.Model))
-        {
-            parameters.SetSearchOption("max_length", prompt[0].Length + 4);
-            parameters.SetSearchOption("do_sample", false);
-
-            using var generator = new Generator(lease.Model, parameters);
-            generator.AppendTokenSequences(prompt);
-            for (var i = 0; i < 4 && !generator.IsDone(); i++)
-            {
-                generator.GenerateNextToken();
-            }
-
-            Assert.True(generator.TokenCount() > (ulong)prompt[0].Length);
-        }
+        GenerateUnder(lease);
 
         // The lease returns: NOW it is disposed.
         lease.Dispose();
@@ -138,6 +124,51 @@ public sealed class ConcurrencyAndUnloadTests(TinyChatModelFixture fixture)
         using var reloaded = await host.Host.AcquireAsync(Token).ConfigureAwait(true);
         Assert.Equal(loadCount + 1, host.Host.Describe()!.LoadCount);
         Assert.True(host.Host.Describe()!.IsLoaded);
+    }
+
+    [Fact]
+    public async Task DisposingTheHostUnderALiveLeaseDoesNotFreeTheModelUntilTheLeaseReturns()
+    {
+        using var host = fixture.NewHost();
+
+        var lease = await host.Host.AcquireAsync(Token).ConfigureAwait(true);
+
+        // The container going away with a turn still decoding. Dispose used to free the model
+        // there and then, whatever was borrowed - UnloadAsync's discipline, skipped on the one
+        // path nobody can retry.
+        host.Host.Dispose();
+
+        var marked = host.Host.Describe()!;
+        Assert.True(marked.IsLoaded);
+        Assert.Equal(1, marked.ActiveLeases);
+        Assert.False(host.Logs.Logged(EdgeChatEventIds.ChatModelDropped));
+
+        GenerateUnder(lease);
+
+        lease.Dispose();
+
+        var dropped = host.Host.Describe()!;
+        Assert.False(dropped.IsLoaded);
+        Assert.Equal(0, dropped.ActiveLeases);
+        Assert.True(host.Logs.Logged(EdgeChatEventIds.ChatModelDropped));
+    }
+
+    /// <summary>Four real decode steps over the leased model: an access violation if it has been freed.</summary>
+    private static void GenerateUnder(ChatModelLease lease)
+    {
+        using var prompt = lease.Tokenizer.Encode("hi");
+        using var parameters = new GeneratorParams(lease.Model);
+        parameters.SetSearchOption("max_length", prompt[0].Length + 4);
+        parameters.SetSearchOption("do_sample", false);
+
+        using var generator = new Generator(lease.Model, parameters);
+        generator.AppendTokenSequences(prompt);
+        for (var i = 0; i < 4 && !generator.IsDone(); i++)
+        {
+            generator.GenerateNextToken();
+        }
+
+        Assert.True(generator.TokenCount() > (ulong)prompt[0].Length);
     }
 
     [Fact]

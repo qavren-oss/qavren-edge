@@ -57,7 +57,8 @@ public sealed class LoadPathTests : IDisposable
         EdgeChatDeviceProfile? profile = null,
         ChatModelFactory? factory = null,
         Action<EdgeChatOptions>? configure = null,
-        bool provisioned = true)
+        bool provisioned = true,
+        TimeProvider? clock = null)
     {
         var modelDirectory = Path.Combine(_root, preset.Id);
         Directory.CreateDirectory(modelDirectory);
@@ -95,7 +96,8 @@ public sealed class LoadPathTests : IDisposable
             new StubResourceMonitor(availableMemory),
             environment,
             logger,
-            factory ?? Throwing("the model factory was reached"));
+            factory ?? Throwing("the model factory was reached"),
+            clock);
 
         return new Harness(host, options, store, logger, modelDirectory);
     }
@@ -346,6 +348,244 @@ public sealed class LoadPathTests : IDisposable
         {
             release.Set();
         }
+    }
+
+    [Fact]
+    public async Task ARetryAfterALoadTimeoutTakesOverTheLoadStillInFlightRatherThanStartingASecond()
+    {
+        // The load cannot be stopped, so it was left running - and the retry started ANOTHER one
+        // beside it: twice the weights being mapped at once, on the device already too slow to map
+        // them once. And a load that needs longer than LoadTimeout could never succeed at all,
+        // because every retry began again from nothing.
+        using var release = new ManualResetEventSlim(initialState: false);
+        var clock = new TimerCountingTimeProvider();
+        var calls = 0;
+
+        try
+        {
+            var harness = Build(
+                ChatPresets.Llama32_1BInstructInt4,
+                GenAiConfigFixtures.LlamaConfigJson,
+                configure: o => o.LoadTimeout = TimeSpan.FromMilliseconds(1),
+                clock: clock,
+                factory: (_, _, _) =>
+                {
+                    Interlocked.Increment(ref calls);
+                    release.Wait(TimeSpan.FromSeconds(30), CancellationToken.None);
+                    throw new InvalidOperationException("the one load there ever was");
+                });
+
+            var first = await LoadAsync(harness).ConfigureAwait(true);
+            Assert.IsType<TimeoutException>(first.InnerException);
+            Assert.Contains("takes it over", first.Message, StringComparison.Ordinal);
+
+            var second = await LoadAsync(harness).ConfigureAwait(true);
+            Assert.IsType<TimeoutException>(second.InnerException);
+
+            // Given room to wait, the retry gets the outcome of that same load - here its failure,
+            // which is the only outcome a factory with no model on disk can have. The load is let
+            // go only once the third caller is waiting on it (its timed wait is the next timer):
+            // one that has already failed is, rightly, not taken over.
+            harness.Options.LoadTimeout = TimeSpan.FromSeconds(30);
+            var timersBefore = clock.Timers;
+            var third = harness.Host.PreloadAsync(TestContext.Current.CancellationToken).AsTask();
+            Assert.True(clock.WaitForTimers(timersBefore + 1));
+            release.Set();
+
+            var outcome = await Assert.ThrowsAsync<EdgeChatException>(() => third).ConfigureAwait(true);
+            Assert.Equal(EdgeErrorCode.ChatModelLoadFailed, outcome.Code);
+            Assert.Contains("the one load there ever was", outcome.Message, StringComparison.Ordinal);
+            Assert.Equal(1, Volatile.Read(ref calls));
+        }
+        finally
+        {
+            release.Set();
+        }
+    }
+
+    [Fact]
+    public async Task ACancelledLoadIsTakenOverByTheNextAcquireToo()
+    {
+        using var entered = new ManualResetEventSlim(initialState: false);
+        using var release = new ManualResetEventSlim(initialState: false);
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+        var clock = new TimerCountingTimeProvider();
+        var calls = 0;
+
+        try
+        {
+            var harness = Build(
+                ChatPresets.Llama32_1BInstructInt4,
+                GenAiConfigFixtures.LlamaConfigJson,
+                configure: o => o.LoadTimeout = TimeSpan.FromSeconds(30),
+                clock: clock,
+                factory: (_, _, _) =>
+                {
+                    Interlocked.Increment(ref calls);
+                    entered.Set();
+                    release.Wait(TimeSpan.FromSeconds(30), CancellationToken.None);
+                    throw new InvalidOperationException("still the first load");
+                });
+
+            var first = harness.Host.PreloadAsync(cts.Token).AsTask();
+            Assert.True(entered.Wait(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken));
+
+            await cts.CancelAsync().ConfigureAwait(true);
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => first).ConfigureAwait(true);
+
+            // The user who backed out of the chat page and came straight back. The next timer is the
+            // second caller's timed wait on the load it took over.
+            // Counted from here, not from zero: a cancel that lands before the first caller has
+            // started its timed wait leaves that caller with no timer at all.
+            var timersBefore = clock.Timers;
+            var second = harness.Host.PreloadAsync(TestContext.Current.CancellationToken).AsTask();
+            Assert.True(clock.WaitForTimers(timersBefore + 1));
+            release.Set();
+
+            var outcome = await Assert.ThrowsAsync<EdgeChatException>(() => second).ConfigureAwait(true);
+            Assert.Contains("still the first load", outcome.Message, StringComparison.Ordinal);
+            Assert.Equal(1, Volatile.Read(ref calls));
+        }
+        finally
+        {
+            release.Set();
+        }
+    }
+
+    [Fact]
+    public async Task ALoadForADifferentContextWaitsForTheAbandonedOneToEndBeforeItStarts()
+    {
+        using var release = new ManualResetEventSlim(initialState: false);
+        var events = new System.Collections.Concurrent.ConcurrentQueue<string>();
+        var clock = new TimerCountingTimeProvider();
+        var calls = 0;
+
+        try
+        {
+            var harness = Build(
+                ChatPresets.Llama32_1BInstructInt4,
+                GenAiConfigFixtures.LlamaConfigJson,
+                configure: o => o.LoadTimeout = TimeSpan.FromMilliseconds(1),
+                clock: clock,
+                factory: (_, overlay, _) =>
+                {
+                    var call = Interlocked.Increment(ref calls);
+                    events.Enqueue($"start {call}");
+
+                    if (call == 1)
+                    {
+                        release.Wait(TimeSpan.FromSeconds(30), CancellationToken.None);
+                    }
+
+                    events.Enqueue($"end {call}");
+                    throw new InvalidOperationException($"load {call} was asked for {overlay}");
+                });
+
+            await LoadAsync(harness).ConfigureAwait(true);
+            Assert.True(SpinWait.SpinUntil(() => Volatile.Read(ref calls) == 1, TimeSpan.FromSeconds(10)));
+
+            // A different context this time, so a different overlay: the load still running is the
+            // wrong shape to take over, and it cannot be stopped either.
+            harness.Options.MaxContextTokens = 2048;
+            harness.Options.LoadTimeout = TimeSpan.FromSeconds(30);
+            var timersBefore = clock.Timers;
+            var second = harness.Host.PreloadAsync(TestContext.Current.CancellationToken).AsTask();
+
+            // The next timer is the second caller's timed wait - on the abandoned load ending,
+            // not on a load of its own, because it has not started one.
+            Assert.True(clock.WaitForTimers(timersBefore + 1));
+            Assert.Equal(1, Volatile.Read(ref calls));
+            Assert.False(second.IsCompleted);
+
+            release.Set();
+
+            var outcome = await Assert.ThrowsAsync<EdgeChatException>(() => second).ConfigureAwait(true);
+            Assert.Contains("load 2", outcome.Message, StringComparison.Ordinal);
+            Assert.Contains("\"max_length\":2048", outcome.Message, StringComparison.Ordinal);
+
+            // Never two at once: the second starts only after the first has ended.
+            Assert.Equal(["start 1", "end 1", "start 2", "end 2"], events.ToArray());
+        }
+        finally
+        {
+            release.Set();
+        }
+    }
+
+    private ChatModelHost HostOver(
+        Harness harness,
+        StubResourceMonitor monitor,
+        FixedTimeProvider clock,
+        ChatModelFactory factory) =>
+        new(
+            new ChatRegistration(null, ChatPresets.Llama32_1BInstructInt4, harness.Options),
+            new NoOpEdgeHost(),
+            new ChatModelProvisioner(
+                ChatPresets.Llama32_1BInstructInt4,
+                harness.Options,
+                harness.Store,
+                new FakeModelPaths(_root),
+                harness.Logger,
+                _ => long.MaxValue),
+            monitor,
+            Started(),
+            harness.Logger,
+            factory,
+            clock);
+
+    [Fact]
+    public async Task AMemoryPressurePauseEndsOnItsOwnAndTakesTheCriticalLatchWithIt()
+    {
+        // An iOS memory warning arrives in the FOREGROUND, usually while a model is loading, and is
+        // never followed by a Resumed. Resumed used to be the only thing that turned turns back on
+        // and the only thing that cleared the monitor's critical latch, so one warning ended chat
+        // for the rest of the session.
+        var harness = Build(ChatPresets.Llama32_1BInstructInt4, GenAiConfigFixtures.LlamaConfigJson);
+        var monitor = new StubResourceMonitor(PlentyOfMemory);
+        var clock = new FixedTimeProvider();
+        var host = HostOver(harness, monitor, clock, Throwing("the factory was reached"));
+
+        // What the two observers do on MemoryPressure(Critical): sub-project 2's latches the
+        // monitor, sub-project 4's pauses this host.
+        monitor.SetPressure(Qavren.Edge.Lifecycle.EdgeMemoryPressure.Critical);
+        host.PauseTurnsForMemoryPressure();
+
+        Assert.False(host.IsAcceptingTurns);
+        var refused = await Assert.ThrowsAsync<EdgeChatException>(
+            () => host.PreloadAsync(TestContext.Current.CancellationToken).AsTask()).ConfigureAwait(true);
+        Assert.Equal(EdgeErrorCode.ChatBusy, refused.Code);
+
+        clock.Advance(ChatPressureGate.Cooldown - TimeSpan.FromMilliseconds(1));
+        Assert.False(host.IsAcceptingTurns);
+
+        clock.Advance(TimeSpan.FromMilliseconds(1));
+        Assert.True(host.IsAcceptingTurns);
+
+        // No longer ChatBusy: the load got as far as the model factory, which is where the memory
+        // budget - against a fresh reading - had already said yes.
+        var loaded = await Assert.ThrowsAsync<EdgeChatException>(
+            () => host.PreloadAsync(TestContext.Current.CancellationToken).AsTask()).ConfigureAwait(true);
+        Assert.Equal(EdgeErrorCode.ChatModelLoadFailed, loaded.Code);
+        Assert.Contains("the factory was reached", loaded.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ResumedEndsAPressurePauseAtOnceAndStoppingIsNotAPauseAtAll()
+    {
+        var harness = Build(ChatPresets.Llama32_1BInstructInt4, GenAiConfigFixtures.LlamaConfigJson);
+        var clock = new FixedTimeProvider();
+        var host = HostOver(harness, new StubResourceMonitor(PlentyOfMemory), clock, Throwing("unused"));
+
+        host.PauseTurnsForMemoryPressure();
+        Assert.False(host.IsAcceptingTurns);
+
+        host.SetAcceptingTurns(true);
+        Assert.True(host.IsAcceptingTurns);
+
+        // Stopping. No cool-down turns a stopping app's turns back on.
+        host.SetAcceptingTurns(false);
+        clock.Advance(TimeSpan.FromHours(1));
+        Assert.False(host.IsAcceptingTurns);
     }
 
     [Fact]

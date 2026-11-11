@@ -210,9 +210,10 @@ internal static class ChatTurnPipeline
         if (!host.IsAcceptingTurns)
         {
             throw Busy(
-                "the host is not accepting turns: the lifecycle hub reported memory pressure and no " +
-                "Resumed has cleared it yet",
-                "Retry after the app is resumed.");
+                "the host is not accepting turns: the lifecycle hub reported memory pressure that has " +
+                "not passed yet, or the app is stopping",
+                "Retry shortly. A memory-pressure pause ends on its own once the device is no longer " +
+                "low on memory, and at once when the app is resumed.");
         }
 
         if (edge.Thermal.RefuseNewTurnsInLowPowerMode && snapshot.IsLowPowerMode == true)

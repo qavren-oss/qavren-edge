@@ -199,4 +199,85 @@ public class StreamingContractTests
         Assert.Equal(EdgeChatStopReason.MemoryPressure, response.GetTurnStatus()!.StopReason);
         Assert.Equal("a", response.Text);
     }
+
+    [Fact]
+    public async Task ATerminateWhileTheModelLoadsStopsTheTurnBeforeItGeneratesAnything()
+    {
+        // Critical memory pressure while 1.2 GB of weights are being mapped is the likely moment
+        // for one. It set the abort flag, found no generator to stop, and the flag was then cleared
+        // when the generator registered - so the turn it was meant to stop ran to completion.
+        using var harness = ClientHarness.Build(script: ["a", "b", "c"]);
+        harness.Host.OnAcquire = harness.Host.TerminateActiveGeneration;
+
+        var response = await harness.Client.GetResponseAsync(Ask(), null, TestContext.Current.CancellationToken).ConfigureAwait(true);
+
+        var status = response.GetTurnStatus()!;
+        Assert.Equal(EdgeChatStopReason.MemoryPressure, status.StopReason);
+        Assert.Equal(0, status.GeneratedTokens);
+        Assert.Equal(string.Empty, response.Text);
+        Assert.Equal(ChatFinishReason.Stop, response.FinishReason);
+        Assert.Equal(1, harness.Host.TurnsBegun);
+
+        // Nothing was decoded, and a generator a terminate has touched is never cached.
+        Assert.Equal(0, harness.Session.LastGenerator.Generated);
+        Assert.True(harness.Session.LastGenerator.Disposed);
+        Assert.False(harness.Client.HasCachedConversation);
+        Assert.Equal(0, harness.Host.ActiveLeases);
+    }
+
+    [Fact]
+    public async Task ATerminateInsideThePrefillReachesTheGeneratorAndTheStreamStillCompletesHonestly()
+    {
+        // The prefill is the multi-second native call a terminate exists to stop. The generator
+        // used to be registered with the host only after it, so there was nothing to stop it with.
+        using var harness = ClientHarness.Build(script: ["a", "b", "c"]);
+        harness.Session.OnGeneratorCreated = generator => generator.BeforeAppend = _ =>
+        {
+            harness.Host.SuspendRequested = true;
+            harness.Host.TerminateActiveGeneration();
+        };
+
+        var response = await harness.Client.GetResponseAsync(Ask(), null, TestContext.Current.CancellationToken).ConfigureAwait(true);
+
+        var generator = harness.Session.LastGenerator;
+        Assert.True(generator.Terminated, "The terminate found no registered generator to stop.");
+        Assert.Empty(generator.Appended);
+
+        // GenAI reports the stopped prefill as a throw. It is the stop that was asked for, so the
+        // stream completes with the reason rather than failing with it.
+        var status = response.GetTurnStatus()!;
+        Assert.Equal(EdgeChatStopReason.Suspended, status.StopReason);
+        Assert.Equal(0, status.GeneratedTokens);
+        Assert.Equal(ChatFinishReason.Stop, response.FinishReason);
+        Assert.True(generator.Disposed);
+        Assert.False(harness.Host.HasActiveGeneration);
+        Assert.Equal(0, harness.Host.ActiveLeases);
+    }
+
+    [Fact]
+    public async Task ANativeFailureInThePrefillThatNobodyAskedForIsStillAFailure()
+    {
+        // Only a throw the host's own terminate explains is swallowed. Anything else out of the
+        // prefill is a native fault, and it gives the gate, the generator and the lease back.
+        using var harness = ClientHarness.Build();
+        var fail = true;
+        harness.Session.OnGeneratorCreated = generator => generator.BeforeAppend = g =>
+        {
+            if (fail)
+            {
+                g.SetRuntimeOption("terminate_session", "1");
+            }
+        };
+
+        await Assert.ThrowsAsync<Microsoft.ML.OnnxRuntimeGenAI.OnnxRuntimeGenAIException>(
+            () => harness.Client.GetResponseAsync(Ask(), null, TestContext.Current.CancellationToken)).ConfigureAwait(true);
+
+        Assert.True(harness.Session.LastGenerator.Disposed);
+        Assert.False(harness.Host.HasActiveGeneration);
+        Assert.Equal(0, harness.Host.ActiveLeases);
+
+        fail = false;
+        var next = await harness.Client.GetResponseAsync(Ask(), null, TestContext.Current.CancellationToken).ConfigureAwait(true);
+        Assert.Equal("Hello world.", next.Text);
+    }
 }
