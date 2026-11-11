@@ -42,6 +42,16 @@ public enum SqliteSynchronousMode
 public sealed class SqliteOptions
 {
     /// <summary>File name under <see cref="Directory"/>. <c>:memory:</c> is allowed.</summary>
+    /// <remarks>
+    /// <c>:memory:</c> is one in-memory database per registration, shared by every connection the
+    /// database opens and kept until the container is disposed - not SQLite's own <c>:memory:</c>,
+    /// which is a new, empty database for each connection. It has no file, so <see cref="Directory"/>,
+    /// <see cref="JournalMode"/> and <see cref="Pooling"/> do not apply to it, and it has no
+    /// write-ahead log: a connection that has started writing holds every other connection out,
+    /// readers included, until it commits, and they wait on <see cref="BusyTimeout"/>. Code that
+    /// reads through a second connection while its own transaction is still open on the first
+    /// works against a file in WAL mode and times out here.
+    /// </remarks>
     public string DatabaseName { get; set; } = "edge.db";
 
     /// <summary>Overrides <c>IEdgePaths.Data</c>. Useful for tests and shared containers.</summary>
