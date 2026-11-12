@@ -1,4 +1,5 @@
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Qavren.Edge.Hosting;
 using Qavren.Edge.Lifecycle;
 using Qavren.Edge.Onnx.Internal;
@@ -62,6 +63,96 @@ public class SessionHostTests : IDisposable
                 Convert.FromBase64String(TinyModels.HiddenStates),
                 HiddenStatesSignature),
             monitor ?? new StubResourceMonitor());
+
+    [Fact]
+    public async Task TheNativeSessionIsBuiltOffTheThreadThatAskedForIt()
+    {
+        // A thread that is not a pool thread, so nothing scheduled on the pool can land on it. With
+        // the graph in memory and the gate free there is nothing to await before the session is
+        // built, so it used to be built right here - in an app, on the UI thread - and "loaded"
+        // was logged from it before AcquireAsync even returned.
+        var loadedOn = new LoadedThreadLogger();
+        var services = new ServiceCollection();
+        services.AddLogging(logging => logging.AddProvider(loadedOn));
+        services.AddSingleton<IEdgePaths>(new TempPaths(_root));
+        services.AddSingleton<IEdgeResourceMonitor>(new StubResourceMonitor());
+        services.AddQavrenEdge(edge =>
+        {
+            edge.AddOnnx();
+            edge.UseModelPaths(_modelPaths);
+            edge.AddOnnxModelFromBytes(HiddenStatesModel, Convert.FromBase64String(TinyModels.HiddenStates), HiddenStatesSignature);
+        });
+
+        using var provider = services.BuildServiceProvider();
+        var host = provider.GetRequiredService<IOnnxSessionHost>();
+        await provider.GetRequiredService<IEdgeHost>().EnsureStartedAsync(TestContext.Current.CancellationToken);
+
+        var callerThread = 0;
+        Task<OnnxSessionLease>? acquire = null;
+        var caller = new Thread(() =>
+        {
+            callerThread = Environment.CurrentManagedThreadId;
+            acquire = host.AcquireAsync(HiddenStatesModel, TestContext.Current.CancellationToken).AsTask();
+        });
+        caller.Start();
+        caller.Join();
+
+        using var lease = await acquire!.ConfigureAwait(true);
+
+        Assert.NotEqual(0, loadedOn.Thread);
+        Assert.NotEqual(callerThread, loadedOn.Thread);
+        Assert.True(lease.Info.IsLoaded);
+    }
+
+    [Fact]
+    public async Task ACancelThatLandsWhileTheSessionLoadsIsACancelNotASessionCreationFailure()
+    {
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+
+        // The pre-flight reads the monitor after the gate and before ORT builds anything: cancelling
+        // there sets ORT's load-cancellation flag before the build, and ORT throws. That throw used
+        // to come back as OnnxSessionCreationFailed - a broken model - for a load the caller ended.
+        var monitor = new StubResourceMonitor { OnRead = cts.Cancel };
+        using var provider = BuildWithHiddenStates(monitor);
+        var host = provider.GetRequiredService<IOnnxSessionHost>();
+
+        var ex = await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => host.AcquireAsync(HiddenStatesModel, cts.Token).AsTask());
+
+        Assert.Equal(cts.Token, ex.CancellationToken);
+
+        // And the slot is not left half-loaded: the next caller gets a session.
+        monitor.OnRead = null;
+        using var lease = await host.AcquireAsync(HiddenStatesModel, TestContext.Current.CancellationToken);
+        Assert.True(lease.Info.IsLoaded);
+    }
+
+    /// <summary>Records which thread logged "session loaded".</summary>
+    private sealed class LoadedThreadLogger : ILoggerProvider, ILogger
+    {
+        private int _thread;
+
+        public int Thread => Volatile.Read(ref _thread);
+
+        public ILogger CreateLogger(string categoryName) => this;
+
+        public IDisposable? BeginScope<TState>(TState state)
+            where TState : notnull => null;
+
+        public bool IsEnabled(LogLevel logLevel) => true;
+
+        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
+        {
+            if (eventId.Id == EdgeAiEventIds.SessionLoaded)
+            {
+                Volatile.Write(ref _thread, Environment.CurrentManagedThreadId);
+            }
+        }
+
+        public void Dispose()
+        {
+        }
+    }
 
     [Fact]
     public void IrVersionAboveOrtsCeilingFailsWithTheMessageAUserActuallyHits()
