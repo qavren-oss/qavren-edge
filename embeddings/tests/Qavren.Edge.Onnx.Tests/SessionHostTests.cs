@@ -213,6 +213,52 @@ public class SessionHostTests : IDisposable
     }
 
     [Fact]
+    public async Task CriticalPressureIsAnsweredOnlyOnceAnInFlightLeaseHasReturnedAndTheSessionIsGone()
+    {
+        using var provider = BuildWithHiddenStates();
+        var host = provider.GetRequiredService<IOnnxSessionHost>();
+        var lease = await host.AcquireAsync(HiddenStatesModel, TestContext.Current.CancellationToken);
+        var observer = Assert.Single(provider.GetServices<IEdgeLifecycleObserver>());
+
+        // The embedding batch in flight finishes a moment after the warning arrives.
+        var batch = Task.Run(
+            async () =>
+            {
+                await Task.Delay(TimeSpan.FromMilliseconds(200), TestContext.Current.CancellationToken).ConfigureAwait(false);
+                lease.Dispose();
+            },
+            TestContext.Current.CancellationToken);
+
+        var started = System.Diagnostics.Stopwatch.GetTimestamp();
+        await observer.OnMemoryPressureAsync(EdgeMemoryPressure.Critical, TestContext.Current.CancellationToken);
+        var elapsed = System.Diagnostics.Stopwatch.GetElapsedTime(started);
+
+        // The drop used to answer as soon as the session was MARKED, so the warning went back with
+        // the graph still mapped and the two-second budget never bound.
+        Assert.False(host.Describe(HiddenStatesModel)!.IsLoaded);
+        Assert.InRange(elapsed, TimeSpan.FromMilliseconds(150), TimeSpan.FromMilliseconds(1900));
+        await batch.ConfigureAwait(true);
+    }
+
+    [Fact]
+    public async Task CriticalPressureStillAnswersWithinTheBudgetWhenTheLeaseNeverReturns()
+    {
+        using var provider = BuildWithHiddenStates();
+        var host = provider.GetRequiredService<IOnnxSessionHost>();
+        using var lease = await host.AcquireAsync(HiddenStatesModel, TestContext.Current.CancellationToken);
+        var observer = Assert.Single(provider.GetServices<IEdgeLifecycleObserver>());
+
+        var started = System.Diagnostics.Stopwatch.GetTimestamp();
+        await observer.OnMemoryPressureAsync(EdgeMemoryPressure.Critical, TestContext.Current.CancellationToken);
+        var elapsed = System.Diagnostics.Stopwatch.GetElapsedTime(started);
+
+        // An iOS memory warning is not a place to block: two seconds, and the session survives
+        // under its lease until the lease returns.
+        Assert.InRange(elapsed, TimeSpan.FromMilliseconds(1500), TimeSpan.FromSeconds(15));
+        Assert.True(host.Describe(HiddenStatesModel)!.IsLoaded);
+    }
+
+    [Fact]
     public async Task ASessionPinnedAgainstMemoryPressureSurvivesCriticalAndDiesOnStopping()
     {
         using var provider = Build(

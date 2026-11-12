@@ -136,7 +136,36 @@ public class LifecycleTests
         Assert.False(harness.Host.UnloadCompletion.Task.IsCompleted);
         Assert.InRange(elapsed, TimeSpan.FromMilliseconds(1500), TimeSpan.FromSeconds(15));
 
+        // Through the unload that waits for the release: the plain one answers on marking, and a
+        // budget raced against that never binds.
+        Assert.Equal(1, harness.Host.AwaitedUnloads);
+
         harness.Host.UnloadCompletion.TrySetResult(true);
+        await harness.Provider.DisposeAsync().ConfigureAwait(true);
+    }
+
+    [Fact]
+    public async Task CriticalAnswersTheWarningAsSoonAsTheModelIsReleasedNotAfterTheWholeBudget()
+    {
+        var harness = Build();
+        harness.Host.UnloadCompletesImmediately = false;
+
+        // The terminated turn gives its lease back a moment later.
+        _ = Task.Run(
+            async () =>
+            {
+                await Task.Delay(TimeSpan.FromMilliseconds(200), TestContext.Current.CancellationToken).ConfigureAwait(false);
+                harness.Host.UnloadCompletion.TrySetResult(true);
+            },
+            TestContext.Current.CancellationToken);
+
+        var started = Stopwatch.GetTimestamp();
+        await harness.Observer.OnMemoryPressureAsync(EdgeMemoryPressure.Critical, TestContext.Current.CancellationToken).ConfigureAwait(true);
+        var elapsed = Stopwatch.GetElapsedTime(started);
+
+        Assert.True(harness.Host.UnloadCompletion.Task.IsCompleted);
+        Assert.InRange(elapsed, TimeSpan.FromMilliseconds(150), TimeSpan.FromMilliseconds(1500));
+
         await harness.Provider.DisposeAsync().ConfigureAwait(true);
     }
 

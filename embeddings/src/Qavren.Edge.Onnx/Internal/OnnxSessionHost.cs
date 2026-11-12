@@ -224,7 +224,30 @@ internal sealed class OnnxSessionHost : IOnnxSessionHost, IDisposable
     public Task<int> DropAsync(bool includePinned = false, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
+        return Task.FromResult(DropCore(includePinned, stillLeased: null));
+    }
 
+    /// <summary>
+    /// <see cref="DropAsync"/>, then a task that completes when every session it marked has
+    /// actually been disposed - when the last lease on each has returned.
+    /// </summary>
+    /// <remarks>
+    /// For the critical-pressure path only, which bounds the wait itself. <see cref="DropAsync"/>
+    /// answers as soon as a leased session is marked, so a drain budget raced against it never
+    /// bound: the OS memory warning was answered while an embedding batch still held the graph,
+    /// which is exactly the moment the OS decides whom to kill.
+    /// </remarks>
+    internal Task DropAndAwaitReleaseAsync(bool includePinned, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+
+        var stillLeased = new List<Task>();
+        _ = DropCore(includePinned, stillLeased);
+        return stillLeased.Count == 0 ? Task.CompletedTask : Task.WhenAll(stillLeased);
+    }
+
+    private int DropCore(bool includePinned, List<Task>? stillLeased)
+    {
         var released = 0;
         foreach (var slot in _slots.Values)
         {
@@ -253,11 +276,12 @@ internal sealed class OnnxSessionHost : IOnnxSessionHost, IDisposable
                     // The session survives until the last lease returns: disposing one under an
                     // in-flight Run is a native access violation.
                     slot.LastInfo = entry.Info with { IsLoaded = true, ActiveLeases = entry.Leases };
+                    stillLeased?.Add(entry.Released.Task);
                 }
             }
         }
 
-        return Task.FromResult(released);
+        return released;
     }
 
     /// <summary>
@@ -518,6 +542,7 @@ internal sealed class OnnxSessionHost : IOnnxSessionHost, IDisposable
         }
 
         s_dropped(_logger, entry.Info.ModelId, null);
+        entry.Released.TrySetResult();
     }
 
     private async ValueTask<OnnxSessionLease> LoadAsync(
@@ -672,6 +697,9 @@ internal sealed class OnnxSessionHost : IOnnxSessionHost, IDisposable
         public bool DropRequested { get; set; }
 
         public bool Disposed { get; set; }
+
+        /// <summary>Completes when the session has been disposed. Asynchronous continuations: it is set under the slot's lock.</summary>
+        public TaskCompletionSource Released { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
     }
 
     private sealed class SessionSlot(bool dropOnMemoryPressure)
