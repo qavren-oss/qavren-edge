@@ -137,11 +137,16 @@ internal static class ChatTurnLog
         }
     }
 
-    public static void ReducedMessages(ILogger logger, string messages)
+    /// <remarks>
+    /// Takes the messages, not their rendering: describing them is every message's text copied into
+    /// one string, and doing that before the level check paid for it on every turn of every app
+    /// whose logging is not at Trace - which is all of them in production.
+    /// </remarks>
+    public static void ReducedMessages(ILogger logger, IReadOnlyList<Microsoft.Extensions.AI.ChatMessage> messages)
     {
         if (logger.IsEnabled(LogLevel.Trace))
         {
-            ReducedMessagesCallback(logger, messages, null);
+            ReducedMessagesCallback(logger, ChatTurnPipeline.DescribeMessages(messages), null);
         }
     }
 
@@ -153,11 +158,16 @@ internal static class ChatTurnLog
         }
     }
 
-    public static void TokenDecoded(ILogger logger, string text, string stopBuffer)
+    /// <remarks>
+    /// Takes the matcher, not its buffer: <c>Pending</c> is a fresh string, and reading it before
+    /// the level check allocated one per decoded token on every turn whether anything was traced
+    /// or not.
+    /// </remarks>
+    public static void TokenDecoded(ILogger logger, string text, StopSequenceMatcher stopMatcher)
     {
         if (logger.IsEnabled(LogLevel.Trace))
         {
-            TokenDecodedCallback(logger, text, stopBuffer, null);
+            TokenDecodedCallback(logger, text, stopMatcher.Pending, null);
         }
     }
 }

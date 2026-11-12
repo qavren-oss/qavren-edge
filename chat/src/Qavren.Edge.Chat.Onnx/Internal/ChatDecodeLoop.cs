@@ -218,7 +218,7 @@ internal static class ChatDecodeLoop
                 }
 
                 var emit = context.StopMatcher.Push(text, out var matched);
-                ChatTurnLog.TokenDecoded(logger, text, context.StopMatcher.Pending);
+                ChatTurnLog.TokenDecoded(logger, text, context.StopMatcher);
 
                 if (emit.Length > 0)
                 {

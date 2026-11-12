@@ -563,7 +563,7 @@ public sealed class EdgeChatClient : IChatClient
                 ChatTurnLog.HistoryReduced(_logger, dropped, composed.Count, historyOptions.MaxHistoryTokens);
             }
 
-            ChatTurnLog.ReducedMessages(_logger, ChatTurnPipeline.DescribeMessages(reduced));
+            ChatTurnLog.ReducedMessages(_logger, reduced);
 
             // (d) Format.
             var promptContext = new ChatPromptContext(session, preset.Id, info.Shape, resolvedContext);
