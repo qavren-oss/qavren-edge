@@ -281,6 +281,45 @@ internal sealed class IngestionStateStore
             cancellationToken);
 
     /// <summary>
+    /// <see cref="StampAsync"/> for many rows of one source, in ONE transaction through one
+    /// compiled statement. A re-run over an unchanged corpus is nothing but hash-gate skips, and a
+    /// write transaction per skip was a commit per document for a run that changed nothing.
+    /// </summary>
+    public Task<int> StampManyAsync(
+        string collection,
+        string sourceId,
+        IReadOnlyList<string> documentIds,
+        string runId,
+        CancellationToken cancellationToken) =>
+        _database.ExecuteInTransactionAsync(
+            async (connection, transaction, ct) =>
+            {
+                var command = connection.CreateCommand();
+                await using (command.ConfigureAwait(false))
+                {
+                    command.Transaction = transaction;
+                    command.CommandText = $"""
+                        UPDATE "{DocumentTable}" SET "last_run_id" = $r
+                        WHERE "collection" = $c AND "source_id" = $s AND "document_id" = $d
+                        """;
+                    command.Parameters.Add(new SqliteParameter("$r", runId));
+                    command.Parameters.Add(new SqliteParameter("$c", collection));
+                    command.Parameters.Add(new SqliteParameter("$s", sourceId));
+                    var document = command.Parameters.Add("$d", SqliteType.Text);
+
+                    var stamped = 0;
+                    foreach (var documentId in documentIds)
+                    {
+                        document.Value = documentId;
+                        stamped += await command.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
+                    }
+
+                    return stamped;
+                }
+            },
+            cancellationToken);
+
+    /// <summary>
     /// Deletes one document's state row inside a transaction the CALLER owns, so the row goes or
     /// stays with the chunks it describes. A removal that committed the two separately could stop
     /// between them and leave a row saying <c>Indexed</c> over chunks that no longer exist - which

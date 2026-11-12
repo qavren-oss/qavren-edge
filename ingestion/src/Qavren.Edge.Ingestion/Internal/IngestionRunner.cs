@@ -14,6 +14,17 @@ internal sealed class IngestionRunner
 {
     private const string SuspendCallerStop = "caller:stop";
 
+    /// <summary>How many skipped documents' stamps are written per transaction.</summary>
+    internal const int StampBatchSize = 128;
+
+    // The skips this run has stamped that the state table has not seen yet. A run over an unchanged
+    // corpus is nothing BUT skips, and a write transaction for each was a commit per document for
+    // a run that changed nothing. The stamp only feeds staleDocuments - pruning goes by the run's
+    // own set of live ids - so it can wait for a batch, as long as the batch is always written
+    // before the run row is finished.
+    private readonly List<string> _pendingStamps = [];
+    private (string Collection, string SourceId, string RunId)? _stampTarget;
+
     private readonly IngestionRegistration _registration;
     private readonly IngestionStateStore _state;
     private readonly IEdgeDatabase _database;
@@ -255,6 +266,13 @@ internal sealed class IngestionRunner
 
                 counters.Apply(documentRun.Result);
                 documents.Add(documentRun.Result);
+
+                // Between documents, never inside one: a failed write here is the run's failure,
+                // not the next document's.
+                if (_pendingStamps.Count >= StampBatchSize)
+                {
+                    await FlushStampsAsync(cancellationToken).ConfigureAwait(false);
+                }
 
                 // A document over the size ceiling is a verdict on that document, not evidence that
                 // something systemic is failing: twenty videos in a folder are twenty videos. It
@@ -637,8 +655,7 @@ internal sealed class IngestionRunner
             && stored.RecipeHash == documentRecipe.HashValue
             && IngestionDocumentStatus.IsTerminal(stored.Status))
         {
-            await _state.StampAsync(collection, source.Id, item.DocumentId, runId, cancellationToken)
-                .ConfigureAwait(false);
+            StampLater(collection, source.Id, item.DocumentId, runId);
             IngestionLog.DocumentSkipped(_logger, item.DocumentId, "timestamp");
             return DocumentRun.Skipped(item.DocumentId, stored.ExtractorId, _time.GetElapsedTime(started));
         }
@@ -670,8 +687,7 @@ internal sealed class IngestionRunner
             && stored.RecipeHash == documentRecipe.HashValue
             && IngestionDocumentStatus.IsTerminal(stored.Status))
         {
-            await _state.StampAsync(collection, source.Id, item.DocumentId, runId, cancellationToken)
-                .ConfigureAwait(false);
+            StampLater(collection, source.Id, item.DocumentId, runId);
             IngestionLog.DocumentSkipped(_logger, item.DocumentId, "hash");
             return DocumentRun.Skipped(item.DocumentId, stored.ExtractorId, _time.GetElapsedTime(started));
         }
@@ -979,8 +995,7 @@ internal sealed class IngestionRunner
         long started,
         CancellationToken cancellationToken)
     {
-        await _state.StampAsync(collection, sourceId, item.DocumentId, runId, cancellationToken)
-            .ConfigureAwait(false);
+        StampLater(collection, sourceId, item.DocumentId, runId);
         IngestionLog.DocumentSkipped(_logger, item.DocumentId, gate);
         return DocumentRun.Skipped(item.DocumentId, stored.ExtractorId, _time.GetElapsedTime(started));
     }
@@ -1228,7 +1243,28 @@ internal sealed class IngestionRunner
             new(true, IngestionRunOutcome.Suspended, reason, configuredBatch, TimeSpan.Zero);
     }
 
-    private Task FinishAsync(
+    /// <summary>Queues one skipped document's stamp; see <see cref="_pendingStamps"/>.</summary>
+    private void StampLater(string collection, string sourceId, string documentId, string runId)
+    {
+        _stampTarget ??= (collection, sourceId, runId);
+        _pendingStamps.Add(documentId);
+    }
+
+    private async Task FlushStampsAsync(CancellationToken cancellationToken)
+    {
+        if (_pendingStamps.Count == 0 || _stampTarget is not { } target)
+        {
+            return;
+        }
+
+        await _state.StampManyAsync(
+            target.Collection, target.SourceId, _pendingStamps, target.RunId, cancellationToken)
+            .ConfigureAwait(false);
+        _pendingStamps.Clear();
+        _stampTarget = null;
+    }
+
+    private async Task FinishAsync(
         string runId,
         IngestionRunOutcome outcome,
         string? suspendReason,
@@ -1237,6 +1273,10 @@ internal sealed class IngestionRunner
         string? error,
         CancellationToken cancellationToken)
     {
+        // Every way a run ends comes through here, so this is where the last batch of stamps is
+        // written - before the run row says the run is over, and whatever the run's own token.
+        await FlushStampsAsync(CancellationToken.None).ConfigureAwait(false);
+
         var finishedUtc = _time.GetUtcNow();
 
         // Spec 12's lastRun* keys. Recorded BEFORE the write, so a run row that fails to finish
@@ -1256,7 +1296,7 @@ internal sealed class IngestionRunner
             counters.EmbedCalls,
             counters.TokensEmbedded);
 
-        return _state.FinishRunAsync(
+        await _state.FinishRunAsync(
             _registration.CollectionName,
             runId,
             outcome,
@@ -1267,7 +1307,7 @@ internal sealed class IngestionRunner
             error,
             finishedUtc,
             _registration.Options.RunHistoryLimit,
-            cancellationToken);
+            cancellationToken).ConfigureAwait(false);
     }
 
     private static IngestionFailure TooLarge(DocumentSourceItem item, long? declared, long ceiling) =>
