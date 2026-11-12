@@ -60,7 +60,13 @@ public sealed class EdgeFilterTranslator : FilterTranslatorBase
         return new EdgeFilterTranslation(_sql.ToString(), _parameters);
     }
 
-    private static string Escape(string name) => "\"" + name + "\"";
+    /// <summary>
+    /// The column name between double quotes, any double quote inside it doubled. No collection
+    /// schema accepts such a name (see <c>SqlIdentifier</c>), but this translator is public and
+    /// takes any model, so it writes a name that cannot end its own quotation whatever it is given.
+    /// </summary>
+    private static string Escape(string name) =>
+        "\"" + name.Replace("\"", "\"\"", StringComparison.Ordinal) + "\"";
 
     private static string EscapeLikePattern(string value) => value
         .Replace("\\", "\\\\", StringComparison.Ordinal)

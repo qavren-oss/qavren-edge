@@ -35,6 +35,7 @@ public sealed class EdgeVectorSchema
     private const char Newline = '\n';
 
     private readonly IReadOnlyList<string> _dataColumns;
+    private readonly IReadOnlyList<string> _upsertParameterNames;
     private readonly IReadOnlyList<string> _indexedColumns;
     private readonly IReadOnlyList<ColumnDefinition> _columnDefinitions;
     private readonly VecMetric _metric;
@@ -88,6 +89,9 @@ public sealed class EdgeVectorSchema
         }
 
         _dataColumns = [KeyColumn, .. model.DataProperties.Select(p => p.StorageName)];
+        _upsertParameterNames = _dataColumns.All(CanBeAParameterName)
+            ? [.. _dataColumns.Select(c => "$" + c)]
+            : [.. _dataColumns.Select((_, i) => "$p" + i.ToString(CultureInfo.InvariantCulture))];
         _columnDefinitions =
         [
             Describe(model.KeyProperty, notNull: true),
@@ -168,8 +172,38 @@ public sealed class EdgeVectorSchema
 
         return string.IsNullOrEmpty(columnFilter)
             ? body
-            : $"{{{columnFilter}}} : ({body})";
+            : $"{{{Fts5ColumnName(columnFilter)}}} : ({body})";
     }
+
+    /// <summary>
+    /// A column name as an FTS5 query reads one: bare when it is an FTS5 bareword and not one of
+    /// the query syntax's own operators, otherwise as an FTS5 string. Bare, <c>message body</c> is
+    /// two columns and <c>OR</c> is the operator, and the hybrid search's keyword lane then either
+    /// failed or searched somewhere else.
+    /// </summary>
+    private static string Fts5ColumnName(string column)
+    {
+        var bareword = column.Length > 0;
+        foreach (var c in column)
+        {
+            bareword &= char.IsAsciiLetterOrDigit(c) || c == '_' || c >= 0x80;
+        }
+
+        // FTS5's operators are case-sensitive: only the upper-case spellings are operators.
+        return bareword && column is not ("AND" or "OR" or "NOT" or "NEAR") ? column : QuoteKeyword(column);
+    }
+
+    /// <summary>
+    /// The parameter each column of <see cref="BuildUpsertSql"/> is bound through, in column order:
+    /// <c>$</c> plus the column's name while every name can be one, else <c>$p0</c>, <c>$p1</c>, ...
+    /// </summary>
+    /// <remarks>
+    /// <c>$created-at</c> is not a parameter called "created-at": SQLite reads the parameter
+    /// <c>$created</c>, then a minus, then a column called <c>at</c>. Positional names are used for
+    /// every column the moment one name cannot be a parameter name, so the plain case - the one
+    /// GoldenSqlTests pins - keeps exactly the statement it always had.
+    /// </remarks>
+    public IReadOnlyList<string> UpsertParameterNames => _upsertParameterNames;
 
     /// <summary>Emits the create-collection statements. See the static overload for the order.</summary>
     /// <returns>The statements, in order.</returns>
@@ -394,7 +428,7 @@ public sealed class EdgeVectorSchema
     public string BuildUpsertSql()
     {
         var columns = string.Join(",", _dataColumns.Select(c => $"\"{c}\""));
-        var values = string.Join(",", _dataColumns.Select(c => $"${c}"));
+        var values = string.Join(",", _upsertParameterNames);
 
         // A record with no data properties at all - a key and a pre-computed vector and nothing
         // else - would otherwise emit "DO UPDATE SET" with an empty assignment list, which is a
@@ -433,6 +467,25 @@ public sealed class EdgeVectorSchema
     }
 
     private static string Quote(string name) => "\"" + name + "\"";
+
+    /// <summary>SQLite's parameter name after <c>$</c>: identifier characters only.</summary>
+    private static bool CanBeAParameterName(string name)
+    {
+        if (name.Length == 0)
+        {
+            return false;
+        }
+
+        foreach (var c in name)
+        {
+            if (!(char.IsAsciiLetterOrDigit(c) || c == '_' || c >= 0x80))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
 
     private static ColumnDefinition Describe(PropertyModel property, bool notNull)
     {
