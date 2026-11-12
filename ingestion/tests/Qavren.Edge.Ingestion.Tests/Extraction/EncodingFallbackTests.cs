@@ -83,6 +83,38 @@ public class EncodingFallbackTests
         Assert.False(logger.Saw(EdgeIngestionEventIds.EncodingFallback));
     }
 
+    /// <summary>70 KiB of ASCII, then one byte no UTF-8 sequence starts with: past the 64 KiB probe.</summary>
+    private static byte[] InvalidByteAfterTheProbe()
+    {
+        var bytes = new byte[(70 * 1024) + 1];
+        Array.Fill(bytes, (byte)'a');
+        bytes[^1] = 0xFF;
+        return bytes;
+    }
+
+    [Fact]
+    public async Task StrictUtf8RefusesAnInvalidBytePastTheFirstSixtyFourKibibytes()
+    {
+        // The probe read the first 64 KiB and passed it; the decode that followed replaced the bad
+        // byte with U+FFFD, so StrictUtf8 indexed exactly the document it exists to refuse.
+        var thrown = await ThrowsAsync(
+            InvalidByteAfterTheProbe(), new PlainTextExtractorOptions { StrictUtf8 = true }, new CapturingLogger());
+
+        Assert.Equal(EdgeErrorCode.DocumentEncodingUndecodable, thrown.Code);
+        Assert.IsType<DecoderFallbackException>(thrown.InnerException);
+    }
+
+    [Fact]
+    public async Task WithoutStrictUtf8AnInvalidBytePastTheProbeIsStillReplacedAsBefore()
+    {
+        // Unchanged on defaults: the encoding is decided on the first 64 KiB and the rest is read
+        // with it, so a stray byte deep in a UTF-8 file is one U+FFFD, not a re-read as Latin-1.
+        var (document, logger) = await ExtractAsync(InvalidByteAfterTheProbe(), new PlainTextExtractorOptions());
+
+        Assert.EndsWith("\uFFFD", document.Text, StringComparison.Ordinal);
+        Assert.False(logger.Saw(EdgeIngestionEventIds.EncodingFallback));
+    }
+
     private static Encoding EncodingFor(string label) => label switch
     {
         "utf-8" => new UTF8Encoding(encoderShouldEmitUTF8Identifier: true),
