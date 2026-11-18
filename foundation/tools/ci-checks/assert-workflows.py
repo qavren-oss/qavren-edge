@@ -323,6 +323,17 @@ for wf in sorted(w.glob("*.yml")):
         if not pinned_use.match(used.group(1)):
             problems.append("%s:%d: third-party action must be pinned as owner/repo@<40-hex sha> # vX.Y.Z (found: %s)" % (wf.name, number, used.group(1).strip()))
 
+# --- Windows MAUI workloads ---
+# The windows-2025 image is not a contract for workloads: image 20261116.315 (SDK 10.0.404) shipped
+# no `android`, and the solution restore (ci test lane) and solution pack (release) both failed
+# NETSDK1147. Both install the set the device lanes pin, so the packed bits match what was tested.
+maui_pin = "dotnet workload install maui --version 10.0.201"
+test_runs = [str(s.get("run", "")) for s in ci["jobs"].get("test", {}).get("steps", [])]
+if not any(maui_pin in r for r in test_runs):
+    problems.append("ci.yml test lane must run `" + maui_pin + "` before its solution restore on windows")
+pack_runs = [str(s.get("run", "")) for s in (rel.get("jobs", {}).get("pack") or {}).get("steps", [])]
+if not any(maui_pin in r for r in pack_runs):
+    problems.append("release.yml pack must run `" + maui_pin + "` before `dotnet pack`")
 # --- Merge queue ---
 # The queue tests each queued pull request on a temporary gh-readonly-queue/main/* branch and waits
 # for the two required contexts to report there. They report only if ci.yml runs on `merge_group`:
