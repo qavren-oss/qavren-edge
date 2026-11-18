@@ -3,7 +3,7 @@ using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging;
 using Qavren.Edge.Sqlite;
-using static Qavren.Edge.Sqlite.Internal.SqliteTransactionCommands;
+using static Qavren.Edge.VectorData.Internal.SqliteTransactionCommands;
 using MEVD = Microsoft.Extensions.VectorData;
 
 namespace Qavren.Edge.Ingestion.Internal;

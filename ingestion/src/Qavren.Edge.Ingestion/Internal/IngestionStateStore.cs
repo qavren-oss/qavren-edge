@@ -1,7 +1,7 @@
 using System.Globalization;
 using Microsoft.Data.Sqlite;
 using Qavren.Edge.Sqlite;
-using static Qavren.Edge.Sqlite.Internal.SqliteTransactionCommands;
+using static Qavren.Edge.VectorData.Internal.SqliteTransactionCommands;
 
 namespace Qavren.Edge.Ingestion.Internal;
 

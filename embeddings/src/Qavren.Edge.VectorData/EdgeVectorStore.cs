@@ -5,7 +5,6 @@ using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging;
 using Qavren.Edge.Sqlite;
-using Qavren.Edge.Sqlite.Internal;
 using Qavren.Edge.VectorData.Internal;
 using MEVD = Microsoft.Extensions.VectorData;
 

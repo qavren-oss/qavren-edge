@@ -9,7 +9,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.VectorData.ProviderServices;
 using Qavren.Edge.Sqlite;
 using Qavren.Edge.VectorData.Internal;
-using static Qavren.Edge.Sqlite.Internal.SqliteTransactionCommands;
+using static Qavren.Edge.VectorData.Internal.SqliteTransactionCommands;
 using MEVD = Microsoft.Extensions.VectorData;
 
 namespace Qavren.Edge.VectorData;

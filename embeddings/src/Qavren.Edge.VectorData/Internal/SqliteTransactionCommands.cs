@@ -1,7 +1,7 @@
 using System.Globalization;
 using Microsoft.Data.Sqlite;
 
-namespace Qavren.Edge.Sqlite.Internal;
+namespace Qavren.Edge.VectorData.Internal;
 
 /// <summary>
 /// Commands that run inside a transaction the CALLER owns: create the command on the connection,
@@ -9,10 +9,11 @@ namespace Qavren.Edge.Sqlite.Internal;
 /// the command carries it), set the text, add the parameters, run it, dispose it.
 /// </summary>
 /// <remarks>
-/// Compiled into every package that needs it through a linked <c>Compile Include</c>, never shared
+/// Owned by Qavren.Edge.VectorData and compiled into Qavren.Edge.Ingestion through a linked
+/// <c>Compile Include</c>, never shared
 /// through <c>InternalsVisibleTo</c>: the packages are separate on nuget.org, and a grant would make
 /// this type a binary contract between them. The public no-transaction equivalents are
-/// <see cref="SqliteConnectionExtensions"/>.
+/// <see cref="Qavren.Edge.Sqlite.SqliteConnectionExtensions"/>.
 /// </remarks>
 internal static class SqliteTransactionCommands
 {
