@@ -9,6 +9,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.VectorData.ProviderServices;
 using Qavren.Edge.Sqlite;
 using Qavren.Edge.VectorData.Internal;
+using static Qavren.Edge.VectorData.Internal.SqliteTransactionCommands;
 using MEVD = Microsoft.Extensions.VectorData;
 
 namespace Qavren.Edge.VectorData;
@@ -1178,55 +1179,6 @@ public class EdgeVectorStoreCollection<TKey, TRecord>
         {
             throw Wrap(operation, ex);
         }
-    }
-
-    private static async Task ExecuteAsync(
-        SqliteConnection connection,
-        SqliteTransaction transaction,
-        string sql,
-        IReadOnlyList<SqliteParameter> parameters,
-        CancellationToken cancellationToken)
-    {
-        var command = Command(connection, transaction, sql, parameters);
-        await using (command.ConfigureAwait(false))
-        {
-            await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
-        }
-    }
-
-    private static async Task<T> ScalarAsync<T>(
-        SqliteConnection connection,
-        SqliteTransaction transaction,
-        string sql,
-        IReadOnlyList<SqliteParameter> parameters,
-        CancellationToken cancellationToken)
-        where T : struct
-    {
-        var command = Command(connection, transaction, sql, parameters);
-        await using (command.ConfigureAwait(false))
-        {
-            var value = await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
-            return value is null or DBNull
-                ? default
-                : (T)Convert.ChangeType(value, typeof(T), CultureInfo.InvariantCulture);
-        }
-    }
-
-    private static SqliteCommand Command(
-        SqliteConnection connection,
-        SqliteTransaction transaction,
-        string sql,
-        IReadOnlyList<SqliteParameter> parameters)
-    {
-        var command = connection.CreateCommand();
-        command.Transaction = transaction;
-        command.CommandText = sql;
-        foreach (var parameter in parameters)
-        {
-            command.Parameters.Add(parameter);
-        }
-
-        return command;
     }
 
     /// <summary>SQLITE_ERROR, the generic code a missing table is reported under.</summary>

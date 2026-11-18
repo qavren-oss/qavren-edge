@@ -185,13 +185,8 @@ public sealed class EdgeVectorStore : MEVD.VectorStore
                 {
                     foreach (var statement in statements)
                     {
-                        var command = connection.CreateCommand();
-                        await using (command.ConfigureAwait(false))
-                        {
-                            command.Transaction = transaction;
-                            command.CommandText = statement;
-                            await command.ExecuteNonQueryAsync(token).ConfigureAwait(false);
-                        }
+                        await SqliteTransactionCommands.ExecuteAsync(connection, transaction, statement, [], token)
+                            .ConfigureAwait(false);
                     }
 
                     return true;

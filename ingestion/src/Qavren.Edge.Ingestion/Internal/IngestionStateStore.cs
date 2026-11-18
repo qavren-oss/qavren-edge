@@ -1,6 +1,7 @@
 using System.Globalization;
 using Microsoft.Data.Sqlite;
 using Qavren.Edge.Sqlite;
+using static Qavren.Edge.VectorData.Internal.SqliteTransactionCommands;
 
 namespace Qavren.Edge.Ingestion.Internal;
 
@@ -294,17 +295,20 @@ internal sealed class IngestionStateStore
         _database.ExecuteInTransactionAsync(
             async (connection, transaction, ct) =>
             {
-                var command = connection.CreateCommand();
+                var command = Command(
+                    connection,
+                    transaction,
+                    $"""
+                    UPDATE "{DocumentTable}" SET "last_run_id" = $r
+                    WHERE "collection" = $c AND "source_id" = $s AND "document_id" = $d
+                    """,
+                    [
+                        new SqliteParameter("$r", runId),
+                        new SqliteParameter("$c", collection),
+                        new SqliteParameter("$s", sourceId),
+                    ]);
                 await using (command.ConfigureAwait(false))
                 {
-                    command.Transaction = transaction;
-                    command.CommandText = $"""
-                        UPDATE "{DocumentTable}" SET "last_run_id" = $r
-                        WHERE "collection" = $c AND "source_id" = $s AND "document_id" = $d
-                        """;
-                    command.Parameters.Add(new SqliteParameter("$r", runId));
-                    command.Parameters.Add(new SqliteParameter("$c", collection));
-                    command.Parameters.Add(new SqliteParameter("$s", sourceId));
                     var document = command.Parameters.Add("$d", SqliteType.Text);
 
                     var stamped = 0;
@@ -375,21 +379,19 @@ internal sealed class IngestionStateStore
         _database.ExecuteInTransactionAsync(
             async (connection, transaction, ct) =>
             {
-                var newest = connection.CreateCommand();
-                await using (newest.ConfigureAwait(false))
+                // "O" is fixed-width UTC, so the greatest string is the latest instant.
+                var newest = await ScalarAsync(
+                    connection,
+                    transaction,
+                    $"""SELECT MAX("started_utc") FROM "{RunTable}" WHERE "collection" = $c""",
+                    [new SqliteParameter("$c", collection)],
+                    ct).ConfigureAwait(false);
+
+                if (newest is string text
+                    && ParseStamp(text) is { } latest
+                    && latest >= startedUtc)
                 {
-                    newest.Transaction = transaction;
-
-                    // "O" is fixed-width UTC, so the greatest string is the latest instant.
-                    newest.CommandText = $"""SELECT MAX("started_utc") FROM "{RunTable}" WHERE "collection" = $c""";
-                    newest.Parameters.Add(new SqliteParameter("$c", collection));
-
-                    if (await newest.ExecuteScalarAsync(ct).ConfigureAwait(false) is string text
-                        && ParseStamp(text) is { } latest
-                        && latest >= startedUtc)
-                    {
-                        startedUtc = latest.AddTicks(1);
-                    }
+                    startedUtc = latest.AddTicks(1);
                 }
 
                 return await ExecuteAsync(
@@ -587,27 +589,6 @@ internal sealed class IngestionStateStore
         {
             return await connection.ScalarAsync<long>(
                 $"""SELECT COUNT(*) FROM "{dataTable}" """, parameters: null, cancellationToken).ConfigureAwait(false);
-        }
-    }
-
-    private static async Task<int> ExecuteAsync(
-        SqliteConnection connection,
-        SqliteTransaction transaction,
-        string sql,
-        IReadOnlyList<SqliteParameter> parameters,
-        CancellationToken cancellationToken)
-    {
-        var command = connection.CreateCommand();
-        await using (command.ConfigureAwait(false))
-        {
-            command.Transaction = transaction;
-            command.CommandText = sql;
-            foreach (var parameter in parameters)
-            {
-                command.Parameters.Add(parameter);
-            }
-
-            return await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
         }
     }
 

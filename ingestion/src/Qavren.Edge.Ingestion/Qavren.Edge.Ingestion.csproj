@@ -31,4 +31,14 @@
     <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" />
     <ProjectReference Include="..\..\..\embeddings\src\Qavren.Edge.VectorData\Qavren.Edge.VectorData.csproj" />
   </ItemGroup>
+
+  <!-- The transaction-bound command helpers are ONE source file, owned by Qavren.Edge.VectorData
+       and compiled into this assembly as well. They used to be private copies in the store classes, and
+       every change to the bind-the-transaction, set-the-text, add-the-parameters, dispose sequence
+       had to be made once per copy. A link rather than an InternalsVisibleTo grant: the packages
+       are separate on nuget.org, and a grant would make that internal type a binary contract
+       between them. -->
+  <ItemGroup>
+    <Compile Include="..\..\..\embeddings\src\Qavren.Edge.VectorData\Internal\SqliteTransactionCommands.cs" Link="Internal\Shared\SqliteTransactionCommands.cs" />
+  </ItemGroup>
 </Project>
