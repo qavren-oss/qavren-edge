@@ -695,8 +695,10 @@ internal sealed class IngestionRunner
         // ---- Recipe drift (spec 13.3, error 6009). Both branches, and which one a consumer is on
         // is not a detail: a run that throws and a run that silently re-embeds a whole corpus are
         // the two most different outcomes this package has.
+        var recipeDrifted = false;
         if (stored is not null && !stored.RecipeHash.IsZero && stored.RecipeHash != documentRecipe.HashValue)
         {
+            recipeDrifted = true;
             if (opts.StrictRecipe)
             {
                 throw new EdgeIngestionException(
@@ -846,6 +848,17 @@ internal sealed class IngestionRunner
         var storedRows = await ChunkDiff.ReadStoredAsync(
             _database, _dataTable, source.Id, item.DocumentId, cancellationToken).ConfigureAwait(false);
         var diff = ChunkDiff.Compare(identified, storedRows);
+
+        // Spec 9.2: a document whose recipe changed is dirty regardless of its content hash, because
+        // a chunk's vector is a function of the recipe as well as of its text. The diff keys on the
+        // text alone, so without this a model change that moves no chunk boundary (MiniLM int8 to
+        // fp32, a new DocumentPrefix) kept every old vector and embedded nothing. On drift every fresh
+        // chunk is re-embedded over its own key - the upsert replaces the row and its vec0 vector -
+        // and only the rows with no fresh counterpart are deleted.
+        if (recipeDrifted)
+        {
+            diff = diff with { Added = identified, Unchanged = [], Repaired = [] };
+        }
 
         var facts = new DocumentFacts(
             source.Id, item.DocumentId, extractor.Id, document.MediaType, _time.GetUtcNow());
