@@ -317,6 +317,34 @@ public sealed class ChunkerRuleTests
     }
 
     [Fact]
+    public void A_heading_sanitised_before_joining_logs_event_927_and_a_clean_one_does_not()
+    {
+        ChunkingHarness.RequireVocabulary();
+
+        const string Messy = "# Alpha  beta\n\nThe body.\n";
+        const string Clean = "# Alpha beta\n\nThe body.\n";
+
+        var messyLogger = new CapturingLogger();
+        Assert.NotEmpty(new MarkdownHeadingChunker(messyLogger)
+            .Chunk(
+                Document(Messy, [Block(Messy, "# Alpha  beta", DocumentBlockKind.Heading, 1), Block(Messy, "The body.", DocumentBlockKind.Paragraph)]),
+                Budget(maxTokens: 64),
+                ChunkingHarness.Tokenizer)
+            .ToList());
+
+        var cleanLogger = new CapturingLogger();
+        Assert.NotEmpty(new MarkdownHeadingChunker(cleanLogger)
+            .Chunk(
+                Document(Clean, [Block(Clean, "# Alpha beta", DocumentBlockKind.Heading, 1), Block(Clean, "The body.", DocumentBlockKind.Paragraph)]),
+                Budget(maxTokens: 64),
+                ChunkingHarness.Tokenizer)
+            .ToList());
+
+        Assert.True(messyLogger.Saw(EdgeIngestionEventIds.HeadingSanitised));
+        Assert.False(cleanLogger.Saw(EdgeIngestionEventIds.HeadingSanitised));
+    }
+
+    [Fact]
     public void A_single_heading_still_over_budget_is_truncated_or_6152()
     {
         ChunkingHarness.RequireVocabulary();

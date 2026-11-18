@@ -46,6 +46,12 @@ public sealed class MarkdownHeadingChunker : IChunker
             new EventId(EdgeIngestionEventIds.ChunkMergedUp, nameof(EdgeIngestionEventIds.ChunkMergedUp)),
             "Merged {Count} sections under MinTokens into one chunk of {Tokens} tokens.");
 
+    private static readonly Action<ILogger, int, Exception?> LogHeadingSanitised =
+        LoggerMessage.Define<int>(
+            LogLevel.Debug,
+            new EventId(EdgeIngestionEventIds.HeadingSanitised, nameof(EdgeIngestionEventIds.HeadingSanitised)),
+            "A level {Level} heading was sanitised before being joined into a breadcrumb.");
+
     private readonly ILogger _logger;
 
     /// <summary>Creates the chunker with no logger.</summary>
@@ -258,7 +264,7 @@ public sealed class MarkdownHeadingChunker : IChunker
     }
 
     /// <summary>The heading stack, walked once over the extracted blocks.</summary>
-    private static List<Section> Build(ExtractedDocument document, ResolvedChunkOptions options)
+    private List<Section> Build(ExtractedDocument document, ResolvedChunkOptions options)
     {
         var text = document.Text;
         var stack = new string?[7];
@@ -299,7 +305,15 @@ public sealed class MarkdownHeadingChunker : IChunker
             {
                 Close();
                 isPreamble = false;
-                stack[level] = IngestionColumns.SanitizeHeading(HeadingTitle(text, block));
+                var title = HeadingTitle(text, block);
+                var sanitised = IngestionColumns.SanitizeHeading(title);
+                if (!string.Equals(title, sanitised, StringComparison.Ordinal))
+                {
+                    // The level only: heading text is document text and is never logged.
+                    LogHeadingSanitised(_logger, level, null);
+                }
+
+                stack[level] = sanitised;
                 for (var deeper = level + 1; deeper <= 6; deeper++)
                 {
                     stack[deeper] = null;
