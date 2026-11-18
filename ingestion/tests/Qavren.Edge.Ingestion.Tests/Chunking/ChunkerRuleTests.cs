@@ -499,7 +499,7 @@ public sealed class ChunkerRuleTests
 
         var only = Assert.Single(chunks);
         Assert.True(only.CharEnd < text.Length, "Truncate drops everything after the first window");
-        Assert.Contains(logger.Collector.GetSnapshot(), r => r.Id.Id == EdgeIngestionEventIds.ChunkTruncated); // event 921 is the only record Assert.Contains(logger.Collector.GetSnapshot(), r => r.Id.Id == EdgeIngestionEventIds.ChunkTruncated);
+        Assert.Contains(logger.Collector.GetSnapshot(), r => r.Id.Id == EdgeIngestionEventIds.ChunkTruncated); // event 921 is the only record
     }
 
     [Fact]
@@ -527,7 +527,7 @@ public sealed class ChunkerRuleTests
 
         var only = Assert.Single(chunks);
         Assert.True(only.TokenCount <= options.MaxTokens);
-        Assert.Contains(logger.Collector.GetSnapshot(), r => r.Id.Id == EdgeIngestionEventIds.ChunkTruncated); // event 921 is the only record Assert.Contains(logger.Collector.GetSnapshot(), r => r.Id.Id == EdgeIngestionEventIds.ChunkTruncated);
+        Assert.Contains(logger.Collector.GetSnapshot(), r => r.Id.Id == EdgeIngestionEventIds.ChunkTruncated); // event 921 is the only record
     }
 
     // ---- The oversized-unit policy and the two invariants ------------------------------------

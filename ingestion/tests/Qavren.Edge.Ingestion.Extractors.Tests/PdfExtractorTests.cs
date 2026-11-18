@@ -220,7 +220,7 @@ public class PdfExtractorTests
         Assert.Equal(EdgeErrorCode.DocumentPageBudgetExceeded, thrown.Code);
         Assert.Equal(1, thrown.PageNumber);
         Assert.Contains("after 1 of 2 pages", thrown.Message, StringComparison.Ordinal);
-        Assert.Contains(logger.Collector.GetSnapshot(), r => r.Id.Id == EdgeIngestionEventIds.PageTimedOut); // event 924 was logged Assert.Contains(logger.Collector.GetSnapshot(), r => r.Id.Id == EdgeIngestionEventIds.PageTimedOut);
+        Assert.Contains(logger.Collector.GetSnapshot(), r => r.Id.Id == EdgeIngestionEventIds.PageTimedOut); // event 924 was logged
     }
 
     [Fact]
