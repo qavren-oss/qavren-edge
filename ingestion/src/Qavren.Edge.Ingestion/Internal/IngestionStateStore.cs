@@ -206,6 +206,80 @@ internal sealed class IngestionStateStore
     }
 
     /// <summary>
+    /// The content hash of every <c>Indexed</c> row in the collection, whatever its source and
+    /// recipe. One read, for a run's first document that needs embedding: it is the run's cheap
+    /// "could any other document hold these bytes" check, so that a document nobody else holds -
+    /// which is nearly all of a first ingest - costs no query per document. It is a FILTER only.
+    /// A hit is confirmed by <see cref="FindReuseDonorsAsync"/>, so a row that changed after the
+    /// read costs one wasted query, never a wrong reuse.
+    /// </summary>
+    public async Task<HashSet<ContentHash>> ListIndexedContentHashesAsync(
+        string collection, CancellationToken cancellationToken)
+    {
+        var connection = await _database.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        await using (connection.ConfigureAwait(false))
+        {
+            var rows = await connection.QueryAsync(
+                $"""
+                 SELECT "content_hash" FROM "{DocumentTable}"
+                 WHERE "collection" = $c AND "status" = $st AND "content_hash" IS NOT NULL
+                 """,
+                reader => ReadHash(reader, 0),
+                [
+                    new SqliteParameter("$c", collection),
+                    new SqliteParameter("$st", IngestionDocumentStatus.Indexed),
+                ],
+                cancellationToken).ConfigureAwait(false);
+
+            return [.. rows];
+        }
+    }
+
+    /// <summary>
+    /// The rows another document's vectors may be taken from: <c>Indexed</c>, in this collection,
+    /// over these exact bytes and under this exact recipe - any source, but never the document
+    /// itself. There is no index on <c>content_hash</c> (adding one is a schema migration, and the
+    /// state migration's version is part of <c>AddIngestion</c>'s contract), so this rides the
+    /// <c>(collection, recipe_hash)</c> index; it only runs after
+    /// <see cref="ListIndexedContentHashesAsync"/> has said a match is possible.
+    /// </summary>
+    public async Task<IReadOnlyList<IngestionDocumentState>> FindReuseDonorsAsync(
+        string collection,
+        ContentHash contentHash,
+        ContentHash recipeHash,
+        string sourceId,
+        string documentId,
+        int limit,
+        CancellationToken cancellationToken)
+    {
+        var connection = await _database.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        await using (connection.ConfigureAwait(false))
+        {
+            return await connection.QueryAsync(
+                $"""
+                 SELECT "source_id","document_id","content_hash","recipe_hash","size_bytes","modified_utc",
+                        "extractor_id","chunk_count","status","error","last_run_id","updated_utc"
+                 FROM "{DocumentTable}"
+                 WHERE "collection" = $c AND "recipe_hash" = $rh AND "content_hash" = $ch AND "status" = $st
+                   AND NOT ("source_id" = $s AND "document_id" = $d)
+                 ORDER BY "source_id", "document_id"
+                 LIMIT $n
+                 """,
+                Read,
+                [
+                    new SqliteParameter("$c", collection),
+                    Blob("$rh", recipeHash),
+                    Blob("$ch", contentHash),
+                    new SqliteParameter("$st", IngestionDocumentStatus.Indexed),
+                    new SqliteParameter("$s", sourceId),
+                    new SqliteParameter("$d", documentId),
+                    new SqliteParameter("$n", limit),
+                ],
+                cancellationToken).ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>
     /// Writes one document row, in its own transaction. This is spec 9.5 step d, and it commits
     /// LAST so a torn document is still dirty. A failure here is
     /// <see cref="EdgeErrorCode.IngestionCheckpointWriteFailed"/> (6205) and aborts the run.

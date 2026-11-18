@@ -62,7 +62,15 @@ public sealed class FakeChunkTokenizer(int maxSequenceLength = 256, int specialT
 }
 
 /// <summary>Records every <c>GenerateAsync</c> call so a test can count them and read their inputs.</summary>
-public sealed class RecordingEmbeddingGenerator(int dimensions = 384, bool publishUsage = false)
+/// <param name="dimensions">The vector width.</param>
+/// <param name="publishUsage">Report <c>Usage.InputTokenCount</c>.</param>
+/// <param name="distinctPerText">
+/// Seed each vector from the WHOLE input rather than its first character, so two different chunk
+/// texts get two different vectors. Off by default: the first-character seed is what every older
+/// test was written against. A test that has to tell one chunk's vector from another's - a copy
+/// that put a vector against the wrong chunk - turns it on.
+/// </param>
+public sealed class RecordingEmbeddingGenerator(int dimensions = 384, bool publishUsage = false, bool distinctPerText = false)
     : IEmbeddingGenerator<string, Embedding<float>>
 {
     private readonly ConcurrentQueue<IReadOnlyList<string>> _calls = new();
@@ -106,7 +114,7 @@ public sealed class RecordingEmbeddingGenerator(int dimensions = 384, bool publi
         foreach (var value in inputs)
         {
             var vector = new float[dimensions];
-            var seed = value.Length == 0 ? 1 : value[0];
+            var seed = distinctPerText ? SeedOf(value) : value.Length == 0 ? 1 : value[0];
             for (var i = 0; i < dimensions; i++)
             {
                 vector[i] = (float)Math.Sin((seed + i) * 0.001);
@@ -139,6 +147,18 @@ public sealed class RecordingEmbeddingGenerator(int dimensions = 384, bool publi
 
     public void Dispose()
     {
+    }
+
+    /// <summary>FNV-1a over the UTF-16 code units, folded small enough to keep the sine arguments sane.</summary>
+    private static int SeedOf(string value)
+    {
+        var hash = 2166136261u;
+        foreach (var ch in value)
+        {
+            hash = (hash ^ ch) * 16777619u;
+        }
+
+        return (int)(hash % 100_000u) + 1;
     }
 }
 

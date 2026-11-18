@@ -125,6 +125,17 @@ internal static class IngestionLog
             Id(EdgeIngestionEventIds.RunSuspended, nameof(GraceWindowMissed)),
             "The lifecycle grace window elapsed before the runner reached a committed checkpoint: {Phase}.");
 
+    // Logged under 905, the event for the outcome it is part of: the document WAS extracted, chunked
+    // and written, and 905 still follows it with the counts. A dedicated id would be a new public
+    // constant on EdgeIngestionEventIds, frozen at 1.0.0; the event NAME is its own, so a consumer
+    // keying on the name can count reuses apart from ordinary indexing. Debug, like 905 itself.
+    private static readonly Action<ILogger, string, int, string, string, Exception?> VectorsReusedCore =
+        LoggerMessage.Define<string, int, string, string>(
+            LogLevel.Debug,
+            Id(EdgeIngestionEventIds.DocumentIndexed, nameof(VectorsReused)),
+            "Document '{DocumentId}': {Count} chunk vectors copied from document '{DonorDocumentId}' of source " +
+            "'{DonorSourceId}', which holds the same bytes under the same recipe; none were embedded.");
+
     // The two source warnings are logged under 923, the one "non-fatal warning" id spec 11 defines.
     // A dedicated id would be a new public constant on EdgeIngestionEventIds, and that surface is
     // frozen at 1.0.0; nothing else has ever been logged under 923, so a filter on it sees these.
@@ -165,6 +176,10 @@ internal static class IngestionLog
 
     public static void DocumentIndexed(ILogger logger, string documentId, int added, int removed, int repaired) =>
         DocumentIndexedCore(logger, documentId, added, removed, repaired, null);
+
+    public static void VectorsReused(
+        ILogger logger, string documentId, int count, string donorDocumentId, string donorSourceId) =>
+        VectorsReusedCore(logger, documentId, count, donorDocumentId, donorSourceId, null);
 
     public static void DocumentNoTextLayer(ILogger logger, string documentId, string extractorId) =>
         DocumentNoTextLayerCore(logger, documentId, extractorId, null);
