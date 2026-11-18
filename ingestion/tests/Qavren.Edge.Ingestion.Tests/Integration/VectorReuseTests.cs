@@ -192,7 +192,7 @@ public sealed class VectorReuseTests
     [Fact]
     public async Task The_copied_records_carry_the_new_documents_per_document_fields_not_the_donors()
     {
-        var clock = new ManualTimeProvider();
+        var clock = TestClock.Create();
         var options = Options();
         options.Time = clock;
         using var host = await IntegrationHost.StartAsync(options);
