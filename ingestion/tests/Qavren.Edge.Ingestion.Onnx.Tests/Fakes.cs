@@ -109,7 +109,10 @@ internal sealed class PresetGenerator(EmbeddingPreset? preset, IEdgeTokenizer? t
     }
 }
 
-/// <summary>An <see cref="IEdgeResourceMonitor"/> that reads whatever the test set.</summary>
+/// <summary>
+/// An <see cref="IEdgeResourceMonitor"/> that reads whatever the test set
+/// (Nominal thermal default, so not the shared embeddings stub).
+/// </summary>
 internal sealed class StubResourceMonitor : IEdgeResourceMonitor
 {
     public EdgeResourceSnapshot Next { get; set; } = new(

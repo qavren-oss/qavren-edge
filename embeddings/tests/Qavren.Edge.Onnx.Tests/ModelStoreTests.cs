@@ -1,9 +1,9 @@
-using System.Collections.Concurrent;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Logging.Testing;
 using Qavren.Edge.Onnx.Internal;
 using Xunit;
 
@@ -41,28 +41,6 @@ internal sealed class TempModelPaths : IEdgeModelPaths, IDisposable
         Directory.CreateDirectory(directory);
         return directory;
     }
-}
-
-/// <summary>An <see cref="ILogger{T}"/> that remembers every event id it was handed.</summary>
-internal sealed class RecordingLogger<T> : ILogger<T>
-{
-    private readonly ConcurrentQueue<EventId> _events = new();
-
-    public IReadOnlyCollection<EventId> Events => _events;
-
-    public bool Saw(int id) => _events.Any(e => e.Id == id);
-
-    public IDisposable? BeginScope<TState>(TState state)
-        where TState : notnull => null;
-
-    public bool IsEnabled(LogLevel logLevel) => true;
-
-    public void Log<TState>(
-        LogLevel logLevel,
-        EventId eventId,
-        TState state,
-        Exception? exception,
-        Func<TState, Exception?, string> formatter) => _events.Enqueue(eventId);
 }
 
 /// <summary>Spec 6.3 and 10.2's layout, marker, fast path, concurrency and purge.</summary>
@@ -233,7 +211,7 @@ public class ModelStoreTests : IDisposable
     public async Task RemoveDeletesTheModelDirectoryAndTheOrtCacheSubtreeAndLogs646()
     {
         var manifest = Manifest();
-        var logger = new RecordingLogger<OnnxModelStore>();
+        var logger = new FakeLogger<OnnxModelStore>();
         using var store = Store(new CountingSource(_paths), logger);
 
         var provisioned = await store.EnsureAsync(manifest, cancellationToken: TestContext.Current.CancellationToken);
@@ -247,14 +225,14 @@ public class ModelStoreTests : IDisposable
         Assert.False(Directory.Exists(provisioned.Directory));
         Assert.False(Directory.Exists(Path.Combine(_paths.Models, "tiny")));
         Assert.False(Directory.Exists(cache));
-        Assert.True(logger.Saw(EdgeAiEventIds.OrtCachePurged));
+        Assert.Contains(logger.Collector.GetSnapshot(), r => r.Id.Id == EdgeAiEventIds.OrtCachePurged);
         Assert.Empty(store.ProvisionedModelIds);
     }
 
     [Fact]
     public async Task ReprovisioningAtANewShaDeletesTheWholeStaleModelIdShaPair()
     {
-        var logger = new RecordingLogger<OnnxModelStore>();
+        var logger = new FakeLogger<OnnxModelStore>();
         using var store = Store(new CountingSource(_paths), logger);
 
         // The directory a previous revision of the same model id left behind.
@@ -272,7 +250,7 @@ public class ModelStoreTests : IDisposable
 
         Assert.False(Directory.Exists(staleDirectory));
         Assert.False(Directory.Exists(staleCache));
-        Assert.True(logger.Saw(EdgeAiEventIds.OrtCachePurged));
+        Assert.Contains(logger.Collector.GetSnapshot(), r => r.Id.Id == EdgeAiEventIds.OrtCachePurged);
     }
 
     [Fact]

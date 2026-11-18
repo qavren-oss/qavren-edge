@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Text.RegularExpressions;
 using CsCheck;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Logging.Testing;
 using Qavren.Edge.Ingestion.Internal;
 using Qavren.Edge.Ingestion.Pdf;
 using Qavren.Edge.Ingestion.Tests.Extraction;
@@ -396,7 +397,7 @@ public sealed partial class IncrementalIndexTests
             };
 
             var extracted = await new PlainTextExtractor()
-                .ExtractAsync(item, TestHarness.Context(new CapturingLogger()), Token)
+                .ExtractAsync(item, TestHarness.Context(new FakeLogger()), Token)
                 .ConfigureAwait(false);
 
             var chunker = ChunkerFactory.Resolve(ChunkerIds.Auto, IngestionMediaTypes.PlainText, NullLogger.Instance);

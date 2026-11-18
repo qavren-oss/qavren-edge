@@ -35,6 +35,15 @@
     <PackageVersion Include="Microsoft.Extensions.Logging.Debug" Version="10.0.14" />
   </ItemGroup>
 
+  <!-- Test doubles Microsoft ships: FakeTimeProvider (wall clock, monotonic timestamp and timers
+       move together) and FakeLogger/FakeLogCollector. 10.11.0 depends on Microsoft.Extensions.Logging
+       and Options.ConfigurationExtensions >= 10.0.13, inside this repo's 10.0.x pins. Referenced by
+       test projects ONLY, never by a src/ project. -->
+  <ItemGroup Label="Test doubles">
+    <PackageVersion Include="Microsoft.Extensions.TimeProvider.Testing" Version="10.11.0" />
+    <PackageVersion Include="Microsoft.Extensions.Diagnostics.Testing" Version="10.11.0" />
+  </ItemGroup>
+
   <ItemGroup Label="Device test runner">
     <PackageVersion Include="DeviceRunners.VisualRunners.Maui" Version="0.1.0-preview.12" />
     <PackageVersion Include="DeviceRunners.VisualRunners.Xunit3" Version="0.1.0-preview.12" />

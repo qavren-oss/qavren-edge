@@ -1,4 +1,5 @@
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Time.Testing;
 using Qavren.Edge.Lifecycle;
 using Xunit;
 
@@ -60,7 +61,7 @@ public sealed class SuspendReasonTests
 
     /// <summary>
     /// The <c>Quick</c> preset, metered. A corpus whose processing exceeds 20 s of
-    /// <see cref="ManualTimeProvider"/> time suspends with <c>budget:duration</c>.
+    /// <see cref="FakeTimeProvider"/> time suspends with <c>budget:duration</c>.
     /// </summary>
     [Fact]
     public async Task A_Quick_run_over_twenty_seconds_suspends_with_budget_duration()
@@ -241,7 +242,7 @@ public sealed class SuspendReasonTests
             IngestionThrottleDecision.Proceed(batchSize);
     }
 
-    private sealed class SlowSource(ManualTimeProvider time, TimeSpan perDocument, int count) : IngestionSource
+    private sealed class SlowSource(FakeTimeProvider time, TimeSpan perDocument, int count) : IngestionSource
     {
         public override string Id => "slow";
 

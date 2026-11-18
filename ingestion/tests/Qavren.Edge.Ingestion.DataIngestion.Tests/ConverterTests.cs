@@ -1,4 +1,5 @@
 using Microsoft.Extensions.DataIngestion;
+using Microsoft.Extensions.Logging.Testing;
 using Xunit;
 
 namespace Qavren.Edge.Ingestion.DataIngestion.Tests;
@@ -93,21 +94,21 @@ public sealed class ConverterTests
         section.Elements.Add(nested);
         document.Sections.Add(section);
 
-        var logger = new CapturingLogger();
+        var logger = new FakeLogger();
         var extracted = EdgeDocumentConverter.FromMedi(document, logger);
 
         Assert.Equal(2, extracted.Blocks.Count);
         Assert.Equal("before\n\nafter", extracted.Text);
-        Assert.Equal(1, logger.Count(EdgeIngestionEventIds.MediImagesDropped));
-        Assert.Contains("3", logger.Records.Single(r => r.EventId == 917).Message, StringComparison.Ordinal);
+        Assert.Equal(1, logger.Collector.GetSnapshot().Count(r => r.Id.Id == EdgeIngestionEventIds.MediImagesDropped));
+        Assert.Contains("3", logger.Collector.GetSnapshot().Single(r => r.Id.Id == 917).Message, StringComparison.Ordinal);
     }
 
     [Fact]
     public void No_images_means_no_917()
     {
-        var logger = new CapturingLogger();
+        var logger = new FakeLogger();
         EdgeDocumentConverter.FromMedi(EdgeDocumentConverter.ToMedi(AllKinds()), logger);
-        Assert.Equal(0, logger.Count(EdgeIngestionEventIds.MediImagesDropped));
+        Assert.Equal(0, logger.Collector.GetSnapshot().Count(r => r.Id.Id == EdgeIngestionEventIds.MediImagesDropped));
     }
 
     [Fact]

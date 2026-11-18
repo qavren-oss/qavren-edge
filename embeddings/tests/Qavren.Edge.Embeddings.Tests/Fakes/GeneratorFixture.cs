@@ -3,9 +3,9 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Qavren.Edge.Embeddings.Onnx;
 using Qavren.Edge.Embeddings.Onnx.Internal;
-using Qavren.Edge.Lifecycle;
 using Qavren.Edge.Onnx;
 using Qavren.Edge.Onnx.Internal;
+using Qavren.Edge.Onnx.Tests.Stubs;
 using Qavren.Edge.Tests.Fixtures;
 
 namespace Qavren.Edge.Embeddings.Tests.Fakes;
@@ -31,26 +31,6 @@ internal sealed class TempModelPaths(string root) : IEdgeModelPaths
         Directory.CreateDirectory(directory);
         return directory;
     }
-}
-
-/// <summary>
-/// A resource monitor that reads nothing and remembers everything, so a test about batching never
-/// depends on what this machine's GC happens to report.
-/// </summary>
-internal sealed class StubResourceMonitor : IEdgeResourceMonitor
-{
-    public EdgeMemoryPressure? LastPressure { get; private set; }
-
-    public EdgeResourceSnapshot Read() =>
-        new(
-            AvailableMemoryBytes: 1024L * 1024 * 1024,
-            IsLowMemory: false,
-            EdgeThermalState.Unknown,
-            ThermalHeadroom: null,
-            IsLowPowerMode: null,
-            LastPressure: LastPressure);
-
-    public void SetPressure(EdgeMemoryPressure? level) => LastPressure = level;
 }
 
 /// <summary>

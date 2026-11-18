@@ -3,105 +3,22 @@ using System.Text;
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Time.Testing;
 using Qavren.Edge.Ingestion.Internal;
 using Qavren.Edge.Sqlite;
 
 namespace Qavren.Edge.Ingestion.Tests.Runtime;
 
 /// <summary>
-/// A hand-rolled <see cref="TimeProvider"/> with manual advance. The repo pins no
-/// <c>Microsoft.Extensions.TimeProvider.Testing</c> and adding one would be a root change, so the
-/// forty lines live here.
+/// The clock every runtime test starts from: a <see cref="FakeTimeProvider"/> whose wall clock,
+/// monotonic timestamp and timers move together on <c>Advance</c>.
 /// </summary>
-public sealed class ManualTimeProvider : TimeProvider
+public static class TestClock
 {
-    private readonly List<ManualTimer> _timers = [];
-    private readonly Lock _gate = new();
-    private DateTimeOffset _now = new(2026, 9, 11, 0, 0, 0, TimeSpan.Zero);
-
-    public override DateTimeOffset GetUtcNow()
-    {
-        lock (_gate)
-        {
-            return _now;
-        }
-    }
-
-    public override long GetTimestamp()
-    {
-        lock (_gate)
-        {
-            return _now.UtcTicks;
-        }
-    }
-
-    public override long TimestampFrequency => TimeSpan.TicksPerSecond;
-
-    public void Advance(TimeSpan by)
-    {
-        ManualTimer[] due;
-        lock (_gate)
-        {
-            _now += by;
-            due = [.. _timers.Where(t => t.IsDue(_now))];
-        }
-
-        foreach (var timer in due)
-        {
-            timer.Fire();
-        }
-    }
-
-    public override ITimer CreateTimer(TimerCallback callback, object? state, TimeSpan dueTime, TimeSpan period)
-    {
-        var timer = new ManualTimer(this, callback, state, GetUtcNow() + dueTime);
-        lock (_gate)
-        {
-            _timers.Add(timer);
-        }
-
-        return timer;
-    }
-
-    private void Remove(ManualTimer timer)
-    {
-        lock (_gate)
-        {
-            _timers.Remove(timer);
-        }
-    }
-
-    private sealed class ManualTimer(
-        ManualTimeProvider owner, TimerCallback callback, object? state, DateTimeOffset due) : ITimer
-    {
-        private DateTimeOffset _due = due;
-        private bool _fired;
-
-        public bool IsDue(DateTimeOffset now) => !_fired && now >= _due;
-
-        public void Fire()
-        {
-            _fired = true;
-            callback(state);
-        }
-
-        public bool Change(TimeSpan dueTime, TimeSpan period)
-        {
-            _due = owner.GetUtcNow() + dueTime;
-            _fired = false;
-            return true;
-        }
-
-        public void Dispose() => owner.Remove(this);
-
-        public ValueTask DisposeAsync()
-        {
-            Dispose();
-            return ValueTask.CompletedTask;
-        }
-    }
+    /// <summary>A fake clock at 2026-09-11T00:00:00Z.</summary>
+    /// <returns>A new clock; each test advances its own.</returns>
+    public static FakeTimeProvider Create() => new(new DateTimeOffset(2026, 9, 11, 0, 0, 0, TimeSpan.Zero));
 }
-
 /// <summary>
 /// A whitespace tokenizer shaped like <see cref="ChunkModelProfile.MiniLmL6V2Int8"/>: a 256-token
 /// ceiling and an overhead of 2, so <c>ChunkOptions.Resolve</c> produces the real 222 / 32 / 27.
@@ -432,7 +349,10 @@ public sealed class WidgetExtractor(string id = "widget", int version = 1) : IDo
         throw new NotSupportedException("WidgetExtractor is never selected.");
 }
 
-/// <summary>Captures every log line so a test can assert what is - and is not - in them.</summary>
+/// <summary>
+/// Captures every log line as <c>id|message</c> so a test can assert what is - and is not - in them.
+/// Kept over <c>FakeLoggerProvider</c> for that one-string-per-line shape.
+/// </summary>
 public sealed class CapturingLoggerProvider : ILoggerProvider
 {
     private readonly ConcurrentQueue<string> _lines = new();

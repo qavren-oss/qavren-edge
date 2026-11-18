@@ -13,6 +13,7 @@ public sealed record LogRecord(string Category, LogLevel Level, EventId EventId,
 /// An <see cref="ILoggerFactory"/> that records everything at or above a minimum level. It is how
 /// spec 14.4's Trace-only privacy rule is asserted rather than assumed: at <c>Trace</c> the private
 /// strings may appear only in <c>Trace</c> records; at <c>Debug</c> they may not appear at all.
+/// Kept over <c>FakeLogger</c>: one factory for every category, with an honest per-level <c>IsEnabled</c>.
 /// </summary>
 public sealed class RecordingLoggerFactory : ILoggerFactory
 {

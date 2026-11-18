@@ -46,7 +46,7 @@ public sealed class LifecycleLoggingTests
         var logs = new CapturingLoggerProvider();
         using var factory = LoggerFactory.Create(b => b.AddProvider(logs));
         var observer = new IngestionLifecycleObserver(
-            new IngestionRunControl(), new IngestionRegistry(), new ManualTimeProvider(), factory);
+            new IngestionRunControl(), new IngestionRegistry(), TestClock.Create(), factory);
 
         await observer.OnMemoryPressureAsync(EdgeMemoryPressure.Moderate, TestContext.Current.CancellationToken);
 
@@ -59,7 +59,7 @@ public sealed class LifecycleLoggingTests
         var logs = new CapturingLoggerProvider();
         using var factory = LoggerFactory.Create(b => b.AddProvider(logs));
         var control = new IngestionRunControl();
-        var time = new ManualTimeProvider();
+        var time = TestClock.Create();
         var observer = new IngestionLifecycleObserver(control, new IngestionRegistry(), time, factory);
 
         control.BeginRun();

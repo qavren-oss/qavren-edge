@@ -22,6 +22,7 @@
     <PackageReference Include="xunit.v3" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection" />
     <PackageReference Include="Microsoft.Extensions.Logging" />
+    <PackageReference Include="Microsoft.Extensions.Diagnostics.Testing" />
     <!-- The MEDI IMPLEMENTATION package. IngestionPipeline<T> lives here and not in the
          Abstractions the shim ships against, so the conformance test - and ONLY the conformance
          test - restores it. It brings eleven transitives, two of them BELOW this repo's pins

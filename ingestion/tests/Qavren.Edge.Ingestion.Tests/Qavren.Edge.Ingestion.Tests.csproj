@@ -47,6 +47,8 @@
     <PackageReference Include="CsCheck" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection" />
     <PackageReference Include="Microsoft.Extensions.Logging" />
+    <PackageReference Include="Microsoft.Extensions.TimeProvider.Testing" />
+    <PackageReference Include="Microsoft.Extensions.Diagnostics.Testing" />
     <ProjectReference Include="..\..\src\Qavren.Edge.Ingestion\Qavren.Edge.Ingestion.csproj" />
     <!-- vec0 and FTS5 arrive only with the native. Qavren.Edge.Sqlite.Native's QedgeHostRid item
          stages qedge_sqlite3.dll flat beside the test binary, so the host lane runs on a dev box

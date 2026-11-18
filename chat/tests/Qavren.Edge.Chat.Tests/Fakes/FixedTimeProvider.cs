@@ -10,6 +10,8 @@ namespace Qavren.Edge.Chat.Tests.Fakes;
 /// (<see cref="GetTimestamp"/>). <see cref="Advance"/> moves both, as real time passing does;
 /// <see cref="StepWallClock"/> moves only the wall clock, as NTP or a user changing the time does.
 /// Timers are still the system's: <c>Task.Delay</c> through this provider waits in real time.
+/// Not a <c>FakeTimeProvider</c>: its <c>SetUtcNow</c> cannot step the wall clock backward without
+/// the monotonic timestamp, and the thermal and cooldown tests assert the code ignores the wall clock.
 /// </remarks>
 internal sealed class FixedTimeProvider(DateTimeOffset start) : TimeProvider
 {

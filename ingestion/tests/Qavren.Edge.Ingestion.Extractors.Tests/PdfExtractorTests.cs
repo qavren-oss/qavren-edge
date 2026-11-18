@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Logging.Testing;
 using Qavren.Edge.Ingestion.Pdf;
 using Xunit;
 
@@ -211,7 +212,7 @@ public class PdfExtractorTests
     [Fact]
     public async Task AZeroPageBudgetIsSixOneZeroSevenNamingThePageReached()
     {
-        var logger = new CapturingLogger();
+        var logger = new FakeLogger();
         var thrown = await Assert.ThrowsAsync<EdgeExtractionException>(
             () => ExtractAsync(
                 FixtureCorpus.Item("pdf/two-pages.pdf"), new PdfExtractorOptions { PageBudget = TimeSpan.Zero }, logger));
@@ -219,7 +220,7 @@ public class PdfExtractorTests
         Assert.Equal(EdgeErrorCode.DocumentPageBudgetExceeded, thrown.Code);
         Assert.Equal(1, thrown.PageNumber);
         Assert.Contains("after 1 of 2 pages", thrown.Message, StringComparison.Ordinal);
-        Assert.True(logger.Saw(EdgeIngestionEventIds.PageTimedOut), "event 924 was logged");
+        Assert.Contains(logger.Collector.GetSnapshot(), r => r.Id.Id == EdgeIngestionEventIds.PageTimedOut); // event 924 was logged Assert.Contains(logger.Collector.GetSnapshot(), r => r.Id.Id == EdgeIngestionEventIds.PageTimedOut);
     }
 
     [Fact]
@@ -231,7 +232,7 @@ public class PdfExtractorTests
             FixtureCorpus.Item("pdf/minimal-text.pdf"), new PdfExtractorOptions { PageBudget = TimeSpan.Zero });
 
         Assert.StartsWith(MinimalFirstLine, document.Text, StringComparison.Ordinal);
-        Assert.False(logger.Saw(EdgeIngestionEventIds.PageTimedOut));
+        Assert.DoesNotContain(logger.Collector.GetSnapshot(), r => r.Id.Id == EdgeIngestionEventIds.PageTimedOut);
     }
 
     [Fact]
@@ -243,7 +244,7 @@ public class PdfExtractorTests
         var extractor = new PdfTextExtractor();
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
             extractor.ExtractAsync(
-                FixtureCorpus.Item("pdf/two-pages.pdf"), TestHarness.Context(new CapturingLogger()), cancelled.Token).AsTask());
+                FixtureCorpus.Item("pdf/two-pages.pdf"), TestHarness.Context(new FakeLogger()), cancelled.Token).AsTask());
     }
 
     [Fact]
@@ -299,13 +300,13 @@ public class PdfExtractorTests
         Assert.Equal([IngestionMediaTypes.Pdf], extractor.MediaTypes);
     }
 
-    internal static async Task<(ExtractedDocument Document, CapturingLogger Logger)> ExtractAsync(
+    internal static async Task<(ExtractedDocument Document, FakeLogger Logger)> ExtractAsync(
         DocumentSourceItem item,
         PdfExtractorOptions? options = null,
-        CapturingLogger? logger = null,
+        FakeLogger? logger = null,
         ExtractionOptions? extraction = null)
     {
-        logger ??= new CapturingLogger();
+        logger ??= new FakeLogger();
         var extractor = options is null ? new PdfTextExtractor() : new PdfTextExtractor(options);
         var document = await extractor.ExtractAsync(item, TestHarness.Context(logger, extraction), CancellationToken.None)
             .ConfigureAwait(false);

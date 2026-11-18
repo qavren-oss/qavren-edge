@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Runtime.CompilerServices;
 using System.Security.Cryptography;
+using Microsoft.Extensions.Logging.Testing;
 using Qavren.Edge.Ingestion.Tests.Extraction;
 using Xunit;
 
@@ -73,7 +74,7 @@ internal static class ChunkingHarness
     internal static async Task<ExtractedDocument> ExtractAsync(string fixtureRelativePath)
     {
         var item = FixtureCorpus.Item(fixtureRelativePath);
-        var logger = new CapturingLogger();
+        var logger = new FakeLogger();
         var context = TestHarness.Context(logger);
 
         IDocumentExtractor extractor =

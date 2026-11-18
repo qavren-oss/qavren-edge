@@ -1,7 +1,7 @@
 using System.Collections.Concurrent;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.DataIngestion;
-using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Testing;
 
 namespace Qavren.Edge.Ingestion.DataIngestion.Tests;
 
@@ -143,30 +143,6 @@ internal sealed class RecordingEmbeddingGenerator(int dimensions = 384)
     }
 }
 
-/// <summary>An <see cref="ILogger"/> that keeps every record, so an event id can be counted.</summary>
-internal sealed class CapturingLogger : ILogger
-{
-    public List<(int EventId, LogLevel Level, string Message)> Records { get; } = [];
-
-    public IDisposable? BeginScope<TState>(TState state)
-        where TState : notnull => null;
-
-    public bool IsEnabled(LogLevel logLevel) => true;
-
-    public void Log<TState>(
-        LogLevel logLevel,
-        EventId eventId,
-        TState state,
-        Exception? exception,
-        Func<TState, Exception?, string> formatter)
-    {
-        ArgumentNullException.ThrowIfNull(formatter);
-        Records.Add((eventId.Id, logLevel, formatter(state, exception)));
-    }
-
-    public int Count(int eventId) => Records.Count(r => r.EventId == eventId);
-}
-
 /// <summary>
 /// The fifteen-line reader spec 14.4 asks for: SP3's own <see cref="MarkdownExtractor"/> behind
 /// MEDI's reader contract, through <see cref="EdgeDocumentConverter.ToMedi"/>. It exists so the
@@ -184,7 +160,7 @@ internal sealed class MarkdownExtractorReader : IngestionDocumentReader
         Identifiers.Add(identifier);
         var item = new DocumentSourceItem(identifier, mediaType, _ => new ValueTask<Stream>(source));
         var context = new ExtractionContext(
-            "medi-conformance", "chunks", 32L * 1024 * 1024, new ExtractionOptions(), new CapturingLogger());
+            "medi-conformance", "chunks", 32L * 1024 * 1024, new ExtractionOptions(), new FakeLogger());
         var extracted = await _extractor.ExtractAsync(item, context, cancellationToken).ConfigureAwait(false);
         return EdgeDocumentConverter.ToMedi(extracted);
     }
