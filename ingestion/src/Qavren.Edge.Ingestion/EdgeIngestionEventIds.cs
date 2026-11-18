@@ -80,7 +80,11 @@ public static class EdgeIngestionEventIds
     /// <summary>The configured chunker failed and the run fell back to a simpler one.</summary>
     public const int ChunkerFellBack = 922;
 
-    /// <summary>An extractor reported a non-fatal warning while extracting a document.</summary>
+    /// <summary>
+    /// A non-fatal warning, from an extractor while it extracts a document or from the runner while it
+    /// walks a source (a directory that could not be listed, a symbolic link that was not followed).
+    /// The event name tells the cases apart.
+    /// </summary>
     public const int ExtractionWarning = 923;
 
     /// <summary>A PDF page's parse time hit the page budget (see <see cref="EdgeErrorCode.DocumentPageBudgetExceeded"/>).</summary>
