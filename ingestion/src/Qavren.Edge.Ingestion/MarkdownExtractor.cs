@@ -10,9 +10,13 @@ namespace Qavren.Edge.Ingestion;
 public sealed class MarkdownExtractorOptions
 {
     /// <summary>
-    /// EMPTY by default, and that is a behaviour-changing default: no YAML front-matter key becomes
-    /// a column out of the box. Every parsed key still reaches
-    /// <see cref="ExtractedDocument.Metadata"/>; this list is the opt-in for promoting one.
+    /// EMPTY by default: no YAML front-matter key becomes a column out of the box. Every parsed key
+    /// reaches <see cref="ExtractedDocument.Metadata"/> whatever this list holds.
+    /// <para>
+    /// <b>Not currently read.</b> Nothing consumes the list yet: the collection's columns are fixed
+    /// at startup and no stage maps a metadata key onto one, so adding a key here changes no
+    /// behaviour. It is reserved for that promotion.
+    /// </para>
     /// </summary>
     public IList<string> PromoteFrontMatterKeys { get; } = [];
 }

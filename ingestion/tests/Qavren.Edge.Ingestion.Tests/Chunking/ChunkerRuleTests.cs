@@ -1,5 +1,6 @@
 using Qavren.Edge.Ingestion.Internal;
 using Qavren.Edge.Ingestion.Tests.Extraction;
+using Qavren.Edge.Ingestion.Tests.Runtime;
 using Xunit;
 
 namespace Qavren.Edge.Ingestion.Tests.Chunking;
@@ -314,6 +315,38 @@ public sealed class ChunkerRuleTests
         Assert.Equal(["Lambda mu nu xi omicron"], chunk.HeadingPath);
         Assert.True(
             ChunkingHarness.Tokenizer.CountTokens(chunk.Breadcrumb.AsSpan()) <= options.HeadingPathTokenBudget);
+    }
+
+    [Fact]
+    public void A_heading_sanitised_before_joining_logs_event_927_and_a_clean_one_does_not()
+    {
+        // Whitespace tokens: sanitising is about the heading's characters, not its token count, so
+        // this needs no vocabulary and runs on every lane.
+        var tokenizer = new FakeChunkTokenizer();
+        var options = new ChunkOptions { MaxTokens = 64, OverlapTokens = 1, MinTokens = 1, HeadingPathTokenBudget = 32 }
+            .Resolve(ChunkingHarness.MiniLm, tokenizer);
+
+        const string Messy = "# Alpha  beta\n\nThe body.\n";
+        const string Clean = "# Alpha beta\n\nThe body.\n";
+
+        var messyLogger = new CapturingLogger();
+        Assert.NotEmpty(new MarkdownHeadingChunker(messyLogger)
+            .Chunk(
+                Document(Messy, [Block(Messy, "# Alpha  beta", DocumentBlockKind.Heading, 1), Block(Messy, "The body.", DocumentBlockKind.Paragraph)]),
+                options,
+                tokenizer)
+            .ToList());
+
+        var cleanLogger = new CapturingLogger();
+        Assert.NotEmpty(new MarkdownHeadingChunker(cleanLogger)
+            .Chunk(
+                Document(Clean, [Block(Clean, "# Alpha beta", DocumentBlockKind.Heading, 1), Block(Clean, "The body.", DocumentBlockKind.Paragraph)]),
+                options,
+                tokenizer)
+            .ToList());
+
+        Assert.True(messyLogger.Saw(EdgeIngestionEventIds.HeadingSanitised));
+        Assert.False(cleanLogger.Saw(EdgeIngestionEventIds.HeadingSanitised));
     }
 
     [Fact]

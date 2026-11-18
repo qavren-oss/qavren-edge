@@ -57,13 +57,11 @@ internal sealed class IngestionLifecycleObserver : EdgeLifecycleObserver
         switch (level)
         {
             case EdgeMemoryPressure.Moderate:
-                _control.Shrink();
-                IngestionLog.EmbedBatchShrunk(_logger, 0, 0, "memory:moderate");
+                Shrink("memory:moderate");
                 break;
 
             case EdgeMemoryPressure.Critical:
-                _control.Shrink();
-                IngestionLog.EmbedBatchShrunk(_logger, 0, 0, "memory:critical");
+                Shrink("memory:critical");
                 // fromLifecycle: this stop came from the OS, not from the caller, so spec 10.2
                 // step 1 ends the run Suspended with SuspendReason "memory:critical". Inferring it
                 // from a "lifecycle:" prefix on the reason would report a backgrounded,
@@ -83,6 +81,30 @@ internal sealed class IngestionLifecycleObserver : EdgeLifecycleObserver
     {
         _control.RequestStop("lifecycle:stopping", fromLifecycle: true);
         await AwaitCheckpointAsync(StopGrace, "stopping", cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Halves the effective write batch and logs 918 only when that moved it. The floor of four, or
+    /// a configured batch already at or under it, means a further shrink can change nothing, and a
+    /// "shrunk from 4 to 4" line would be a lie. With nothing registered there is no batch to speak
+    /// of, so nothing is logged either.
+    /// </summary>
+    private void Shrink(string reason)
+    {
+        var configured = 0;
+        foreach (var registration in _registry.All)
+        {
+            configured = Math.Max(configured, registration.Options.WriteBatchSize);
+        }
+
+        var from = _control.ApplyShrink(configured);
+        _control.Shrink();
+        var to = _control.ApplyShrink(configured);
+
+        if (to != from)
+        {
+            IngestionLog.EmbedBatchShrunk(_logger, from, to, reason);
+        }
     }
 
     private TimeSpan SleepGrace => Budget(o => o.SleepGraceBudget, TimeSpan.FromMilliseconds(750));

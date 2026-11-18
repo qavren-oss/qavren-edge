@@ -762,6 +762,7 @@ internal sealed class IngestionRunner
             source.Id, collection, opts.MaxDocumentBytes, opts.Extraction, _logger);
         try
         {
+            Report(IngestionStage.Extracting);
             document = await extractor.ExtractAsync(item, context, cancellationToken).ConfigureAwait(false);
         }
         catch (EdgeExtractionException ex) when (ex.Code is EdgeErrorCode.DocumentEncrypted
@@ -836,6 +837,7 @@ internal sealed class IngestionRunner
 
         // ---- Chunk, hash the chunks, assign duplicate ordinals and keys.
         var chunkOptions = _registration.Chunking!;
+        Report(IngestionStage.Chunking);
         var chunker = ChunkerFactory.Resolve(opts.ChunkerId, document.MediaType, _logger);
         var drafts = chunker.Chunk(document, chunkOptions, _tokenizer).ToList();
         var identified = ChunkDiff.Identify(source.Id, item.DocumentId, drafts);
