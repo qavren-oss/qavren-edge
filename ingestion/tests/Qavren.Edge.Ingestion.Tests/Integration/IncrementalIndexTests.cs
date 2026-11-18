@@ -181,6 +181,57 @@ public sealed partial class IncrementalIndexTests
     }
 
     /// <summary>
+    /// Spec 9.2: a document whose recipe changed is dirty "regardless of its content hash". MiniLM
+    /// int8 to fp32 changes no chunk text - same dimensions, ceiling and pooling - so a diff keyed on
+    /// the text alone kept every int8 vector under the fp32 recipe and embedded nothing. Every chunk
+    /// is re-embedded, over its own key: no row lost, none duplicated, no vec0 row orphaned.
+    /// </summary>
+    [Fact]
+    public async Task A_model_change_that_leaves_every_chunk_text_alone_still_re_embeds_every_chunk()
+    {
+        var root = IntegrationHost.NewRoot();
+        var corpus = CorpusRoundTripTests.Corpus(CorpusRoundTripTests.TextCorpus);
+        try
+        {
+            IReadOnlyList<string> keysBefore;
+            using (var first = await IntegrationHost.StartAsync(new IntegrationHostOptions
+            {
+                Root = root,
+                Ingestion = o => o.Model = ChunkModelProfile.MiniLmL6V2Int8,
+            }))
+            {
+                var run = await first.Pipeline.RunAsync(corpus, cancellationToken: Token);
+                Assert.Equal(IngestionRunOutcome.Completed, run.Outcome);
+                keysBefore = await Db.KeysAsync(first.Database);
+                Assert.NotEmpty(keysBefore);
+            }
+
+            using var second = await IntegrationHost.StartAsync(new IntegrationHostOptions
+            {
+                Root = root,
+                Ingestion = o => o.Model = ChunkModelProfile.MiniLmL6V2Fp32,
+            });
+
+            var result = await second.Pipeline.RunAsync(corpus, cancellationToken: Token);
+            Assert.Equal(IngestionRunOutcome.Completed, result.Outcome);
+
+            // The same texts, so the same keys: nothing lost, nothing duplicated.
+            Assert.Equal(keysBefore, await Db.KeysAsync(second.Database));
+            Assert.Equal(0, result.ChunksRemoved);
+
+            // And every one of them embedded again, under the new model.
+            Assert.Equal(0, result.ChunksUnchanged);
+            Assert.Equal(keysBefore.Count, result.ChunksAdded);
+            Assert.Equal(keysBefore.Count, second.Generator.Calls.Sum(c => c.Count));
+            Assert.Equal(keysBefore.Count, await Db.CountAsync(second.Database, Db.VectorTable));
+        }
+        finally
+        {
+            IntegrationHost.DeleteRoot(root);
+        }
+    }
+
+    /// <summary>
     /// The other half of spec 9.2: registering the real PDF satellite over a text corpus - an
     /// extractor nothing selects - re-indexes nothing. Task 5.1 proved it with a widget; this is
     /// the shipped satellite.
