@@ -281,6 +281,45 @@ internal sealed class IngestionStateStore
             cancellationToken);
 
     /// <summary>
+    /// <see cref="StampAsync"/> for many rows of one source, in ONE transaction through one
+    /// compiled statement. A re-run over an unchanged corpus is nothing but hash-gate skips, and a
+    /// write transaction per skip was a commit per document for a run that changed nothing.
+    /// </summary>
+    public Task<int> StampManyAsync(
+        string collection,
+        string sourceId,
+        IReadOnlyList<string> documentIds,
+        string runId,
+        CancellationToken cancellationToken) =>
+        _database.ExecuteInTransactionAsync(
+            async (connection, transaction, ct) =>
+            {
+                var command = connection.CreateCommand();
+                await using (command.ConfigureAwait(false))
+                {
+                    command.Transaction = transaction;
+                    command.CommandText = $"""
+                        UPDATE "{DocumentTable}" SET "last_run_id" = $r
+                        WHERE "collection" = $c AND "source_id" = $s AND "document_id" = $d
+                        """;
+                    command.Parameters.Add(new SqliteParameter("$r", runId));
+                    command.Parameters.Add(new SqliteParameter("$c", collection));
+                    command.Parameters.Add(new SqliteParameter("$s", sourceId));
+                    var document = command.Parameters.Add("$d", SqliteType.Text);
+
+                    var stamped = 0;
+                    foreach (var documentId in documentIds)
+                    {
+                        document.Value = documentId;
+                        stamped += await command.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
+                    }
+
+                    return stamped;
+                }
+            },
+            cancellationToken);
+
+    /// <summary>
     /// Deletes one document's state row inside a transaction the CALLER owns, so the row goes or
     /// stays with the chunks it describes. A removal that committed the two separately could stop
     /// between them and leave a row saying <c>Indexed</c> over chunks that no longer exist - which
@@ -322,12 +361,38 @@ internal sealed class IngestionStateStore
             cancellationToken);
 
     /// <summary>Inserts the run row at the start of a run.</summary>
+    /// <remarks>
+    /// <c>started_utc</c> is the only order the run table has - it is <c>WITHOUT ROWID</c> and
+    /// keyed on a random id - and "the newest run" is read off it three ways: the latest run, the
+    /// history trim, and every row's staleness. Two runs that started on the same tick (a fake
+    /// clock in a test, a coarse platform clock) made all three pick between them arbitrarily, so a
+    /// complete re-run could report its whole corpus stale. A run that would tie with, or start
+    /// before, the newest one already recorded is recorded one tick after it instead.
+    /// </remarks>
     public Task BeginRunAsync(
         string collection, string runId, string sourceId, ContentHash recipeHash, DateTimeOffset startedUtc,
         CancellationToken cancellationToken) =>
         _database.ExecuteInTransactionAsync(
             async (connection, transaction, ct) =>
-                await ExecuteAsync(
+            {
+                var newest = connection.CreateCommand();
+                await using (newest.ConfigureAwait(false))
+                {
+                    newest.Transaction = transaction;
+
+                    // "O" is fixed-width UTC, so the greatest string is the latest instant.
+                    newest.CommandText = $"""SELECT MAX("started_utc") FROM "{RunTable}" WHERE "collection" = $c""";
+                    newest.Parameters.Add(new SqliteParameter("$c", collection));
+
+                    if (await newest.ExecuteScalarAsync(ct).ConfigureAwait(false) is string text
+                        && ParseStamp(text) is { } latest
+                        && latest >= startedUtc)
+                    {
+                        startedUtc = latest.AddTicks(1);
+                    }
+                }
+
+                return await ExecuteAsync(
                     connection,
                     transaction,
                     $"""
@@ -342,7 +407,8 @@ internal sealed class IngestionStateStore
                         Blob("$h", recipeHash),
                         new SqliteParameter("$t", Stamp(startedUtc)!),
                     ],
-                    ct).ConfigureAwait(false),
+                    ct).ConfigureAwait(false);
+            },
             cancellationToken);
 
     /// <summary>Finishes the run row and trims history to <paramref name="historyLimit"/>.</summary>
