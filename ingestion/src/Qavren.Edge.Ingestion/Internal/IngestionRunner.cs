@@ -25,6 +25,16 @@ internal sealed class IngestionRunner
     private readonly List<string> _pendingStamps = [];
     private (string Collection, string SourceId, string RunId)? _stampTarget;
 
+    /// <summary>How many same-bytes, same-recipe rows one document tries before it embeds instead.</summary>
+    private const int MaxReuseCandidates = 4;
+
+    // The content hashes the collection holds Indexed, read once per run on the first document
+    // that has anything to embed, and kept current with what this run indexes. A filter, not a
+    // source of truth: a hit is confirmed against the state table before anything is reused, so
+    // a stale entry costs one query. Null until needed - a run over an unchanged corpus never
+    // reaches an embed and never reads it.
+    private HashSet<ContentHash>? _indexedHashes;
+
     private readonly IngestionRegistration _registration;
     private readonly IngestionStateStore _state;
     private readonly IEdgeDatabase _database;
@@ -36,6 +46,7 @@ internal sealed class IngestionRunner
     private readonly TimeProvider _time;
     private readonly ILogger _logger;
     private readonly string _dataTable;
+    private readonly int _dimensions;
 
     public IngestionRunner(
         IngestionRegistration registration,
@@ -61,6 +72,13 @@ internal sealed class IngestionRunner
         _time = timeProvider;
         _logger = logger;
         _dataTable = dataTable;
+
+        // The width the collection was created with, which a reused vector must have. The
+        // definition is the one the pipeline opened the collection with.
+        _dimensions = registration.Definition.Properties
+            .OfType<Microsoft.Extensions.VectorData.VectorStoreVectorProperty>()
+            .Select(p => p.Dimensions)
+            .FirstOrDefault();
     }
 
     /// <summary>
@@ -115,6 +133,7 @@ internal sealed class IngestionRunner
         var consecutiveErrors = 0;
         var loggedRecipeDrift = false;
         var lastProgress = startTimestamp;
+        _indexedHashes = null;
 
         await _state.VerifyAsync(cancellationToken).ConfigureAwait(false);
         await _state.BeginRunAsync(
@@ -354,6 +373,7 @@ internal sealed class IngestionRunner
         finally
         {
             _control.EndRun();
+            _indexedHashes = null;
 
             // Spec 12's activeRun* keys read this off the registration, so it has to be cleared on
             // EVERY exit - including the two that rethrow - or a faulted run stays "active" in
@@ -864,7 +884,16 @@ internal sealed class IngestionRunner
             source.Id, item.DocumentId, extractor.Id, document.MediaType, _time.GetUtcNow());
 
         var added = 0;
+        var reused = 0;
         long tokens = 0;
+
+        // ---- Reuse. Read BEFORE this document writes anything, and long before the end-of-run
+        // prune, so a rename's old id - still in the state table and the data table until that
+        // prune - is a donor for its new one within the same run.
+        var donor = diff.Added.Count == 0
+            ? null
+            : await FindReuseDonorAsync(collection, source.Id, item.DocumentId, hash, documentRecipe, identified, cancellationToken)
+                .ConfigureAwait(false);
 
         // ---- a. windowed embed + upsert, with the three evaluations before EACH window.
         for (var offset = 0; offset < diff.Added.Count;)
@@ -882,18 +911,38 @@ internal sealed class IngestionRunner
             var take = Math.Min(gate.BatchSize, diff.Added.Count - offset);
             var window = diff.Added.Skip(offset).Take(take).ToList();
 
-            Report(IngestionStage.Embedding);
-            var result = await _writer.WriteWindowAsync(window, facts, cancellationToken).ConfigureAwait(false);
+            // The donor's vectors, when it has a readable one for every chunk of this window: the
+            // same rows, the same single upsert, no generator call. Anything less and the window
+            // is embedded exactly as it would have been without a donor.
+            var copied = false;
+            if (donor is not null)
+            {
+                Report(IngestionStage.Writing);
+                copied = await _writer.TryWriteReusedWindowAsync(
+                    window, [.. window.Select(c => donor.KeyByChunk[c.Key])], facts, _dimensions, cancellationToken)
+                    .ConfigureAwait(false);
+            }
 
-            counters.EmbedCalls += result.EmbedCalls;
-            counters.TokensEmbedded += result.TokensEmbedded;
-            counters.TokensFromGenerator = result.UsageFromGenerator;
+            if (copied)
+            {
+                reused += window.Count;
+            }
+            else
+            {
+                Report(IngestionStage.Embedding);
+                var result = await _writer.WriteWindowAsync(window, facts, cancellationToken).ConfigureAwait(false);
 
-            // Spec 9.5 / spec 12's tokensEmbeddedSource. The fact is established here, per window,
-            // and the diagnostics contributor is synchronous, so it has to be carried on the
-            // registration rather than recomputed.
-            _registration.TokensEmbeddedSource = result.UsageFromGenerator ? "usage" : "counted";
-            tokens += result.TokensEmbedded;
+                counters.EmbedCalls += result.EmbedCalls;
+                counters.TokensEmbedded += result.TokensEmbedded;
+                counters.TokensFromGenerator = result.UsageFromGenerator;
+
+                // Spec 9.5 / spec 12's tokensEmbeddedSource. The fact is established here, per
+                // window, and the diagnostics contributor is synchronous, so it has to be carried
+                // on the registration rather than recomputed.
+                _registration.TokensEmbeddedSource = result.UsageFromGenerator ? "usage" : "counted";
+                tokens += result.TokensEmbedded;
+            }
+
             added += window.Count;
             counters.ChunksAdded += window.Count;
             offset += take;
@@ -925,6 +974,14 @@ internal sealed class IngestionRunner
         await WriteStateAsync(
             source.Id, item, runId, hash, documentRecipe, extractor.Id, identified.Count,
             IngestionDocumentStatus.Indexed, error: null, cancellationToken).ConfigureAwait(false);
+
+        // This document is now a donor too: a duplicate later in the same run reuses it.
+        _indexedHashes?.Add(hash);
+
+        if (reused != 0)
+        {
+            IngestionLog.VectorsReused(_logger, item.DocumentId, reused, donor!.DocumentId, donor.SourceId);
+        }
 
         IngestionLog.DocumentIndexed(_logger, item.DocumentId, added, diff.Removed.Count, repaired);
 
@@ -969,6 +1026,107 @@ internal sealed class IngestionRunner
             .ConfigureAwait(false);
         counters.ChunksRemoved += removed;
         return removed;
+    }
+
+    /// <summary>
+    /// Another document of this collection whose stored chunks are exactly the ones this document
+    /// is about to write - a rename, a move, a copy - so their vectors can be copied rather than
+    /// embedded. Three conditions, every one of them required:
+    /// <list type="number">
+    /// <item>its state row is <c>Indexed</c>, under the recipe this document composes NOW, over the
+    /// bytes this document hashed to - so every input of spec 9.2's "a chunk's vector is a pure
+    /// function of a tuple" is the same;</item>
+    /// <item>that row counts exactly as many chunks as this document's chunking produced;</item>
+    /// <item>the donor's stored rows ARE those chunks, position for position: the same embed-text
+    /// hash, ordinal and offsets. A donor torn by a suspended re-index of its own, or touched by
+    /// anything outside SP3, fails here.</item>
+    /// </list>
+    /// The vectors themselves are checked again, row by row, when each window is written. Anything
+    /// unreadable is "no donor": this never fails the document, it only declines to save the embed.
+    /// </summary>
+    private async Task<ReuseDonor?> FindReuseDonorAsync(
+        string collection,
+        string sourceId,
+        string documentId,
+        ContentHash hash,
+        IngestionRecipe recipe,
+        IReadOnlyList<IdentifiedChunk> identified,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            _indexedHashes ??= await _state.ListIndexedContentHashesAsync(collection, cancellationToken)
+                .ConfigureAwait(false);
+            if (!_indexedHashes.Contains(hash))
+            {
+                return null;
+            }
+
+            var candidates = await _state.FindReuseDonorsAsync(
+                collection, hash, recipe.HashValue, sourceId, documentId, MaxReuseCandidates, cancellationToken)
+                .ConfigureAwait(false);
+
+            foreach (var candidate in candidates)
+            {
+                // The query filtered on all of this; it is restated because it is the condition
+                // reuse is safe under, and a filter in a WHERE clause is easy to edit away.
+                if (candidate.Status != IngestionDocumentStatus.Indexed
+                    || candidate.RecipeHash != recipe.HashValue
+                    || candidate.ContentHash != hash
+                    || candidate.ChunkCount != identified.Count
+                    || (string.Equals(candidate.SourceId, sourceId, StringComparison.Ordinal)
+                        && string.Equals(candidate.DocumentId, documentId, StringComparison.Ordinal)))
+                {
+                    continue;
+                }
+
+                var rows = await ChunkDiff.ReadStoredAsync(
+                    _database, _dataTable, candidate.SourceId, candidate.DocumentId, cancellationToken)
+                    .ConfigureAwait(false);
+                if (!SameChunks(rows, identified))
+                {
+                    continue;
+                }
+
+                var keyByChunk = new Dictionary<string, string>(identified.Count, StringComparer.Ordinal);
+                for (var i = 0; i < identified.Count; i++)
+                {
+                    keyByChunk[identified[i].Key] = rows[i].Key;
+                }
+
+                return new ReuseDonor(candidate.SourceId, candidate.DocumentId, keyByChunk);
+            }
+
+            return null;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>The stored rows (in ordinal order) are the fresh chunks, one for one.</summary>
+    private static bool SameChunks(IReadOnlyList<StoredChunkRow> rows, IReadOnlyList<IdentifiedChunk> identified)
+    {
+        if (rows.Count != identified.Count)
+        {
+            return false;
+        }
+
+        for (var i = 0; i < rows.Count; i++)
+        {
+            var row = rows[i];
+            var chunk = identified[i];
+            if (row.ContentHash != chunk.ContentHash
+                || row.Ordinal != chunk.Draft.Ordinal
+                || row.CharStart != chunk.Draft.CharStart
+                || row.CharEnd != chunk.Draft.CharEnd)
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     /// <summary>
@@ -1363,6 +1521,11 @@ internal sealed class IngestionRunner
     /// </param>
     private readonly record struct GateDecision(
         bool Stop, IngestionRunOutcome Outcome, string? Reason, int BatchSize, TimeSpan Delay, bool Paused = false);
+
+    /// <param name="SourceId">The donor's source.</param>
+    /// <param name="DocumentId">The donor document.</param>
+    /// <param name="KeyByChunk">This document's chunk key to the donor row holding its vector.</param>
+    private sealed record ReuseDonor(string SourceId, string DocumentId, IReadOnlyDictionary<string, string> KeyByChunk);
 
     private sealed record DocumentRun(
         IngestionDocumentResult Result, bool Abandoned, string? SuspendReason, Exception? Thrown)

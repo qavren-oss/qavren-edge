@@ -151,10 +151,120 @@ internal sealed class ChunkWriter(
             usageFromGenerator = false;
         }
 
+        var vectors = new ReadOnlyMemory<float>[window.Count];
+        for (var i = 0; i < window.Count; i++)
+        {
+            vectors[i] = embeddings[i].Vector;
+        }
+
+        await UpsertWindowAsync(window, facts, vectors, cancellationToken).ConfigureAwait(false);
+        return new WriteWindowResult(embedCalls, tokens, usageFromGenerator);
+    }
+
+    /// <summary>
+    /// Step a with a1 answered by vectors another document already holds rather than by the
+    /// generator. Every row is built exactly as <see cref="WriteWindowAsync"/> builds it - this
+    /// document's key, source, document id, extractor, media type and clock, and the chunk's own
+    /// text, offsets and ordinal - so the only thing that comes from the donor is the vector, which
+    /// is a function of the embed text and the recipe, both of which the caller has matched.
+    /// a2 is the same single upsert, so the window is exactly as atomic as an embedded one.
+    /// </summary>
+    /// <param name="window">This document's chunks, in write order.</param>
+    /// <param name="donorKeys">The donor row holding each chunk's vector, index for index.</param>
+    /// <param name="facts">This document's facts.</param>
+    /// <param name="dimensions">The collection's vector width.</param>
+    /// <param name="cancellationToken">Cancels the work.</param>
+    /// <returns>
+    /// False, with nothing written, when any donor row or vector is missing, unreadable, no longer
+    /// the chunk it was matched as, or the wrong width. The caller embeds that window instead.
+    /// </returns>
+    public async Task<bool> TryWriteReusedWindowAsync(
+        IReadOnlyList<IdentifiedChunk> window,
+        IReadOnlyList<string> donorKeys,
+        DocumentFacts facts,
+        int dimensions,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(window);
+        ArgumentNullException.ThrowIfNull(donorKeys);
+        ArgumentNullException.ThrowIfNull(facts);
+
+        if (window.Count == 0 || donorKeys.Count != window.Count)
+        {
+            return false;
+        }
+
+        var vectors = await ReadDonorVectorsAsync(window, donorKeys, dimensions, cancellationToken).ConfigureAwait(false);
+        if (vectors is null)
+        {
+            return false;
+        }
+
+        await UpsertWindowAsync(window, facts, vectors, cancellationToken).ConfigureAwait(false);
+        return true;
+    }
+
+    /// <summary>
+    /// The donor rows' vectors through the collection's own read (one keyed <c>GetAsync</c>, which
+    /// opens its own connection and no transaction). Null when anything about them is not exactly
+    /// what was matched; a read that throws is the same answer, because reuse is an optimisation
+    /// and must never be the reason a document fails.
+    /// </summary>
+    private async Task<ReadOnlyMemory<float>[]?> ReadDonorVectorsAsync(
+        IReadOnlyList<IdentifiedChunk> window,
+        IReadOnlyList<string> donorKeys,
+        int dimensions,
+        CancellationToken cancellationToken)
+    {
+        var byKey = new Dictionary<string, Dictionary<string, object?>>(donorKeys.Count, StringComparer.Ordinal);
+        try
+        {
+            var options = new MEVD.RecordRetrievalOptions { IncludeVectors = true };
+            await foreach (var record in collection.GetAsync(donorKeys.Cast<object>(), options, cancellationToken)
+                               .ConfigureAwait(false))
+            {
+                if (record.TryGetValue(IngestionColumns.Key, out var key) && key is string text)
+                {
+                    byKey[text] = record;
+                }
+            }
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
+        {
+            return null;
+        }
+
+        var vectors = new ReadOnlyMemory<float>[window.Count];
+        for (var i = 0; i < window.Count; i++)
+        {
+            if (!byKey.TryGetValue(donorKeys[i], out var record)
+                || !record.TryGetValue(IngestionColumns.ContentHash, out var hash)
+                || hash is not byte[] { Length: ContentHash.BlobLength } blob
+                || ContentHash.FromBlob(blob) != window[i].ContentHash
+                || !record.TryGetValue(IngestionColumns.Embedding, out var embedding)
+                || embedding is not ReadOnlyMemory<float> vector
+                || vector.Length != dimensions)
+            {
+                return null;
+            }
+
+            vectors[i] = vector;
+        }
+
+        return vectors;
+    }
+
+    /// <summary>Spec 9.5 step a2: one window's rows in ONE collection upsert, which owns the only transaction.</summary>
+    private async Task UpsertWindowAsync(
+        IReadOnlyList<IdentifiedChunk> window,
+        DocumentFacts facts,
+        ReadOnlyMemory<float>[] vectors,
+        CancellationToken cancellationToken)
+    {
         var records = new List<Dictionary<string, object?>>(window.Count);
         for (var i = 0; i < window.Count; i++)
         {
-            records.Add(ToRecord(window[i], facts, embeddings[i].Vector));
+            records.Add(ToRecord(window[i], facts, vectors[i]));
         }
 
         try
@@ -180,8 +290,6 @@ internal sealed class ChunkWriter(
                     "EdgeVectorStoreException for the SQLite fault.",
             };
         }
-
-        return new WriteWindowResult(embedCalls, tokens, usageFromGenerator);
     }
 
     /// <summary>
