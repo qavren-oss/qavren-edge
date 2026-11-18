@@ -46,6 +46,26 @@ public sealed class BatchedStampTests
 
 
     [Fact]
+    public async Task Runs_that_start_on_the_same_tick_are_still_newest_in_the_order_they_ran()
+    {
+        // The test host's clock never moves, so every run below starts at the same instant. The
+        // run table is ordered by start time and nothing else, and a tie used to be broken by a
+        // random run id: the "latest" run, the history trim and every row's staleness picked
+        // between tied runs arbitrarily. Six in a row by luck is one chance in 720.
+        using var host = await IngestionTestHost.StartAsync();
+        var source = new RecordingSource().Add("a.txt", "alpha");
+
+        for (var i = 0; i < 6; i++)
+        {
+            var run = await host.Pipeline.RunAsync(source, cancellationToken: Token);
+            var latest = await host.State().LatestRunAsync(run.CollectionName, Token);
+
+            Assert.Equal(run.RunId, latest!.RunId);
+            Assert.Equal(0, (await host.Pipeline.GetStatusAsync(ct: Token)).StaleDocumentCount);
+        }
+    }
+
+    [Fact]
     public async Task A_run_that_stops_early_still_stamps_the_documents_it_skipped_before_it_stopped()
     {
         using var host = await IngestionTestHost.StartAsync();
