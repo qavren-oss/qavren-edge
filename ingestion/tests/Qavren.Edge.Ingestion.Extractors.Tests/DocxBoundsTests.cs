@@ -1,5 +1,6 @@
 using System.IO.Compression;
 using System.Text;
+using Microsoft.Extensions.Logging.Testing;
 using Qavren.Edge.Ingestion.OpenXml;
 using Xunit;
 
@@ -117,7 +118,7 @@ public class DocxBoundsTests
     {
         var options = new DocxExtractorOptions { StreamingThresholdBytes = streaming ? 0 : long.MaxValue };
         return await new DocxTextExtractor(options)
-            .ExtractAsync(item, TestHarness.Context(new CapturingLogger()), CancellationToken.None)
+            .ExtractAsync(item, TestHarness.Context(new FakeLogger()), CancellationToken.None)
             .ConfigureAwait(false);
     }
 

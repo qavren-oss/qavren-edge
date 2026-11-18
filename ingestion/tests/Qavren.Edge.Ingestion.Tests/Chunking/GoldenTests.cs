@@ -1,5 +1,5 @@
+using Microsoft.Extensions.Logging.Testing;
 using Qavren.Edge.Ingestion.Internal;
-using Qavren.Edge.Ingestion.Tests.Extraction;
 using Xunit;
 
 namespace Qavren.Edge.Ingestion.Tests.Chunking;
@@ -137,7 +137,7 @@ public sealed class GoldenTests
     {
         var document = await ChunkingHarness.ExtractAsync(golden.Fixture).ConfigureAwait(false);
         var options = ChunkingHarness.Options(golden.Variant);
-        var chunker = ChunkerFactory.Resolve(golden.ChunkerId, document.MediaType, new CapturingLogger());
+        var chunker = ChunkerFactory.Resolve(golden.ChunkerId, document.MediaType, new FakeLogger());
 
         return [.. chunker.Chunk(document, options, ChunkingHarness.Tokenizer)];
     }

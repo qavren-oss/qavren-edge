@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Logging.Testing;
 using Qavren.Edge.Ingestion.OpenXml;
 using Xunit;
 
@@ -249,7 +250,7 @@ public class DocxExtractorTests
         var extractor = new DocxTextExtractor();
 
         var thrown = await Assert.ThrowsAsync<EdgeExtractionException>(() =>
-            extractor.ExtractAsync(item, TestHarness.Context(new CapturingLogger()), CancellationToken.None).AsTask());
+            extractor.ExtractAsync(item, TestHarness.Context(new FakeLogger()), CancellationToken.None).AsTask());
 
         Assert.Equal(EdgeErrorCode.DocumentMalformed, thrown.Code);
         Assert.Equal("docx", thrown.ExtractorName);
@@ -275,10 +276,10 @@ public class DocxExtractorTests
         Assert.Equal([IngestionMediaTypes.Docx], extractor.MediaTypes);
     }
 
-    internal static async Task<(ExtractedDocument Document, CapturingLogger Logger)> ExtractAsync(
-        string tree, Action<DocxExtractorOptions>? configure = null, CapturingLogger? logger = null)
+    internal static async Task<(ExtractedDocument Document, FakeLogger Logger)> ExtractAsync(
+        string tree, Action<DocxExtractorOptions>? configure = null, FakeLogger? logger = null)
     {
-        logger ??= new CapturingLogger();
+        logger ??= new FakeLogger();
         var options = new DocxExtractorOptions();
         configure?.Invoke(options);
         var extractor = new DocxTextExtractor(options);

@@ -5,6 +5,7 @@ using System.Security.Cryptography;
 using System.Text;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Logging.Testing;
 using Microsoft.Extensions.Options;
 using Qavren.Edge.Onnx.Internal;
 using Xunit;
@@ -148,7 +149,7 @@ public class HttpModelSourceTests : IDisposable
         await File.WriteAllBytesAsync(PartPath(), Encoding.UTF8.GetBytes("GARBAGE!"), TestContext.Current.CancellationToken);
 
         using var handler = new QueuedHandler(_ => Ok(Body));
-        var logger = new RecordingLogger<HttpOnnxModelSource>();
+        var logger = new FakeLogger<HttpOnnxModelSource>();
         var source = Source(handler, logger: logger);
 
         var provisioned = await source.EnsureAsync(Manifest(), progress: null, TestContext.Current.CancellationToken);
@@ -156,7 +157,7 @@ public class HttpModelSourceTests : IDisposable
         var written = await File.ReadAllBytesAsync(provisioned.GraphPath, TestContext.Current.CancellationToken);
         Assert.Equal(Body, written);
         Assert.Equal(Body.Length, written.Length);
-        Assert.True(logger.Saw(EdgeAiEventIds.ModelDownloadRestarted));
+        Assert.Contains(logger.Collector.GetSnapshot(), r => r.Id.Id == EdgeAiEventIds.ModelDownloadRestarted);
     }
 
     [Fact]
@@ -164,7 +165,7 @@ public class HttpModelSourceTests : IDisposable
     {
         var wrong = Encoding.UTF8.GetBytes("not the model bytes at all, no sir");
         using var handler = new QueuedHandler(_ => Ok(wrong));
-        var logger = new RecordingLogger<HttpOnnxModelSource>();
+        var logger = new FakeLogger<HttpOnnxModelSource>();
         var source = Source(handler, logger: logger);
 
         var ex = await Assert.ThrowsAsync<EdgeModelProvisioningException>(
@@ -178,7 +179,7 @@ public class HttpModelSourceTests : IDisposable
         // One retry, and one only: the same wrong bytes twice is a wrong manifest, not a wire error.
         Assert.Equal(2, handler.Count);
         Assert.False(File.Exists(PartPath()));
-        Assert.True(logger.Saw(EdgeAiEventIds.ModelHashMismatch));
+        Assert.Contains(logger.Collector.GetSnapshot(), r => r.Id.Id == EdgeAiEventIds.ModelHashMismatch);
     }
 
     [Fact]
@@ -217,7 +218,7 @@ public class HttpModelSourceTests : IDisposable
     public async Task FourFailedAttemptsIsModelDownloadFailed()
     {
         using var handler = new QueuedHandler(_ => new HttpResponseMessage(HttpStatusCode.BadGateway));
-        var logger = new RecordingLogger<HttpOnnxModelSource>();
+        var logger = new FakeLogger<HttpOnnxModelSource>();
         var source = Source(handler, logger: logger);
 
         var ex = await Assert.ThrowsAsync<EdgeModelProvisioningException>(
@@ -226,7 +227,7 @@ public class HttpModelSourceTests : IDisposable
         Assert.Equal(EdgeErrorCode.ModelDownloadFailed, ex.Code);
         Assert.Equal(4, handler.Count);
         Assert.NotNull(ex.SourceUri);
-        Assert.True(logger.Saw(EdgeAiEventIds.ModelDownloadFailed));
+        Assert.Contains(logger.Collector.GetSnapshot(), r => r.Id.Id == EdgeAiEventIds.ModelDownloadFailed);
     }
 
     [Fact]

@@ -1,5 +1,5 @@
+using Microsoft.Extensions.Logging.Testing;
 using Qavren.Edge.Ingestion.Internal;
-using Qavren.Edge.Ingestion.Tests.Extraction;
 using Qavren.Edge.Ingestion.Tests.Runtime;
 using Xunit;
 
@@ -19,18 +19,18 @@ public sealed class ChunkerRuleTests
     [Fact]
     public void Auto_selects_markdown_heading_for_markdown()
     {
-        var chunker = ChunkerFactory.Resolve(ChunkerIds.Auto, IngestionMediaTypes.Markdown, new CapturingLogger());
+        var chunker = ChunkerFactory.Resolve(ChunkerIds.Auto, IngestionMediaTypes.Markdown, new FakeLogger());
         Assert.Equal(ChunkerIds.MarkdownHeading, chunker.Id);
     }
 
     [Fact]
     public void Auto_falls_back_to_plain_with_event_922()
     {
-        var logger = new CapturingLogger();
+        var logger = new FakeLogger();
         var chunker = ChunkerFactory.Resolve(ChunkerIds.Auto, IngestionMediaTypes.PlainText, logger);
 
         Assert.Equal(ChunkerIds.Plain, chunker.Id);
-        Assert.True(logger.Saw(EdgeIngestionEventIds.ChunkerFellBack));
+        Assert.Contains(logger.Collector.GetSnapshot(), r => r.Id.Id == EdgeIngestionEventIds.ChunkerFellBack);
     }
 
     [Fact]
@@ -47,11 +47,11 @@ public sealed class ChunkerRuleTests
     [Fact]
     public void Markdown_heading_on_a_non_markdown_media_type_falls_back_with_event_922()
     {
-        var logger = new CapturingLogger();
+        var logger = new FakeLogger();
         var chunker = ChunkerFactory.Resolve(ChunkerIds.MarkdownHeading, IngestionMediaTypes.PlainText, logger);
 
         Assert.Equal(ChunkerIds.Plain, chunker.Id);
-        Assert.True(logger.Saw(EdgeIngestionEventIds.ChunkerFellBack));
+        Assert.Contains(logger.Collector.GetSnapshot(), r => r.Id.Id == EdgeIngestionEventIds.ChunkerFellBack);
     }
 
     [Fact]
@@ -233,14 +233,14 @@ public sealed class ChunkerRuleTests
         ChunkingHarness.RequireVocabulary();
 
         var document = await ChunkingHarness.ExtractAsync("markdown/headings.md");
-        var logger = new CapturingLogger();
+        var logger = new FakeLogger();
         var options = ChunkingHarness.Options(GoldenCases.DefaultVariant);
 
         var merged = new MarkdownHeadingChunker(logger)
             .Chunk(document, options, ChunkingHarness.Tokenizer)
             .ToList();
 
-        Assert.True(logger.Saw(EdgeIngestionEventIds.ChunkMergedUp));
+        Assert.Contains(logger.Collector.GetSnapshot(), r => r.Id.Id == EdgeIngestionEventIds.ChunkMergedUp);
 
         var unmerged = new MarkdownHeadingChunker()
             .Chunk(document, options with { MergeShortSections = false }, ChunkingHarness.Tokenizer)
@@ -302,7 +302,7 @@ public sealed class ChunkerRuleTests
             Block(Text, "The body of the deepest section.", DocumentBlockKind.Paragraph),
         };
 
-        var logger = new CapturingLogger();
+        var logger = new FakeLogger();
         // Measured: the full three-heading breadcrumb costs 20 tokens, dropping the H1 leaves 14,
         // and the deepest heading alone is 7 - so a budget of 8 lands on exactly one heading.
         var options = Budget(maxTokens: 64, headingPathTokenBudget: 8);
@@ -311,7 +311,7 @@ public sealed class ChunkerRuleTests
             .ToList();
 
         var chunk = Assert.Single(chunks);
-        Assert.True(logger.Saw(EdgeIngestionEventIds.HeadingPathTruncated));
+        Assert.Contains(logger.Collector.GetSnapshot(), r => r.Id.Id == EdgeIngestionEventIds.HeadingPathTruncated);
         Assert.Equal(["Lambda mu nu xi omicron"], chunk.HeadingPath);
         Assert.True(
             ChunkingHarness.Tokenizer.CountTokens(chunk.Breadcrumb.AsSpan()) <= options.HeadingPathTokenBudget);
@@ -329,7 +329,7 @@ public sealed class ChunkerRuleTests
         const string Messy = "# Alpha  beta\n\nThe body.\n";
         const string Clean = "# Alpha beta\n\nThe body.\n";
 
-        var messyLogger = new CapturingLogger();
+        var messyLogger = new FakeLogger();
         Assert.NotEmpty(new MarkdownHeadingChunker(messyLogger)
             .Chunk(
                 Document(Messy, [Block(Messy, "# Alpha  beta", DocumentBlockKind.Heading, 1), Block(Messy, "The body.", DocumentBlockKind.Paragraph)]),
@@ -337,7 +337,7 @@ public sealed class ChunkerRuleTests
                 tokenizer)
             .ToList());
 
-        var cleanLogger = new CapturingLogger();
+        var cleanLogger = new FakeLogger();
         Assert.NotEmpty(new MarkdownHeadingChunker(cleanLogger)
             .Chunk(
                 Document(Clean, [Block(Clean, "# Alpha beta", DocumentBlockKind.Heading, 1), Block(Clean, "The body.", DocumentBlockKind.Paragraph)]),
@@ -345,8 +345,8 @@ public sealed class ChunkerRuleTests
                 tokenizer)
             .ToList());
 
-        Assert.True(messyLogger.Saw(EdgeIngestionEventIds.HeadingSanitised));
-        Assert.False(cleanLogger.Saw(EdgeIngestionEventIds.HeadingSanitised));
+        Assert.Contains(messyLogger.Collector.GetSnapshot(), r => r.Id.Id == EdgeIngestionEventIds.HeadingSanitised);
+        Assert.DoesNotContain(cleanLogger.Collector.GetSnapshot(), r => r.Id.Id == EdgeIngestionEventIds.HeadingSanitised);
     }
 
     [Fact]
@@ -404,7 +404,7 @@ public sealed class ChunkerRuleTests
             "the synthetic run must cost more than the budget, or this test asserts nothing");
 
         var chunker = ChunkerFactory.Resolve(
-            ChunkerIds.Auto, IngestionMediaTypes.PlainText, new CapturingLogger());
+            ChunkerIds.Auto, IngestionMediaTypes.PlainText, new FakeLogger());
         var chunks = chunker.Chunk(TextDocument(text), options, ChunkingHarness.Tokenizer).ToList();
 
         Assert.Equal(ChunkerIds.Plain, chunker.Id);
@@ -492,14 +492,14 @@ public sealed class ChunkerRuleTests
             Overflow = ChunkOverflow.Truncate,
         };
 
-        var logger = new CapturingLogger();
+        var logger = new FakeLogger();
         var chunks = new PlainChunker(logger)
             .Chunk(TextDocument(text), options, ChunkingHarness.Tokenizer)
             .ToList();
 
         var only = Assert.Single(chunks);
         Assert.True(only.CharEnd < text.Length, "Truncate drops everything after the first window");
-        Assert.True(logger.Saw(EdgeIngestionEventIds.ChunkTruncated), "event 921 is the only record");
+        Assert.Contains(logger.Collector.GetSnapshot(), r => r.Id.Id == EdgeIngestionEventIds.ChunkTruncated); // event 921 is the only record
     }
 
     [Fact]
@@ -519,7 +519,7 @@ public sealed class ChunkerRuleTests
                 DocumentBlockKind.Paragraph),
         };
 
-        var logger = new CapturingLogger();
+        var logger = new FakeLogger();
         var options = Budget(maxTokens: 8) with { Overflow = ChunkOverflow.Truncate };
         var chunks = new MarkdownHeadingChunker(logger)
             .Chunk(Document(Text, blocks), options, ChunkingHarness.Tokenizer)
@@ -527,7 +527,7 @@ public sealed class ChunkerRuleTests
 
         var only = Assert.Single(chunks);
         Assert.True(only.TokenCount <= options.MaxTokens);
-        Assert.True(logger.Saw(EdgeIngestionEventIds.ChunkTruncated), "event 921 is the only record");
+        Assert.Contains(logger.Collector.GetSnapshot(), r => r.Id.Id == EdgeIngestionEventIds.ChunkTruncated); // event 921 is the only record
     }
 
     // ---- The oversized-unit policy and the two invariants ------------------------------------
@@ -578,7 +578,7 @@ public sealed class ChunkerRuleTests
                 NoHeadings,
                 Budget(maxTokens: 64),
                 ChunkingHarness.Tokenizer,
-                new CapturingLogger(),
+                new FakeLogger(),
                 ordinal: 0,
                 DocumentBlockKind.Paragraph,
                 page: -1));

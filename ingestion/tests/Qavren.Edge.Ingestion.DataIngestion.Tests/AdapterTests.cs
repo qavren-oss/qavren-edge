@@ -1,5 +1,6 @@
 using System.Text;
 using Microsoft.Extensions.DataIngestion;
+using Microsoft.Extensions.Logging.Testing;
 using Xunit;
 
 namespace Qavren.Edge.Ingestion.DataIngestion.Tests;
@@ -89,7 +90,7 @@ public sealed class AdapterTests
                 opens++;
                 return new ValueTask<Stream>(new MemoryStream(bytes, writable: false));
             });
-        var context = new ExtractionContext("src", "chunks", 1024, new ExtractionOptions(), new CapturingLogger());
+        var context = new ExtractionContext("src", "chunks", 1024, new ExtractionOptions(), new FakeLogger());
 
         var extracted = await adapter.ExtractAsync(item, context, Token);
 
@@ -129,7 +130,7 @@ public sealed class AdapterTests
 
         var adapter = new MediReaderAdapter(new StubReader(medi), "stub", [".x"], ["text/x"]);
         var item = new DocumentSourceItem("x", "text/x", _ => new ValueTask<Stream>(new MemoryStream()));
-        var context = new ExtractionContext("src", "chunks", 1024, new ExtractionOptions(), new CapturingLogger());
+        var context = new ExtractionContext("src", "chunks", 1024, new ExtractionOptions(), new FakeLogger());
 
         var extracted = await adapter.ExtractAsync(item, context, Token);
 
@@ -149,7 +150,7 @@ public sealed class AdapterTests
         var adapter = new MediReaderAdapter(new StubReader(medi), "stub", [".x"], ["text/x"]);
         var item = new DocumentSourceItem("x", "text/x", _ => new ValueTask<Stream>(new MemoryStream()));
         var options = new ExtractionOptions { NormalizeText = false };
-        var context = new ExtractionContext("src", "chunks", 1024, options, new CapturingLogger());
+        var context = new ExtractionContext("src", "chunks", 1024, options, new FakeLogger());
 
         var extracted = await adapter.ExtractAsync(item, context, Token);
 
@@ -161,7 +162,7 @@ public sealed class AdapterTests
         var bytes = Encoding.UTF8.GetBytes(markdown);
         var item = new DocumentSourceItem(
             "doc.md", IngestionMediaTypes.Markdown, _ => new ValueTask<Stream>(new MemoryStream(bytes, writable: false)));
-        var context = new ExtractionContext("src", "chunks", 1024 * 1024, new ExtractionOptions(), new CapturingLogger());
+        var context = new ExtractionContext("src", "chunks", 1024 * 1024, new ExtractionOptions(), new FakeLogger());
         return await new MarkdownExtractor().ExtractAsync(item, context, Token).ConfigureAwait(false);
     }
 

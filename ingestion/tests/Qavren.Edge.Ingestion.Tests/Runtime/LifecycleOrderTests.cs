@@ -58,7 +58,7 @@ public sealed class LifecycleOrderTests
     {
         var control = new IngestionRunControl();
         var registry = new IngestionRegistry();
-        var time = new ManualTimeProvider();
+        var time = TestClock.Create();
         var observer = new IngestionLifecycleObserver(control, registry, time);
 
         control.BeginRun();
@@ -77,7 +77,7 @@ public sealed class LifecycleOrderTests
     public async Task A_committed_checkpoint_releases_the_grace_wait_early()
     {
         var control = new IngestionRunControl();
-        var observer = new IngestionLifecycleObserver(control, new IngestionRegistry(), new ManualTimeProvider());
+        var observer = new IngestionLifecycleObserver(control, new IngestionRegistry(), TestClock.Create());
 
         control.BeginRun();
         var sleeping = observer.OnSleepingAsync(CancellationToken.None);
@@ -90,7 +90,7 @@ public sealed class LifecycleOrderTests
     public async Task MemoryPressure_halves_the_batch_with_a_floor_of_four_and_Critical_also_stops()
     {
         var control = new IngestionRunControl();
-        var observer = new IngestionLifecycleObserver(control, new IngestionRegistry(), new ManualTimeProvider());
+        var observer = new IngestionLifecycleObserver(control, new IngestionRegistry(), TestClock.Create());
 
         Assert.Equal(32, control.ApplyShrink(32));
 
@@ -115,7 +115,7 @@ public sealed class LifecycleOrderTests
     public async Task The_floor_of_four_never_raises_a_batch_that_was_configured_smaller()
     {
         var control = new IngestionRunControl();
-        var observer = new IngestionLifecycleObserver(control, new IngestionRegistry(), new ManualTimeProvider());
+        var observer = new IngestionLifecycleObserver(control, new IngestionRegistry(), TestClock.Create());
 
         // With no pressure at all, a configured batch of one or two used to come back as four.
         Assert.Equal(1, control.ApplyShrink(1));

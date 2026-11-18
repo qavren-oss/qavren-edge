@@ -1,4 +1,5 @@
 using System.Text;
+using Microsoft.Extensions.Logging.Testing;
 using Qavren.Edge.Ingestion.Internal;
 using Xunit;
 
@@ -126,7 +127,7 @@ public class SeekabilityTests
 
     private static async Task<ExtractedDocument> ExtractAsync(DocumentSourceItem item) =>
         await new PlainTextExtractor()
-            .ExtractAsync(item, TestHarness.Context(new CapturingLogger()), TestContext.Current.CancellationToken)
+            .ExtractAsync(item, TestHarness.Context(new FakeLogger()), TestContext.Current.CancellationToken)
             .ConfigureAwait(false);
 
     private static async Task<Stream> OpenAsync(DocumentSourceItem item, ExtractionOptions options) =>

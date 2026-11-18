@@ -5,6 +5,7 @@ using Qavren.Edge.Embeddings.Onnx;
 using Qavren.Edge.Embeddings.Tests.Fakes;
 using Qavren.Edge.Hosting;
 using Qavren.Edge.Onnx;
+using Qavren.Edge.Onnx.Tests.Stubs;
 using Xunit;
 
 namespace Qavren.Edge.Embeddings.Tests;

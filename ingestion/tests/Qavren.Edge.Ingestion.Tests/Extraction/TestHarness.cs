@@ -1,30 +1,6 @@
-using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Testing;
 
 namespace Qavren.Edge.Ingestion.Tests.Extraction;
-
-/// <summary>An <see cref="ILogger"/> that keeps every record, so an event id can be asserted.</summary>
-internal sealed class CapturingLogger : ILogger
-{
-    public List<(int EventId, LogLevel Level, string Message)> Records { get; } = [];
-
-    public IDisposable? BeginScope<TState>(TState state)
-        where TState : notnull => null;
-
-    public bool IsEnabled(LogLevel logLevel) => true;
-
-    public void Log<TState>(
-        LogLevel logLevel,
-        EventId eventId,
-        TState state,
-        Exception? exception,
-        Func<TState, Exception?, string> formatter)
-    {
-        ArgumentNullException.ThrowIfNull(formatter);
-        Records.Add((eventId.Id, logLevel, formatter(state, exception)));
-    }
-
-    public bool Saw(int eventId) => Records.Exists(r => r.EventId == eventId);
-}
 
 /// <summary>A stream that is not seekable and counts every byte it hands out.</summary>
 internal sealed class CountingNonSeekableStream : Stream
@@ -82,7 +58,7 @@ internal static class TestHarness
 {
     public const string SourceId = "test-source";
 
-    public static ExtractionContext Context(CapturingLogger logger, ExtractionOptions? options = null) =>
+    public static ExtractionContext Context(FakeLogger logger, ExtractionOptions? options = null) =>
         new(SourceId, "chunks", 32L * 1024 * 1024, options ?? new ExtractionOptions(), logger);
 
     /// <summary>A verbatim slice of a document's text for one block. The offset contract, in one call.</summary>

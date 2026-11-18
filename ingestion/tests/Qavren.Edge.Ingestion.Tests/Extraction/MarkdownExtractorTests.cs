@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Logging.Testing;
 using Xunit;
 
 namespace Qavren.Edge.Ingestion.Tests.Extraction;
@@ -179,7 +180,7 @@ public class MarkdownExtractorTests
         await new MarkdownExtractor()
             .ExtractAsync(
                 FixtureCorpus.Item(fixture),
-                TestHarness.Context(new CapturingLogger()),
+                TestHarness.Context(new FakeLogger()),
                 TestContext.Current.CancellationToken)
             .ConfigureAwait(false);
 }

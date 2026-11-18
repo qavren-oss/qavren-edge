@@ -14,6 +14,8 @@ public class ResourceMonitorTests
     /// mean sleeping through the window in every run. The wall clock and the monotonic timestamp
     /// are kept apart, as a device keeps them: <see cref="Advance"/> moves both, as time passing
     /// does, and <see cref="StepWallClock"/> moves only the wall clock, as NTP or a user does.
+    /// Not a <c>FakeTimeProvider</c>: it cannot step the wall clock backward on its own, and these
+    /// tests assert the read cache ignores the wall clock.
     /// </summary>
     private sealed class ManualTimeProvider(DateTimeOffset start) : TimeProvider
     {

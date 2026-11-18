@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Logging.Testing;
 using Xunit;
 
 namespace Qavren.Edge.Ingestion.Tests.Extraction;
@@ -141,7 +142,7 @@ public class PlainTextExtractorTests
         await new PlainTextExtractor()
             .ExtractAsync(
                 FixtureCorpus.Item(fixture),
-                TestHarness.Context(new CapturingLogger(), options),
+                TestHarness.Context(new FakeLogger(), options),
                 TestContext.Current.CancellationToken)
             .ConfigureAwait(false);
 }

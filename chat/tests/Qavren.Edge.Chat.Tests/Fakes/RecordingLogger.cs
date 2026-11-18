@@ -17,7 +17,8 @@ internal sealed record LogRecord(LogLevel Level, EventId EventId, string Message
 /// It records at every level regardless of <see cref="MinimumLevel"/> except that
 /// <see cref="IsEnabled"/> answers honestly - which is the half spec section 14.4's privacy rule is
 /// asserted through: a <c>Trace</c>-declared message is not written at all when the level is
-/// <c>Debug</c>.
+/// <c>Debug</c>. Not a <c>FakeLogger</c>: the <see cref="MinimumLevel"/> gate and the <c>Logged</c>/
+/// <c>For</c> event-id helpers are what the privacy tests are written against.
 /// </remarks>
 internal sealed class RecordingLogger : ILogger
 {

@@ -1,4 +1,5 @@
 using System.Text;
+using Microsoft.Extensions.Logging.Testing;
 using Xunit;
 
 namespace Qavren.Edge.Ingestion.Tests.Extraction;
@@ -30,7 +31,7 @@ public class EncodingFallbackTests
 
         Assert.Equal(Content, document.Text);
         Assert.False(document.Text.StartsWith(Bom));
-        Assert.False(logger.Saw(EdgeIngestionEventIds.EncodingFallback));
+        Assert.DoesNotContain(logger.Collector.GetSnapshot(), r => r.Id.Id == EdgeIngestionEventIds.EncodingFallback);
         Assert.Equal(2, document.Blocks.Count);
     }
 
@@ -42,7 +43,7 @@ public class EncodingFallbackTests
         var (document, logger) = await ExtractAsync(bytes, new PlainTextExtractorOptions());
 
         Assert.Contains("CJK:", document.Text, StringComparison.Ordinal);
-        Assert.False(logger.Saw(EdgeIngestionEventIds.EncodingFallback));
+        Assert.DoesNotContain(logger.Collector.GetSnapshot(), r => r.Id.Id == EdgeIngestionEventIds.EncodingFallback);
         Assert.Null(document.Warnings);
     }
 
@@ -53,7 +54,7 @@ public class EncodingFallbackTests
         var (document, logger) = await ExtractAsync(InvalidUtf8, new PlainTextExtractorOptions());
 
         Assert.Equal("caf\u00e9\n", document.Text);
-        Assert.True(logger.Saw(EdgeIngestionEventIds.EncodingFallback));
+        Assert.Contains(logger.Collector.GetSnapshot(), r => r.Id.Id == EdgeIngestionEventIds.EncodingFallback);
     }
 
     /// <summary>
@@ -67,20 +68,20 @@ public class EncodingFallbackTests
     {
         var (document, logger) = await ExtractAsync(InvalidUtf8, new PlainTextExtractorOptions());
 
-        Assert.True(logger.Saw(EdgeIngestionEventIds.EncodingFallback));
+        Assert.Contains(logger.Collector.GetSnapshot(), r => r.Id.Id == EdgeIngestionEventIds.EncodingFallback);
         Assert.Null(document.Warnings);
     }
 
     [Fact]
     public async Task StrictUtf8RaisesSixOneZeroSixInsteadOfGuessing()
     {
-        var logger = new CapturingLogger();
+        var logger = new FakeLogger();
 
         var thrown = await ThrowsAsync(InvalidUtf8, new PlainTextExtractorOptions { StrictUtf8 = true }, logger);
 
         Assert.Equal(EdgeErrorCode.DocumentEncodingUndecodable, thrown.Code);
         Assert.NotNull(thrown.Remediation);
-        Assert.False(logger.Saw(EdgeIngestionEventIds.EncodingFallback));
+        Assert.DoesNotContain(logger.Collector.GetSnapshot(), r => r.Id.Id == EdgeIngestionEventIds.EncodingFallback);
     }
 
     /// <summary>70 KiB of ASCII, then one byte no UTF-8 sequence starts with: past the 64 KiB probe.</summary>
@@ -98,7 +99,7 @@ public class EncodingFallbackTests
         // The probe read the first 64 KiB and passed it; the decode that followed replaced the bad
         // byte with U+FFFD, so StrictUtf8 indexed exactly the document it exists to refuse.
         var thrown = await ThrowsAsync(
-            InvalidByteAfterTheProbe(), new PlainTextExtractorOptions { StrictUtf8 = true }, new CapturingLogger());
+            InvalidByteAfterTheProbe(), new PlainTextExtractorOptions { StrictUtf8 = true }, new FakeLogger());
 
         Assert.Equal(EdgeErrorCode.DocumentEncodingUndecodable, thrown.Code);
         Assert.IsType<DecoderFallbackException>(thrown.InnerException);
@@ -112,7 +113,7 @@ public class EncodingFallbackTests
         var (document, logger) = await ExtractAsync(InvalidByteAfterTheProbe(), new PlainTextExtractorOptions());
 
         Assert.EndsWith("\uFFFD", document.Text, StringComparison.Ordinal);
-        Assert.False(logger.Saw(EdgeIngestionEventIds.EncodingFallback));
+        Assert.DoesNotContain(logger.Collector.GetSnapshot(), r => r.Id.Id == EdgeIngestionEventIds.EncodingFallback);
     }
 
     private static Encoding EncodingFor(string label) => label switch
@@ -131,10 +132,10 @@ public class EncodingFallbackTests
             _ => ValueTask.FromResult<Stream>(new MemoryStream(bytes, writable: false)),
             SizeBytes: bytes.Length);
 
-    private static async Task<(ExtractedDocument Document, CapturingLogger Logger)> ExtractAsync(
+    private static async Task<(ExtractedDocument Document, FakeLogger Logger)> ExtractAsync(
         byte[] bytes, PlainTextExtractorOptions options)
     {
-        var logger = new CapturingLogger();
+        var logger = new FakeLogger();
         var extractor = new PlainTextExtractor(options);
         var document = await extractor
             .ExtractAsync(ItemOver(bytes), TestHarness.Context(logger), TestContext.Current.CancellationToken)
@@ -143,7 +144,7 @@ public class EncodingFallbackTests
     }
 
     private static async Task<EdgeExtractionException> ThrowsAsync(
-        byte[] bytes, PlainTextExtractorOptions options, CapturingLogger logger)
+        byte[] bytes, PlainTextExtractorOptions options, FakeLogger logger)
     {
         var extractor = new PlainTextExtractor(options);
         var item = ItemOver(bytes);

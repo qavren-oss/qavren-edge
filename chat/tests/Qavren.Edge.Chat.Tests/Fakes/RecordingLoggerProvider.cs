@@ -10,7 +10,8 @@ namespace Qavren.Edge.Chat.Tests.Fakes;
 /// <remarks>
 /// <see cref="RecordingLogger"/> is the single-logger recorder the tier-1 harnesses hand to one
 /// constructor; this is the provider shape <c>services.AddLogging(b =&gt; b.AddProvider(...))</c>
-/// takes, and every category lands in one list.
+/// takes, and every category lands in one list. Kept over a <c>FakeLoggerProvider</c> for the same
+/// reason: the <c>Logged</c>/<c>For</c> event-id helpers its tests are written against.
 /// </remarks>
 internal sealed class RecordingLoggerProvider : ILoggerProvider
 {

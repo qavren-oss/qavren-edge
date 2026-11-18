@@ -1,4 +1,5 @@
 using System.Text;
+using Microsoft.Extensions.Logging.Testing;
 using Qavren.Edge.Ingestion.Tests.Extraction;
 using Qavren.Edge.Ingestion.Tests.Runtime;
 using Xunit;
@@ -39,7 +40,7 @@ public class HeadingTitleTests
             _ => ValueTask.FromResult<Stream>(new MemoryStream(Encoding.UTF8.GetBytes(markdown))));
 
         var document = await new MarkdownExtractor()
-            .ExtractAsync(item, TestHarness.Context(new CapturingLogger()), TestContext.Current.CancellationToken);
+            .ExtractAsync(item, TestHarness.Context(new FakeLogger()), TestContext.Current.CancellationToken);
 
         var options = new ResolvedChunkOptions(
             MaxTokens: 200,

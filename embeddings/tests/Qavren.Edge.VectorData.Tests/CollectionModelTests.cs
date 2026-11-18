@@ -1,5 +1,6 @@
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Testing;
 using Microsoft.Extensions.VectorData;
 using Qavren.Edge.VectorData.Internal;
 using Qavren.Edge.VectorData.Tests.Records;
@@ -162,26 +163,26 @@ public class CollectionModelTests
     [Fact]
     public void AnIndexKindIsAcceptedAndIgnoredButNeverSilently()
     {
-        var logger = new CapturingLogger();
+        var logger = new FakeLogger();
         var model = ModelFactory.ModelFor<HnswRecord>(logger: logger);
 
         Assert.Equal(IndexKind.Hnsw, model.VectorProperty.IndexKind);
-        var entry = Assert.Single(logger.Entries);
+        var entry = Assert.Single(logger.Collector.GetSnapshot());
         Assert.Equal(LogLevel.Warning, entry.Level);
         // Pins Qavren.Edge.VectorData's private 804 literal to the shared constant. The literal is
         // duplicated because spec 2 decision 2 forbids Qavren.Edge.VectorData from referencing
         // Qavren.Edge.Onnx; this project is the only place both are visible at once.
-        Assert.Equal(Qavren.Edge.Onnx.EdgeAiEventIds.IndexKindIgnored, entry.EventId.Id);
+        Assert.Equal(Qavren.Edge.Onnx.EdgeAiEventIds.IndexKindIgnored, entry.Id.Id);
         Assert.Contains("brute-force and flat", entry.Message, StringComparison.Ordinal);
     }
 
     [Fact]
     public void ACollectionWithNoIndexKindLogsNothing()
     {
-        var logger = new CapturingLogger();
+        var logger = new FakeLogger();
         _ = ModelFactory.ModelFor<Note>(logger: logger);
 
-        Assert.Empty(logger.Entries);
+        Assert.Empty(logger.Collector.GetSnapshot());
     }
 
     [Fact]
@@ -221,29 +222,6 @@ public class CollectionModelTests
 
         /// <summary>vec0 <c>cosine</c>.</summary>
         Cosine = 2,
-    }
-
-    private sealed record LogEntry(LogLevel Level, EventId EventId, string Message);
-
-    private sealed class CapturingLogger : ILogger
-    {
-        public List<LogEntry> Entries { get; } = [];
-
-        public IDisposable? BeginScope<TState>(TState state)
-            where TState : notnull => null;
-
-        public bool IsEnabled(LogLevel logLevel) => true;
-
-        public void Log<TState>(
-            LogLevel logLevel,
-            EventId eventId,
-            TState state,
-            Exception? exception,
-            Func<TState, Exception?, string> formatter)
-        {
-            ArgumentNullException.ThrowIfNull(formatter);
-            Entries.Add(new LogEntry(logLevel, eventId, formatter(state, exception)));
-        }
     }
 
     private sealed class SByteEmbeddingGenerator : IEmbeddingGenerator<string, Embedding<sbyte>>

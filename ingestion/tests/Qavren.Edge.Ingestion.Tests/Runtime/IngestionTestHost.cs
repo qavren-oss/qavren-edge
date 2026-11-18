@@ -1,5 +1,6 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Time.Testing;
 using Qavren.Edge.Hosting;
 using Qavren.Edge.Ingestion.Internal;
 using Qavren.Edge.Sqlite;
@@ -35,7 +36,7 @@ public sealed class IngestionTestHost : IDisposable
 
     public RecordingEmbeddingGenerator Generator { get; private init; } = null!;
 
-    public ManualTimeProvider Time { get; private init; } = null!;
+    public FakeTimeProvider Time { get; private init; } = null!;
 
     public CapturingLoggerProvider Logs { get; private init; } = null!;
 
@@ -86,7 +87,7 @@ public sealed class IngestionTestHost : IDisposable
         var ownsRoot = root is null;
         root ??= Path.Combine(Path.GetTempPath(), "qedge-ingestion-tests", Guid.NewGuid().ToString("N"));
         var generator = configureGenerator ?? new RecordingEmbeddingGenerator();
-        var time = new ManualTimeProvider();
+        var time = TestClock.Create();
         var logs = new CapturingLoggerProvider();
 
         var provider = Build(
@@ -102,7 +103,7 @@ public sealed class IngestionTestHost : IDisposable
             services =>
             {
                 // A test that exercises a real DELAY needs a real clock: Task.Delay against a
-                // ManualTimeProvider nobody advances never completes.
+                // FakeTimeProvider nobody advances never completes.
                 services.AddSingleton(useSystemTime ? TimeProvider.System : time);
                 services.AddLogging(b => b.AddProvider(logs));
             },

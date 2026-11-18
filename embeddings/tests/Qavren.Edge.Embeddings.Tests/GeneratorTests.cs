@@ -1,4 +1,5 @@
 using Microsoft.Extensions.AI;
+using Microsoft.Extensions.Time.Testing;
 using Qavren.Edge.Embeddings.Onnx;
 using Qavren.Edge.Embeddings.Tests.Fakes;
 using Qavren.Edge.Onnx;
@@ -24,7 +25,7 @@ public class GeneratorTests
     [Fact]
     public async Task EveryEmbeddingCarriesModelIdAndCreatedAtAndUsageCountsUnpaddedTokens()
     {
-        var clock = new FixedTimeProvider(Noon);
+        var clock = new FakeTimeProvider(Noon);
         using var fixture = GeneratorFixture.CreateOverHiddenStatesFixture(clock);
 
         // Two inputs of different lengths, so the padded width and the real token count differ and

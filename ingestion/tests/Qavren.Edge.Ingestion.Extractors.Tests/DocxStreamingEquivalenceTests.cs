@@ -31,8 +31,8 @@ public class DocxStreamingEquivalenceTests
         Assert.Equal(TestHarness.Slices(dom), TestHarness.Slices(sax));
 
         // Event 913 records which mode ran, so the choice is observable.
-        Assert.Contains("dom mode", domLog.MessageOf(EdgeIngestionEventIds.ExtractionStreamingMode), StringComparison.Ordinal);
-        Assert.Contains("streaming mode", saxLog.MessageOf(EdgeIngestionEventIds.ExtractionStreamingMode), StringComparison.Ordinal);
+        Assert.Contains("dom mode", domLog.Collector.GetSnapshot().First(r => r.Id.Id == EdgeIngestionEventIds.ExtractionStreamingMode).Message, StringComparison.Ordinal);
+        Assert.Contains("streaming mode", saxLog.Collector.GetSnapshot().First(r => r.Id.Id == EdgeIngestionEventIds.ExtractionStreamingMode).Message, StringComparison.Ordinal);
     }
 
     [Theory]
@@ -67,7 +67,7 @@ public class DocxStreamingEquivalenceTests
     {
         var (_, logger) = await DocxExtractorTests.ExtractAsync("run-split");
 
-        Assert.Contains("dom mode", logger.MessageOf(EdgeIngestionEventIds.ExtractionStreamingMode), StringComparison.Ordinal);
+        Assert.Contains("dom mode", logger.Collector.GetSnapshot().First(r => r.Id.Id == EdgeIngestionEventIds.ExtractionStreamingMode).Message, StringComparison.Ordinal);
     }
 
     [Fact]
