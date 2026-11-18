@@ -60,6 +60,18 @@ internal sealed class FakeChatModelHost : IChatModelHost, IChatLifecycleTarget
         return UnloadCompletesImmediately ? Task.FromResult(true) : UnloadCompletion.Task;
     }
 
+    /// <summary>How many unloads were made through <see cref="UnloadAndAwaitReleaseAsync"/>.</summary>
+    public int AwaitedUnloads { get; private set; }
+
+    /// <inheritdoc />
+    /// <remarks>Released when <see cref="UnloadCompletion"/> is, or at once under <see cref="UnloadCompletesImmediately"/>.</remarks>
+    public Task UnloadAndAwaitReleaseAsync(CancellationToken cancellationToken)
+    {
+        Unloads++;
+        AwaitedUnloads++;
+        return UnloadCompletesImmediately ? Task.CompletedTask : UnloadCompletion.Task;
+    }
+
     /// <inheritdoc />
     public void TerminateActiveGeneration() => Terminations++;
 

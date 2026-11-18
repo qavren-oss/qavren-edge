@@ -44,6 +44,14 @@ internal interface IChatLifecycleTarget
     /// <param name="cancellationToken">Cancellation.</param>
     /// <returns><see langword="true"/> when a loaded model was marked or disposed.</returns>
     Task<bool> UnloadAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// <see cref="UnloadAsync"/>, then a task that completes when the model has actually been
+    /// disposed - when the turn holding it has given its lease back. Unbounded: the caller bounds it.
+    /// </summary>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>A task that completes once nothing of the model is left.</returns>
+    Task UnloadAndAwaitReleaseAsync(CancellationToken cancellationToken);
 }
 
 /// <summary>Spec section 14.2's chat observer. One per <c>AddOnnxChat</c> registration.</summary>
@@ -110,8 +118,11 @@ internal sealed class ChatLifecycleObserver(
             return;
         }
 
-        var unload = target.UnloadAsync(cancellationToken);
-        await Task.WhenAny(unload, Task.Delay(DrainBudget, cancellationToken)).ConfigureAwait(false);
+        // The budget waits for what it is named after: the turn that was just terminated giving its
+        // lease back, and the weights disposed. UnloadAsync answers as soon as they are marked, so
+        // racing the budget against it never bound and the warning was answered with them mapped.
+        var released = target.UnloadAndAwaitReleaseAsync(cancellationToken);
+        await Task.WhenAny(released, Task.Delay(DrainBudget, cancellationToken)).ConfigureAwait(false);
     }
 
     /// <inheritdoc />

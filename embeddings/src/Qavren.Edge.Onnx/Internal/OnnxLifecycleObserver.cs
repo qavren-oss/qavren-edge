@@ -48,8 +48,11 @@ internal sealed class OnnxLifecycleObserver(IEdgeResourceMonitor monitor, IServi
         // cooperatively rather than run to completion into a kill.
         host.CancelLoadsInFlight();
 
-        var drop = host.DropAsync(includePinned: false, cancellationToken);
-        await Task.WhenAny(drop, Task.Delay(DrainBudget, cancellationToken)).ConfigureAwait(false);
+        // The budget now waits for what it is named after: the sessions an in-flight batch still
+        // holds, released and disposed. DropAsync answers as soon as they are marked, so racing the
+        // budget against it never bound, and the warning was answered with the graph still mapped.
+        var released = host.DropAndAwaitReleaseAsync(includePinned: false, cancellationToken);
+        await Task.WhenAny(released, Task.Delay(DrainBudget, cancellationToken)).ConfigureAwait(false);
     }
 
     /// <inheritdoc />

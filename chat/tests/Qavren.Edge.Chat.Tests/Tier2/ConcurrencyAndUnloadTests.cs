@@ -153,6 +153,27 @@ public sealed class ConcurrencyAndUnloadTests(TinyChatModelFixture fixture)
         Assert.True(host.Logs.Logged(EdgeChatEventIds.ChatModelDropped));
     }
 
+    [Fact]
+    public async Task TheAwaitedUnloadCompletesWhenTheLastLeaseReturnsAndNotBefore()
+    {
+        using var host = fixture.NewHost();
+        var lease = await host.Host.AcquireAsync(Token).ConfigureAwait(true);
+
+        // What the critical-pressure path races its drain budget against.
+        var released = host.Host.UnloadAndAwaitReleaseAsync(Token);
+
+        Assert.False(released.IsCompleted);
+        Assert.True(host.Host.Describe()!.IsLoaded);
+
+        lease.Dispose();
+        await released.WaitAsync(TimeSpan.FromSeconds(10), Token).ConfigureAwait(true);
+
+        Assert.False(host.Host.Describe()!.IsLoaded);
+
+        // With nothing loaded there is nothing to wait for.
+        Assert.True(host.Host.UnloadAndAwaitReleaseAsync(Token).IsCompleted);
+    }
+
     /// <summary>Four real decode steps over the leased model: an access violation if it has been freed.</summary>
     private static void GenerateUnder(ChatModelLease lease)
     {

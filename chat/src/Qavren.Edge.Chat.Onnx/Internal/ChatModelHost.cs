@@ -222,27 +222,47 @@ internal sealed class ChatModelHost : IChatTurnHost, IChatLifecycleTarget, IDisp
     public Task<bool> UnloadAsync(CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
+        return Task.FromResult(UnloadCore(out _));
+    }
 
+    /// <inheritdoc />
+    /// <remarks>
+    /// <see cref="UnloadAsync"/> answers as soon as a leased model is marked, so the observer's
+    /// drain budget, raced against it, never bound: the memory warning was answered with 1.2 GB of
+    /// weights still mapped under the turn that had just been told to stop. This waits for the
+    /// turn's lease to come back and the model to be disposed; the observer bounds the wait.
+    /// </remarks>
+    public Task UnloadAndAwaitReleaseAsync(CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        _ = UnloadCore(out var released);
+        return released;
+    }
+
+    private bool UnloadCore(out Task released)
+    {
         lock (_sync)
         {
             if (_current is not { } entry)
             {
-                return Task.FromResult(false);
+                released = Task.CompletedTask;
+                return false;
             }
 
+            released = entry.Released.Task;
             entry.DropRequested = true;
             _current = null;
 
             if (entry.Leases == 0)
             {
                 DisposeEntry(entry);
-                return Task.FromResult(true);
+                return true;
             }
 
             // The model survives until the last lease returns: disposing it under a running
             // Generator is a native access violation.
             _lastInfo = entry.Info with { IsLoaded = true, ActiveLeases = entry.Leases };
-            return Task.FromResult(true);
+            return true;
         }
     }
 
@@ -1005,6 +1025,7 @@ internal sealed class ChatModelHost : IChatTurnHost, IChatLifecycleTarget, IDisp
         }
 
         s_dropped(_logger, entry.Info.ModelId, null);
+        entry.Released.TrySetResult();
     }
 
     /// <summary>A native load nobody is waiting on any more, and what it was asked to build.</summary>
@@ -1037,5 +1058,8 @@ internal sealed class ChatModelHost : IChatTurnHost, IChatLifecycleTarget, IDisp
         public bool DropRequested { get; set; }
 
         public bool Disposed { get; set; }
+
+        /// <summary>Completes when the model has been disposed. Asynchronous continuations: it is set under the host's lock.</summary>
+        public TaskCompletionSource Released { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
     }
 }
