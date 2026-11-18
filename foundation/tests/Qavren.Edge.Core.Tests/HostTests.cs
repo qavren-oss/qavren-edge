@@ -64,6 +64,7 @@ public class HostTests
         IEdgeHost? host = null;
         Task? leftRunning = null;
         var letTheStragglerAsk = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var stragglerReleased = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var letStartupFinish = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 
         using var sp = Build(s =>
@@ -83,13 +84,21 @@ public class HostTests
                 return Task.CompletedTask;
             }));
 
-            s.AddSingleton<IEdgeStartupTask>(new DelegateTask(10, _ => letStartupFinish.Task));
+            // The straggler is released from in here, not from the test body: this task only starts
+            // after task 0's scope has closed. Releasing from the body races Start(), and a straggler
+            // that asks while task 0's scope is still active is rightly let through.
+            s.AddSingleton<IEdgeStartupTask>(new DelegateTask(10, _ =>
+            {
+                letTheStragglerAsk.SetResult();
+                stragglerReleased.SetResult();
+                return letStartupFinish.Task;
+            }));
         });
 
         host = sp.GetRequiredService<IEdgeHost>();
         host.Start();
 
-        letTheStragglerAsk.SetResult();
+        await stragglerReleased.Task.WaitAsync(TimeSpan.FromSeconds(30), ct);
         await Task.Delay(150, ct);
 
         Assert.False(host.Started.IsCompleted);
