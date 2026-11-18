@@ -8,6 +8,11 @@ namespace Qavren.Edge.Onnx.Internal;
 /// <c>NaN</c> when polled faster; the window is driven by the injected <see cref="TimeProvider"/>
 /// so a test can assert it rather than sleep through it.
 /// </summary>
+/// <remarks>
+/// The window is an interval, so it is measured on the provider's monotonic timestamp, never on
+/// <c>GetUtcNow()</c>: a wall clock stepped back an hour held one reading for that hour - and with
+/// it the thermal state a running chat turn throttles and aborts on.
+/// </remarks>
 internal abstract class EdgeResourceMonitorBase : IEdgeResourceMonitor
 {
     /// <summary>How long one reading stands before the device is asked again.</summary>
@@ -16,7 +21,7 @@ internal abstract class EdgeResourceMonitorBase : IEdgeResourceMonitor
     private readonly TimeProvider _timeProvider;
     private readonly Lock _gate = new();
     private EdgeResourceSnapshot? _cached;
-    private DateTimeOffset _cachedAt;
+    private long _cachedAt;
     private EdgeMemoryPressure? _lastPressure;
 
     /// <summary>Creates the monitor.</summary>
@@ -41,8 +46,8 @@ internal abstract class EdgeResourceMonitorBase : IEdgeResourceMonitor
     {
         lock (_gate)
         {
-            var now = _timeProvider.GetUtcNow();
-            if (_cached is not null && now - _cachedAt < CacheWindow)
+            var now = _timeProvider.GetTimestamp();
+            if (_cached is not null && _timeProvider.GetElapsedTime(_cachedAt, now) < CacheWindow)
             {
                 return _cached;
             }

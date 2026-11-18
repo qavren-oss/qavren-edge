@@ -11,15 +11,28 @@ public class ResourceMonitorTests
     /// <summary>
     /// A hand-driven clock. The one-second read cache exists because Android's
     /// <c>GetThermalHeadroom</c> is rate-limited to ~1 Hz; asserting it against the wall clock would
-    /// mean sleeping through the window in every run.
+    /// mean sleeping through the window in every run. The wall clock and the monotonic timestamp
+    /// are kept apart, as a device keeps them: <see cref="Advance"/> moves both, as time passing
+    /// does, and <see cref="StepWallClock"/> moves only the wall clock, as NTP or a user does.
     /// </summary>
     private sealed class ManualTimeProvider(DateTimeOffset start) : TimeProvider
     {
         private DateTimeOffset _now = start;
+        private long _timestamp;
 
         public override DateTimeOffset GetUtcNow() => _now;
 
-        public void Advance(TimeSpan by) => _now += by;
+        public override long GetTimestamp() => _timestamp;
+
+        public override long TimestampFrequency => TimeSpan.TicksPerSecond;
+
+        public void Advance(TimeSpan by)
+        {
+            _now += by;
+            _timestamp += by.Ticks;
+        }
+
+        public void StepWallClock(TimeSpan by) => _now += by;
     }
 
     [Fact]
@@ -72,6 +85,36 @@ public class ResourceMonitorTests
 
         time.Advance(TimeSpan.FromMilliseconds(2));
         Assert.NotSame(first, monitor.Read());
+    }
+
+    [Fact]
+    public void AWallClockSteppedBackDoesNotFreezeTheCachedReading()
+    {
+        var time = new ManualTimeProvider(DateTimeOffset.UnixEpoch.AddDays(1));
+        var monitor = new DefaultEdgeResourceMonitor(time);
+
+        var first = monitor.Read();
+
+        // On the wall clock the window would now end an hour from here, and every read until then
+        // - the thermal samples a running turn aborts on among them - would get this snapshot.
+        time.StepWallClock(TimeSpan.FromHours(-1));
+        time.Advance(TimeSpan.FromMilliseconds(1001));
+
+        Assert.NotSame(first, monitor.Read());
+    }
+
+    [Fact]
+    public void AWallClockSteppedForwardDoesNotCutTheCacheWindowShort()
+    {
+        var time = new ManualTimeProvider(DateTimeOffset.UnixEpoch);
+        var monitor = new DefaultEdgeResourceMonitor(time);
+
+        var first = monitor.Read();
+
+        // No time has passed, so Android's ~1 Hz headroom read must not be asked again.
+        time.StepWallClock(TimeSpan.FromHours(1));
+
+        Assert.Same(first, monitor.Read());
     }
 
     [Fact]

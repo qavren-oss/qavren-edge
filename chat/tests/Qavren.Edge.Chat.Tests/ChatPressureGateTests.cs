@@ -90,6 +90,32 @@ public class ChatPressureGateTests
     }
 
     [Fact]
+    public void AWallClockSteppedBackDoesNotStretchTheCooldown()
+    {
+        var harness = Build();
+        harness.Gate.OnPressure();
+
+        // On the wall clock the pause would now last an hour and thirty seconds, refusing every turn.
+        harness.Clock.StepWallClock(TimeSpan.FromHours(-1));
+        harness.Clock.Advance(ChatPressureGate.Cooldown);
+
+        Assert.False(harness.Gate.IsPaused);
+        Assert.True(harness.Gate.IsRelieved);
+    }
+
+    [Fact]
+    public void AWallClockSteppedForwardDoesNotCutTheCooldownShort()
+    {
+        var harness = Build(isLowMemory: false);
+        harness.Gate.OnPressure();
+
+        harness.Clock.StepWallClock(TimeSpan.FromHours(1));
+
+        Assert.True(harness.Gate.IsPaused);
+        Assert.Equal(0, harness.Monitor.Reads);
+    }
+
+    [Fact]
     public void PressureAfterReliefPausesAgainAndIsNoLongerRelieved()
     {
         var harness = Build();

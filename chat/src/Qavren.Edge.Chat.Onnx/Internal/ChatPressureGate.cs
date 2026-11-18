@@ -19,6 +19,11 @@ namespace Qavren.Edge.Chat.Internal;
 /// report itself low on memory. It does not decide that there is room for a model: the memory
 /// budget does that, against a fresh reading, when the next turn loads one.
 /// </para>
+/// <para>
+/// The cool-down is an interval, so it runs on the provider's monotonic timestamp, not on
+/// <c>GetUtcNow()</c>: on the wall clock, a step back of an hour refused every turn for that hour,
+/// and a step forward ended the pause the moment it began.
+/// </para>
 /// </remarks>
 /// <param name="monitor">The device resource monitor.</param>
 /// <param name="timeProvider">The clock; a test advances it by hand.</param>
@@ -31,13 +36,13 @@ internal sealed class ChatPressureGate(IEdgeResourceMonitor monitor, TimeProvide
     /// </summary>
     internal static readonly TimeSpan Cooldown = TimeSpan.FromSeconds(30);
 
-    private static readonly Pause s_relieved = new(DateTimeOffset.MinValue);
+    private static readonly Pause s_relieved = new(0);
 
     // null: no pressure since the last Resumed. s_relieved: there was, and it has passed.
     private Pause? _pause;
 
     /// <summary>A pressure event arrived. Restarts the cool-down if one was already running.</summary>
-    public void OnPressure() => Volatile.Write(ref _pause, new Pause(timeProvider.GetUtcNow()));
+    public void OnPressure() => Volatile.Write(ref _pause, new Pause(timeProvider.GetTimestamp()));
 
     /// <summary><c>Resumed</c>: the pause is over and so is the record that there was one.</summary>
     public void Clear() => Volatile.Write(ref _pause, null);
@@ -60,7 +65,7 @@ internal sealed class ChatPressureGate(IEdgeResourceMonitor monitor, TimeProvide
             return pause;
         }
 
-        if (timeProvider.GetUtcNow() - pause.At < Cooldown || monitor.Read().IsLowMemory == true)
+        if (timeProvider.GetElapsedTime(pause.At) < Cooldown || monitor.Read().IsLowMemory == true)
         {
             return pause;
         }
@@ -71,8 +76,9 @@ internal sealed class ChatPressureGate(IEdgeResourceMonitor monitor, TimeProvide
         return ReferenceEquals(seen, pause) ? s_relieved : seen;
     }
 
-    private sealed class Pause(DateTimeOffset at)
+    private sealed class Pause(long at)
     {
-        public DateTimeOffset At { get; } = at;
+        /// <summary>The <see cref="TimeProvider.GetTimestamp"/> the pressure event arrived at.</summary>
+        public long At { get; } = at;
     }
 }
