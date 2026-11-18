@@ -3,6 +3,7 @@ using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging;
 using Qavren.Edge.Sqlite;
+using static Qavren.Edge.Sqlite.Internal.SqliteTransactionCommands;
 using MEVD = Microsoft.Extensions.VectorData;
 
 namespace Qavren.Edge.Ingestion.Internal;
@@ -253,17 +254,17 @@ internal sealed class ChunkWriter(
             {
                 foreach (var chunk in repaired)
                 {
-                    var command = connection.CreateCommand();
-                    await using (command.ConfigureAwait(false))
-                    {
-                        command.Transaction = transaction;
-                        command.CommandText = sql;
-                        command.Parameters.Add(new SqliteParameter("$o", chunk.Draft.Ordinal));
-                        command.Parameters.Add(new SqliteParameter("$s", chunk.Draft.CharStart));
-                        command.Parameters.Add(new SqliteParameter("$e", chunk.Draft.CharEnd));
-                        command.Parameters.Add(new SqliteParameter("$k", chunk.Key));
-                        await command.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
-                    }
+                    await ExecuteAsync(
+                        connection,
+                        transaction,
+                        sql,
+                        [
+                            new SqliteParameter("$o", chunk.Draft.Ordinal),
+                            new SqliteParameter("$s", chunk.Draft.CharStart),
+                            new SqliteParameter("$e", chunk.Draft.CharEnd),
+                            new SqliteParameter("$k", chunk.Key),
+                        ],
+                        ct).ConfigureAwait(false);
                 }
 
                 return true;
@@ -293,19 +294,15 @@ internal sealed class ChunkWriter(
         string documentId,
         CancellationToken cancellationToken)
     {
-        var command = connection.CreateCommand();
-        await using (command.ConfigureAwait(false))
-        {
-            command.Transaction = transaction;
-            command.CommandText =
-                $"""
-                 DELETE FROM "{dataTable}"
-                 WHERE "{IngestionColumns.SourceId}" = $s AND "{IngestionColumns.DocumentId}" = $d
-                 """;
-            command.Parameters.Add(new SqliteParameter("$s", sourceId));
-            command.Parameters.Add(new SqliteParameter("$d", documentId));
-            return await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
-        }
+        return await ExecuteAsync(
+            connection,
+            transaction,
+            $"""
+             DELETE FROM "{dataTable}"
+             WHERE "{IngestionColumns.SourceId}" = $s AND "{IngestionColumns.DocumentId}" = $d
+             """,
+            [new SqliteParameter("$s", sourceId), new SqliteParameter("$d", documentId)],
+            cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -319,14 +316,12 @@ internal sealed class ChunkWriter(
         string sourceId,
         CancellationToken cancellationToken)
     {
-        var command = connection.CreateCommand();
-        await using (command.ConfigureAwait(false))
-        {
-            command.Transaction = transaction;
-            command.CommandText = $"""DELETE FROM "{dataTable}" WHERE "{IngestionColumns.SourceId}" = $s""";
-            command.Parameters.Add(new SqliteParameter("$s", sourceId));
-            return await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
-        }
+        return await ExecuteAsync(
+            connection,
+            transaction,
+            $"""DELETE FROM "{dataTable}" WHERE "{IngestionColumns.SourceId}" = $s""",
+            [new SqliteParameter("$s", sourceId)],
+            cancellationToken).ConfigureAwait(false);
     }
 
     private static Dictionary<string, object?> ToRecord(
