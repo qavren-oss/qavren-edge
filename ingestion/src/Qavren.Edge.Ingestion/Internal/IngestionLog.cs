@@ -116,10 +116,13 @@ internal static class IngestionLog
             Id(EdgeIngestionEventIds.StateCommitted, nameof(EdgeIngestionEventIds.StateCommitted)),
             "State row committed for '{DocumentId}' with status {Status}.");
 
+    // Still logged under 902: EdgeIngestionEventIds has no unused constant that fits a missed grace
+    // window, and a new one would be a new public member on a surface frozen at 1.0.0. The event NAME
+    // is its own, so a consumer who keys on the name can tell it from a real RunSuspended.
     private static readonly Action<ILogger, string, Exception?> GraceWindowMissedCore =
         LoggerMessage.Define<string>(
             LogLevel.Warning,
-            Id(EdgeIngestionEventIds.RunSuspended, nameof(EdgeIngestionEventIds.RunSuspended)),
+            Id(EdgeIngestionEventIds.RunSuspended, nameof(GraceWindowMissed)),
             "The lifecycle grace window elapsed before the runner reached a committed checkpoint: {Phase}.");
 
     // The two source warnings are logged under 923, the one "non-fatal warning" id spec 11 defines.
