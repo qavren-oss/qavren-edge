@@ -331,6 +331,14 @@ for wf in sorted(w.glob("*.yml")):
 ci_on = ci.get("on", ci.get(True)) or {}
 if "merge_group" not in ci_on:
     problems.append("ci.yml must run on merge_group; the merge queue's required checks report only from that event")
+# The device lanes run on the pull request and again on the push to main, not in the queue: the iOS
+# lane alone is ~30 minutes on a hosted macOS runner, and running it a second time in the queue
+# doubled every merge. Skipped is not failed: ci-gate passes a skipped lane, so the gate still reports.
+for job in ("device-tests-android", "device-tests-ios", "device-tests-maccatalyst", "device-tests-windows"):
+    if str(ci["jobs"].get(job, {}).get("if", "")).strip() != "github.event_name != 'merge_group'":
+        problems.append("ci.yml " + job + " must skip the merge queue: if: github.event_name != 'merge_group'")
+if "success|skipped" not in str(ci["jobs"].get("ci-gate", {}).get("steps", "")):
+    problems.append("ci.yml ci-gate must pass a skipped lane, or skipping the device lanes in the queue turns it red")
 mq_path = w.parent / "merge-queue-ruleset.json"
 if not mq_path.is_file():
     problems.append(".github/merge-queue-ruleset.json is missing (the merge queue on main, as applied through the rulesets API)")
