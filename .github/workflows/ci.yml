@@ -309,6 +309,9 @@ jobs:
 
   device-tests-android:
     needs: natives
+    # Not on the merge queue: the pull request already ran this lane, and the push to main runs it
+    # again on the merged result. ci-gate counts a skipped lane as passing.
+    if: github.event_name != 'merge_group'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
@@ -396,6 +399,9 @@ jobs:
 
   device-tests-ios:
     needs: natives
+    # Not on the merge queue: the pull request already ran this lane, and the push to main runs it
+    # again on the merged result. ci-gate counts a skipped lane as passing.
+    if: github.event_name != 'merge_group'
     # On GitHub Actions macos-15 is ARM64; the certified iOS-simulator lane is x64/Rosetta.
     runs-on: macos-15-intel
     steps:
@@ -468,6 +474,9 @@ jobs:
   # a simulator or an emulator.
   device-tests-maccatalyst:
     needs: natives
+    # Not on the merge queue: the pull request already ran this lane, and the push to main runs it
+    # again on the merged result. ci-gate counts a skipped lane as passing.
+    if: github.event_name != 'merge_group'
     runs-on: macos-15-intel
     steps:
       - uses: actions/checkout@v7
@@ -522,6 +531,9 @@ jobs:
 
   device-tests-windows:
     needs: natives
+    # Not on the merge queue: the pull request already ran this lane, and the push to main runs it
+    # again on the merged result. ci-gate counts a skipped lane as passing.
+    if: github.event_name != 'merge_group'
     runs-on: windows-2025
     steps:
       - uses: actions/checkout@v7

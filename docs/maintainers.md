@@ -60,6 +60,12 @@ serial CI runs (seven hours on 2026-11-11).
 
 - The pull request's own CI must be green before it can be queued; the queue
   then runs CI again on the combined result. Nothing needs rebasing by hand.
+- The four device lanes do not run in the queue (`if: github.event_name !=
+  'merge_group'`; `ci-gate` passes a skipped lane). They run on the pull
+  request and again on the push to `main`. The iOS lane alone is about 30
+  minutes on a hosted macOS runner, and running it in the queue as well
+  doubled the time to merge. The cost: a device-only break that appears only
+  when two pull requests combine shows up on `main`, not in the queue.
 - Repository admins can bypass the queue (`gh pr merge <n> --squash --admin`).
   That is for a jammed queue, not for skipping a red lane.
 - The ruleset is not applied from the file automatically. After editing
