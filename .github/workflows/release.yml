@@ -51,6 +51,11 @@ jobs:
           merge-multiple: true
           path: foundation/native/artifacts
 
+      # Pinned to the set the device lanes test against, not taken from the image: image 20261116.315
+      # (SDK 10.0.404) shipped no `android` workload, and packing Qavren.Edge.Maui needs it.
+      - name: Install the MAUI workloads
+        run: dotnet workload install maui --version 10.0.201
+
       - name: Pack
         run: dotnet pack QavrenEdge.slnx -c Release -o artifacts/packages
 

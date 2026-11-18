@@ -60,12 +60,18 @@ jobs:
           merge-multiple: true
           path: foundation/native/artifacts
 
-      # windows-2025 only. The `.slnx` carries three MAUI-only projects (Qavren.Edge.Maui, the
-      # sample, DeviceTests) whose every TFM is platform-specific, so a solution restore needs the
-      # android/ios/maccatalyst/maui-windows workloads. The windows-2025 image ships them; the
-      # ubuntu and macOS images do not, and `ios`/`maccatalyst` cannot be installed on Linux at
-      # all - restoring the solution there fails with NETSDK1147. The Windows leg restores every
-      # TFM, so it is the strictly larger graph: nothing is lost by asserting only there.
+      # windows-2025 only. The `.slnx` carries MAUI-only projects (Qavren.Edge.Maui, the samples,
+      # DeviceTests) whose every TFM is platform-specific, so a solution restore needs the
+      # android/ios/maccatalyst/maui-windows workloads; `ios`/`maccatalyst` cannot be installed on
+      # Linux at all - restoring the solution there fails with NETSDK1147. The Windows leg restores
+      # every TFM, so it is the strictly larger graph: nothing is lost by asserting only there.
+      # The workloads are installed, pinned to the set the device lanes use, rather than taken from
+      # the image: image 20261116.315 (SDK 10.0.404) dropped `android`, and the restore failed
+      # NETSDK1147 on Ingestion.Background.Android.
+      - name: Install the MAUI workloads
+        if: matrix.os == 'windows-2025'
+        run: dotnet workload install maui --version 10.0.201
+
       - name: Assert no SQLitePCLRaw bundle package is in the graph
         if: matrix.os == 'windows-2025'
         shell: pwsh
