@@ -187,4 +187,82 @@ public class ThermalTests
             () => strict.Client.GetResponseAsync(Ask(), null, TestContext.Current.CancellationToken)).ConfigureAwait(true);
         Assert.Equal(EdgeErrorCode.ChatBusy, exception.Code);
     }
+
+    [Fact]
+    public async Task AThrottledTurnWhoseWallClockIsSteppedBackAnHourStillCompletesPromptly()
+    {
+        // Paced from the first token; while token 1 is produced the wall clock goes back an hour
+        // and no time passes.
+        using var harness = ClientHarness.Build(
+            o => o.Thermal.ThrottledTokensPerSecond = 1_000,
+            script: Script(4),
+            thermal: EdgeThermalState.Serious);
+        harness.Session.OnGeneratorCreated = generator => generator.BeforeGenerate = (_, i) =>
+        {
+            if (i == 1)
+            {
+                harness.Clock.StepWallClock(TimeSpan.FromHours(-1));
+            }
+        };
+
+        // Bounded, because on the wall clock the next paced wait is an hour long and the turn hangs in it.
+        var response = await harness.Client
+            .GetResponseAsync(Ask(), null, TestContext.Current.CancellationToken)
+            .WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken)
+            .ConfigureAwait(true);
+
+        var status = response.GetTurnStatus()!;
+        Assert.Equal(EdgeChatStopReason.Completed, status.StopReason);
+        Assert.Equal(4, status.GeneratedTokens);
+        Assert.True(status.ThermalThrottled);
+    }
+
+    [Fact]
+    public async Task SamplingFollowsTheMonotonicClockWhenTheWallClockIsSteppedBack()
+    {
+        using var harness = ClientHarness.Build(script: Script(8));
+        harness.Session.OnGeneratorCreated = generator => generator.BeforeGenerate = (_, i) =>
+        {
+            if (i == 1)
+            {
+                harness.Clock.StepWallClock(TimeSpan.FromHours(-1));
+            }
+            else if (i == 3)
+            {
+                // A second has really passed, so a sample is due; on the wall clock it is an hour away.
+                harness.Monitor.SetSnapshot(Snapshot(EdgeThermalState.Critical));
+                harness.Clock.Advance(TimeSpan.FromSeconds(1));
+            }
+        };
+
+        var response = await harness.Client.GetResponseAsync(Ask(), null, TestContext.Current.CancellationToken).ConfigureAwait(true);
+
+        var status = response.GetTurnStatus()!;
+        Assert.Equal(EdgeChatStopReason.Thermal, status.StopReason);
+        Assert.Equal(4, status.GeneratedTokens);
+    }
+
+    [Fact]
+    public async Task AWallClockSteppedForwardDoesNotTriggerAnEarlySample()
+    {
+        using var harness = ClientHarness.Build(
+            o => o.Thermal.ThrottledTokensPerSecond = 100_000,
+            script: Script(8));
+        harness.Session.OnGeneratorCreated = generator => generator.BeforeGenerate = (_, i) =>
+        {
+            if (i == 2)
+            {
+                // An hour on the wall clock, no time at all on the monotonic one: still inside the window.
+                harness.Monitor.SetSnapshot(Snapshot(EdgeThermalState.Serious));
+                harness.Clock.StepWallClock(TimeSpan.FromHours(1));
+            }
+        };
+
+        var response = await harness.Client.GetResponseAsync(Ask(), null, TestContext.Current.CancellationToken).ConfigureAwait(true);
+
+        var status = response.GetTurnStatus()!;
+        Assert.Equal(EdgeChatStopReason.Completed, status.StopReason);
+        Assert.Equal(8, status.GeneratedTokens);
+        Assert.False(status.ThermalThrottled);
+    }
 }

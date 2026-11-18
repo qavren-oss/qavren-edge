@@ -116,8 +116,14 @@ internal static class ChatDecodeLoop
         var throttled = false;
         var everThrottled = false;
         var snapshot = context.InitialSnapshot;
-        var lastSample = context.TimeProvider.GetUtcNow();
-        var nextPacedToken = context.TimeProvider.GetUtcNow();
+
+        // Both windows are intervals, so both run on the provider's monotonic timestamp, never on
+        // GetUtcNow(): a wall clock stepped back an hour (NTP, the user) would otherwise stop the
+        // sampling - and with it the thermal abort - for that hour, and turn the next paced wait
+        // into an hour-long one.
+        var lastSample = context.TimeProvider.GetTimestamp();
+        var paceOrigin = lastSample;
+        var nextPacedToken = TimeSpan.Zero;
         var cancelled = false;
         Exception? failure = null;
 
@@ -154,8 +160,8 @@ internal static class ChatDecodeLoop
                     break;
                 }
 
-                var now = context.TimeProvider.GetUtcNow();
-                if (now - lastSample >= thermal.SampleInterval)
+                var now = context.TimeProvider.GetTimestamp();
+                if (context.TimeProvider.GetElapsedTime(lastSample, now) >= thermal.SampleInterval)
                 {
                     snapshot = context.Monitor.Read();
                     lastSample = now;
@@ -187,7 +193,7 @@ internal static class ChatDecodeLoop
 
                 if (throttled)
                 {
-                    nextPacedToken = await PaceAsync(context, nextPacedToken, ct).ConfigureAwait(false);
+                    nextPacedToken = await PaceAsync(context, paceOrigin, nextPacedToken, ct).ConfigureAwait(false);
                 }
 
                 // The blocking native call, off the caller's thread.
@@ -390,9 +396,15 @@ internal static class ChatDecodeLoop
         return byState || byHeadroom;
     }
 
-    private static async Task<DateTimeOffset> PaceAsync(
+    /// <summary>
+    /// Waits until the next paced token is due. The schedule is kept as offsets from
+    /// <paramref name="origin"/>, a monotonic timestamp, so a wall-clock step cannot stretch or
+    /// skip a wait.
+    /// </summary>
+    private static async Task<TimeSpan> PaceAsync(
         ChatDecodeContext context,
-        DateTimeOffset nextAllowed,
+        long origin,
+        TimeSpan nextAllowed,
         CancellationToken ct)
     {
         var rate = context.Thermal.ThrottledTokensPerSecond;
@@ -402,7 +414,7 @@ internal static class ChatDecodeLoop
         }
 
         var interval = TimeSpan.FromSeconds(1.0 / rate);
-        var now = context.TimeProvider.GetUtcNow();
+        var now = context.TimeProvider.GetElapsedTime(origin);
 
         if (nextAllowed > now)
         {
