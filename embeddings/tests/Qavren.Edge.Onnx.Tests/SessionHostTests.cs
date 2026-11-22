@@ -266,6 +266,59 @@ public class SessionHostTests : IDisposable
     }
 
     [Fact]
+    public async Task TheOrder220WarmUpLoadsTheSessionInsideStartupAndReturnsItsLease()
+    {
+        // The warm-up task is itself a startup task, so the session it creates is created while
+        // the host is still starting. Startup has to complete - a task that waited on startup would
+        // wait on itself - and leave the session loaded, unleased, for the first real caller.
+        using var provider = Build(
+            edge => edge
+                .AddOnnxModelFromBytes(
+                    HiddenStatesModel,
+                    Convert.FromBase64String(TinyModels.HiddenStates),
+                    HiddenStatesSignature)
+                .WarmUpSessionAtStartup(HiddenStatesModel),
+            new StubResourceMonitor());
+
+        await provider.GetRequiredService<IEdgeHost>()
+            .EnsureStartedAsync(TestContext.Current.CancellationToken)
+            .AsTask()
+            .WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+
+        var host = provider.GetRequiredService<IOnnxSessionHost>();
+        var info = host.Describe(HiddenStatesModel)!;
+        Assert.True(info.IsLoaded);
+        Assert.Equal(1, info.LoadCount);
+        Assert.Equal(0, info.ActiveLeases);
+
+        // The first real caller gets the warmed session rather than a second load.
+        using var lease = await host.AcquireAsync(HiddenStatesModel, TestContext.Current.CancellationToken);
+        Assert.Equal(1, lease.Info.LoadCount);
+    }
+
+    [Fact]
+    public async Task AWarmUpForAnUnregisteredModelFaultsStartupWithModelNotRegistered()
+    {
+        using var withWarmUp = Build(
+            edge => edge
+                .AddOnnxModelFromBytes(
+                    HiddenStatesModel,
+                    Convert.FromBase64String(TinyModels.HiddenStates),
+                    HiddenStatesSignature)
+                .WarmUpSessionAtStartup("no-such-model"),
+            new StubResourceMonitor());
+
+        var ex = await Assert.ThrowsAsync<EdgeOnnxException>(
+            () => withWarmUp.GetRequiredService<IEdgeHost>()
+                .EnsureStartedAsync(TestContext.Current.CancellationToken)
+                .AsTask()
+                .WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken));
+
+        Assert.Equal(EdgeErrorCode.ModelNotRegistered, ex.Code);
+        Assert.Equal("no-such-model", ex.ModelId);
+    }
+
+    [Fact]
     public async Task AnIdleSessionIsDisposedByDropAndTheNextAcquireReloads()
     {
         using var provider = BuildWithHiddenStates();
