@@ -603,6 +603,84 @@ internal static class ChatTurnPipeline
             "exactly, and the native API takes a double",
             "Pass a value that a double represents exactly, or type it as a double yourself.");
 
+    // ---- (f) The conversation cache ---------------------------------------------------------------------
+
+    /// <summary>
+    /// The cached generator this turn may continue, or null. A null id is NEVER a hit and a
+    /// different id is a miss, so two conversations that both left the id unset never share a KV
+    /// cache.
+    /// </summary>
+    /// <param name="previous">What the cache held, or null.</param>
+    /// <param name="requestedId">The caller's <c>ChatOptions.ConversationId</c>, or null.</param>
+    /// <param name="cacheEnabled"><c>EdgeChatOptions.EnableConversationCache</c>.</param>
+    /// <returns><paramref name="previous"/> when it belongs to this conversation, otherwise null.</returns>
+    public static ConversationCache.Entry? CacheCandidate(
+        ConversationCache.Entry? previous,
+        string? requestedId,
+        bool cacheEnabled) =>
+        cacheEnabled
+        && requestedId is not null
+        && previous is not null
+        && string.Equals(previous.ConversationId, requestedId, StringComparison.Ordinal)
+            ? previous
+            : null;
+
+    /// <summary>
+    /// Whether this turn's generator can serve a later turn: the cache is on and the turn is not
+    /// guided. A guided generator carries this request's constraint, so it is never appended to,
+    /// never sized for later turns and never kept.
+    /// </summary>
+    /// <param name="cacheEnabled"><c>EdgeChatOptions.EnableConversationCache</c>.</param>
+    /// <param name="guidance">This turn's guidance, or null.</param>
+    /// <returns>Whether the generator may be reused.</returns>
+    public static bool IsReusable(bool cacheEnabled, ChatGuidance? guidance) =>
+        cacheEnabled && guidance is null;
+
+    /// <summary>
+    /// Check two of a hit: what the cached generator holds, plus this turn's delta, plus the whole
+    /// answer, fits the <c>max_length</c> it was built with. That cap cannot be changed after
+    /// construction, so a generator that cannot hold the turn is a miss, never a 7102.
+    /// </summary>
+    /// <param name="heldTokens">The tokens the cached generator already holds.</param>
+    /// <param name="deltaTokens">The tokens this turn appends.</param>
+    /// <param name="maxOutput">The per-turn output cap.</param>
+    /// <param name="maxLength">The cached generator's <c>max_length</c>.</param>
+    /// <returns>Whether the turn fits.</returns>
+    public static bool FitsCachedGenerator(ulong heldTokens, int deltaTokens, int maxOutput, int maxLength) =>
+        heldTokens + (ulong)deltaTokens + (ulong)maxOutput <= (ulong)maxLength;
+
+    /// <summary>
+    /// The <c>max_length</c> a fresh generator is built with: the KV MEMORY cap, never above
+    /// <paramref name="resolvedContext"/>. A reusable generator is built to the budget's whole
+    /// answer so later turns fit; one that is used once is built to what this turn needs.
+    /// </summary>
+    /// <param name="reusable">What <see cref="IsReusable"/> said.</param>
+    /// <param name="promptTokens">The prompt's token count.</param>
+    /// <param name="maxOutput">The per-turn output cap.</param>
+    /// <param name="resolvedContext">The context the budget allowed.</param>
+    /// <returns>The <c>max_length</c>.</returns>
+    public static int GeneratorMaxLength(bool reusable, int promptTokens, int maxOutput, int resolvedContext) =>
+        reusable ? resolvedContext : Math.Min(promptTokens + maxOutput, resolvedContext);
+
+    /// <summary>
+    /// Whether a finished turn's generator goes back into the cache: the turn ended cleanly -
+    /// completed, at a stop sequence or at the output cap - on a cacheable generator that nothing
+    /// terminated, on a client that is still alive.
+    /// </summary>
+    /// <param name="result">The decode loop's result, or null when the turn never decoded.</param>
+    /// <param name="cacheable">Whether the turn's generator was built to be kept.</param>
+    /// <param name="terminationRequested">Whether the host was told to terminate this turn.</param>
+    /// <param name="disposed">Whether the client has been disposed.</param>
+    /// <returns>Whether to keep the generator.</returns>
+    public static bool ShouldKeep(ChatDecodeResult? result, bool cacheable, bool terminationRequested, bool disposed) =>
+        result is { Cancelled: false, Failure: null }
+        && result.Status.StopReason is EdgeChatStopReason.Completed
+            or EdgeChatStopReason.StopSequence
+            or EdgeChatStopReason.MaxOutputTokens
+        && cacheable
+        && !terminationRequested
+        && !disposed;
+
     // ---- Exceptions ------------------------------------------------------------------------------------
 
     /// <summary>7108, with the member named in the message.</summary>

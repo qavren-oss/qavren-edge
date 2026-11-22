@@ -53,7 +53,16 @@ internal sealed class FakeGenerator : IChatGenerator
     /// <summary>Throw this from <see cref="GenerateNextToken"/> at the given index.</summary>
     public (int Index, Exception Exception)? ThrowAt { get; set; }
 
-    public bool IsDone() => Terminated || _position >= _script.Length;
+    /// <summary>Called inside each <see cref="IsDone"/> the decode loop makes, before it answers: where a terminate lands "between the check and the call".</summary>
+    public Action<FakeGenerator>? BeforeIsDone { get; set; }
+
+    public bool IsDone()
+    {
+        BeforeIsDone?.Invoke(this);
+        return Finished;
+    }
+
+    private bool Finished => Terminated || _position >= _script.Length;
 
     /// <summary>Called inside each <c>AppendTokens</c>, before anything is appended: where a terminate lands "mid-prefill".</summary>
     public Action<FakeGenerator>? BeforeAppend { get; set; }
@@ -77,7 +86,7 @@ internal sealed class FakeGenerator : IChatGenerator
 
     public void GenerateNextToken()
     {
-        if (IsDone())
+        if (Finished)
         {
             throw new InvalidOperationException("GenerateNextToken called on a finished generator.");
         }

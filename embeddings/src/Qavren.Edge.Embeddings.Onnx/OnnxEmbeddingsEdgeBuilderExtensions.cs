@@ -88,17 +88,13 @@ public static class OnnxEmbeddingsEdgeBuilderExtensions
     /// </para>
     /// <para>
     /// <b>2. It runs no dummy batch, which spec 7 and spec 14.1's order table both require</b>
-    /// ("builds the tokenizer, acquires the session and embeds one short string"). It cannot, and
-    /// the blocker is a layer boundary rather than an omission: embedding one string means
-    /// <c>IOnnxSessionHost.AcquireAsync</c>, which awaits <c>IEdgeHost.EnsureStartedAsync</c>, and
-    /// a startup task awaiting startup deadlocks on its own completion. The load path that skips
-    /// that await, <c>OnnxSessionHost.AcquireCoreAsync</c>, is <c>internal</c> to
-    /// <c>Qavren.Edge.Onnx</c>, and that assembly grants <c>InternalsVisibleTo</c> to test
-    /// assemblies only - so no member of this package can drive a session load at startup.
-    /// Closing this needs an owner ruling: either spec 7 and 14.1 drop the dummy batch, or
-    /// <c>Qavren.Edge.Onnx</c> exposes a load path L1 can reach. Until then a first embed pays the
-    /// graph load, the CoreML compile and the first <c>Run</c>; only vocabulary parsing is
-    /// pre-paid.
+    /// ("builds the tokenizer, acquires the session and embeds one short string"). The blocker this
+    /// note used to name - a startup task awaiting <c>IEdgeHost.EnsureStartedAsync</c> through
+    /// <c>IOnnxSessionHost.AcquireAsync</c> and deadlocking on its own completion - is gone: that
+    /// await returns at once when a startup task makes it. Adding the batch is a behaviour change
+    /// left for an owner ruling, either spec 7 and 14.1 drop it or this task gains it. Until then a
+    /// first embed pays the graph load, the CoreML compile and the first <c>Run</c>; only vocabulary
+    /// parsing is pre-paid.
     /// </para>
     /// </remarks>
     public static EdgeBuilder WarmUpEmbeddingsAtStartup(this EdgeBuilder builder, string? name = null)

@@ -144,10 +144,7 @@ internal static class ChatDecodeLoop
 
                 if (context.Host.TerminationRequested)
                 {
-                    stop = context.Host.SuspendRequested
-                        ? EdgeChatStopReason.Suspended
-                        : EdgeChatStopReason.MemoryPressure;
-                    ChatTurnLog.TurnTerminated(logger, stop, generated);
+                    stop = Terminated(context, generated);
                     break;
                 }
 
@@ -205,10 +202,7 @@ internal static class ChatDecodeLoop
                 ct.ThrowIfCancellationRequested();
                 if (context.Host.TerminationRequested)
                 {
-                    stop = context.Host.SuspendRequested
-                        ? EdgeChatStopReason.Suspended
-                        : EdgeChatStopReason.MemoryPressure;
-                    ChatTurnLog.TurnTerminated(logger, stop, generated);
+                    stop = Terminated(context, generated);
                     break;
                 }
 
@@ -260,10 +254,7 @@ internal static class ChatDecodeLoop
                 // honest reason is that termination, not "the model stopped".
                 if (context.Host.TerminationRequested)
                 {
-                    stop = context.Host.SuspendRequested
-                        ? EdgeChatStopReason.Suspended
-                        : EdgeChatStopReason.MemoryPressure;
-                    ChatTurnLog.TurnTerminated(logger, stop, generated);
+                    stop = Terminated(context, generated);
                 }
                 else
                 {
@@ -309,10 +300,7 @@ internal static class ChatDecodeLoop
             // or a caller - landed inside the native call instead of between two tokens. Spec
             // section 15.3: the stream COMPLETES with StopReason = MemoryPressure / Suspended and
             // FinishReason.Stop; it is not a 7104.
-            stop = context.Host.SuspendRequested
-                ? EdgeChatStopReason.Suspended
-                : EdgeChatStopReason.MemoryPressure;
-            ChatTurnLog.TurnTerminated(logger, stop, generated);
+            stop = Terminated(context, generated);
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
@@ -423,6 +411,28 @@ internal static class ChatDecodeLoop
         }
 
         return now + interval;
+    }
+
+    /// <summary>
+    /// The stop reason for a turn the host was told to terminate, logged as
+    /// <c>TurnTerminated</c>. Every one of the loop's four termination exits asks this, so the label
+    /// is decided in one place: <c>Suspended</c> while the OS is suspending the app, and
+    /// <c>MemoryPressure</c> for every other terminate.
+    /// </summary>
+    /// <remarks>
+    /// The label is read here, after the terminate, from the host's suspend flag. That is right only
+    /// because the lifecycle observer sets the flag BEFORE it terminates on <c>Sleeping</c>.
+    /// </remarks>
+    /// <param name="context">The turn.</param>
+    /// <param name="generated">The tokens generated so far, for the log line.</param>
+    /// <returns>The stop reason.</returns>
+    private static EdgeChatStopReason Terminated(ChatDecodeContext context, int generated)
+    {
+        var stop = context.Host.SuspendRequested
+            ? EdgeChatStopReason.Suspended
+            : EdgeChatStopReason.MemoryPressure;
+        ChatTurnLog.TurnTerminated(context.Logger, stop, generated);
+        return stop;
     }
 
     private static void TryTerminate(IChatGenerator generator)

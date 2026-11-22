@@ -144,6 +144,73 @@ public class ConversationCacheUnitTests
     }
 
     [Fact]
+    public async Task AGuidedTurnIsNeverKeptAndIsSizedToWhatItNeedsEvenWithCachingOn()
+    {
+        // A guided generator carries this request's constraint, so it is built for this turn only:
+        // to the turn's own max_length rather than the budget's whole answer, and freed at the end.
+        using var harness = ClientHarness.Build(
+            o => { o.Guidance = EdgeGuidancePolicy.PreferNative; o.MaxOutputTokens = 10; },
+            resolvedContext: 4096,
+            guidance: EdgeGuidanceProbeResult.Enforced);
+
+        var response = await harness.Client.GetResponseAsync(
+            [User("one")],
+            new ChatOptions { ResponseFormat = ChatResponseFormat.Json },
+            TestContext.Current.CancellationToken).ConfigureAwait(true);
+
+        Assert.NotNull(harness.Session.Guidance[0]);
+        var status = response.GetTurnStatus()!;
+        Assert.Equal(status.PromptTokens + 10, FakeChatSession.Number(harness.Session.SearchOptions[0], "max_length"));
+        Assert.True(harness.Session.LastGenerator.Disposed);
+        Assert.False(harness.Client.HasCachedConversation);
+        Assert.Equal(0, harness.Host.ActiveLeases);
+
+        // The id is still minted: caching is on, this one turn is just not cacheable.
+        Assert.NotNull(response.ConversationId);
+    }
+
+    [Fact]
+    public async Task AGuidedTurnOnACachedConversationRebuildsRatherThanAppending()
+    {
+        using var harness = ClientHarness.Build(
+            o => o.Guidance = EdgeGuidancePolicy.PreferNative,
+            script: ["reply"],
+            guidance: EdgeGuidanceProbeResult.Enforced);
+
+        var first = await TurnAsync(harness, [User("one")], conversationId: null).ConfigureAwait(true);
+        var id = first.ConversationId!;
+        Assert.True(harness.Client.HasCachedConversation);
+
+        // The same prefix that EchoingTheIdHitsAndOnlyTheDeltaIsAppended reuses - but guided.
+        var second = await harness.Client.GetResponseAsync(
+            [User("one"), Assistant(first.Text), User("two")],
+            new ChatOptions { ConversationId = id, ResponseFormat = ChatResponseFormat.Json },
+            TestContext.Current.CancellationToken).ConfigureAwait(true);
+
+        Assert.Equal(2, harness.Session.Generators.Count);
+        Assert.True(harness.Session.Generators[0].Disposed);
+        Assert.Single(harness.Session.Generators[1].Appended);
+        Assert.NotNull(harness.Session.Guidance[1]);
+        Assert.True(harness.Session.Generators[1].Disposed);
+        Assert.False(harness.Client.HasCachedConversation);
+        Assert.Equal(id, second.ConversationId);
+        Assert.Equal(0, harness.Host.ActiveLeases);
+    }
+
+    [Fact]
+    public async Task ATurnThatStopsAtMaxOutputTokensIsKept()
+    {
+        using var harness = ClientHarness.Build(o => o.MaxOutputTokens = 2, script: ["a", "b", "c"]);
+
+        var response = await TurnAsync(harness, [User("one")], conversationId: null).ConfigureAwait(true);
+
+        Assert.Equal(EdgeChatStopReason.MaxOutputTokens, response.GetTurnStatus()!.StopReason);
+        Assert.False(harness.Session.LastGenerator.Disposed);
+        Assert.True(harness.Client.HasCachedConversation);
+        Assert.Equal(1, harness.Host.ActiveLeases);
+    }
+
+    [Fact]
     public async Task DroppingTheCacheThroughTheHostDisposesTheGeneratorAndReturnsTheLease()
     {
         using var harness = ClientHarness.Build();

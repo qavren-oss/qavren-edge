@@ -507,12 +507,7 @@ public sealed class EdgeChatClient : IChatClient
 
         // (f) Which generator. A null id is NEVER a hit; a different id is a miss.
         var previous = _cache.Take();
-        var candidate = cacheEnabled
-            && requestedId is not null
-            && previous is not null
-            && string.Equals(previous.ConversationId, requestedId, StringComparison.Ordinal)
-                ? previous
-                : null;
+        var candidate = ChatTurnPipeline.CacheCandidate(previous, requestedId, cacheEnabled);
 
         if (previous is not null && candidate is null)
         {
@@ -546,13 +541,15 @@ public sealed class EdgeChatClient : IChatClient
             var knobs = ChatTurnPipeline.ResolveKnobs(options, edge);
             var maxOutput = knobs.MaxOutputTokens;
             var guidance = ChatTurnPipeline.ResolveGuidance(options, edge, info.Backend.Guidance, unhonoured);
+            var reusable = ChatTurnPipeline.IsReusable(cacheEnabled, guidance);
 
-            // (c) Reduce, counting with the model's own tokenizer.
+            // (c) Reduce, counting with the model's own tokenizer. The counter captures the
+            // variable, not its value: after a conversation-cache miss below it counts with the
+            // session the turn then holds.
+            Func<string, int> countTokens = text => text.Length == 0 ? 0 : session.Encode(text).Length;
             var composed = ChatTurnPipeline.ComposeMessages(messages, options, edge);
             var historyOptions = ChatTurnPipeline.HistoryOptionsForTurn(edge, resolvedContext, maxOutput);
-            var reducer = new EdgeChatTokenBudgetReducer(
-                text => text.Length == 0 ? 0 : session.Encode(text).Length,
-                historyOptions);
+            var reducer = new EdgeChatTokenBudgetReducer(countTokens, historyOptions);
 
             var retained = await reducer.ReduceAsync(composed, cancellationToken).ConfigureAwait(false);
             var reduced = retained as IReadOnlyList<ChatMessage> ?? [.. retained];
@@ -573,14 +570,14 @@ public sealed class EdgeChatClient : IChatClient
             cancellationToken.ThrowIfCancellationRequested();
 
             // (f) Check one and check two, on a candidate. Either failing is a miss, never a 7102.
-            if (candidate is not null && guidance is null
+            if (candidate is not null && reusable
                 && fullText.StartsWith(candidate.CachedText, StringComparison.Ordinal))
             {
                 var delta = fullText[candidate.CachedText.Length..];
                 var deltaTokens = delta.Length == 0 ? [] : session.Encode(delta);
                 var held = candidate.Generator.TokenCount();
 
-                if (held + (ulong)deltaTokens.Length + (ulong)maxOutput <= (ulong)candidate.MaxLength)
+                if (ChatTurnPipeline.FitsCachedGenerator(held, deltaTokens.Length, maxOutput, candidate.MaxLength))
                 {
                     // A caller's cancel cannot interrupt the prefill; it is bracketed instead. A
                     // terminate can, once the generator is registered - so it is resumed (a cached
@@ -645,13 +642,11 @@ public sealed class EdgeChatClient : IChatClient
                 long kept = 0;
                 foreach (var message in reduced)
                 {
-                    kept += message.Text is { Length: > 0 } text ? session.Encode(text).Length : 0;
+                    kept += message.Text is { Length: > 0 } text ? countTokens(text) : 0;
                 }
 
                 historyOptions.MaxHistoryTokens = (int)Math.Clamp(kept - overshoot, 0, int.MaxValue);
-                var tighter = await new EdgeChatTokenBudgetReducer(
-                        text => text.Length == 0 ? 0 : session.Encode(text).Length,
-                        historyOptions)
+                var tighter = await new EdgeChatTokenBudgetReducer(countTokens, historyOptions)
                     .ReduceAsync(composed, cancellationToken)
                     .ConfigureAwait(false);
                 var shorter = tighter as IReadOnlyList<ChatMessage> ?? [.. tighter];
@@ -675,12 +670,8 @@ public sealed class EdgeChatClient : IChatClient
 
             var promptTokens = tokens.Length;
 
-            // (e) max_length: the KV MEMORY cap, <= resolvedContext either way. A generator the
-            // cache may keep is built to the budget's whole answer so later turns fit; one that is
-            // used once is built to what this turn needs.
-            var maxLength = cacheEnabled && guidance is null
-                ? resolvedContext
-                : Math.Min(promptTokens + maxOutput, resolvedContext);
+            // (e) max_length: the KV MEMORY cap.
+            var maxLength = ChatTurnPipeline.GeneratorMaxLength(reusable, promptTokens, maxOutput, resolvedContext);
 
             var searchOptions = ChatTurnPipeline.ComposeSearchOptions(knobs, maxLength, options, edge);
 
@@ -702,7 +693,7 @@ public sealed class EdgeChatClient : IChatClient
                 Stream = session.CreateStream(),
                 FullText = fullText,
                 ConversationId = conversationId,
-                Cacheable = cacheEnabled && guidance is null && conversationId is not null,
+                Cacheable = reusable && conversationId is not null,
                 MaxLength = maxLength,
                 MaxOutputTokens = maxOutput,
                 ResolvedContextTokens = resolvedContext,
@@ -774,13 +765,7 @@ public sealed class EdgeChatClient : IChatClient
         _host.SetActiveGeneration(null);
         turn.Stream.Dispose();
 
-        var keep = result is { Cancelled: false, Failure: null }
-            && result.Status.StopReason is EdgeChatStopReason.Completed
-                or EdgeChatStopReason.StopSequence
-                or EdgeChatStopReason.MaxOutputTokens
-            && turn.Cacheable
-            && !_host.TerminationRequested
-            && !_disposed;
+        var keep = ChatTurnPipeline.ShouldKeep(result, turn.Cacheable, _host.TerminationRequested, _disposed);
 
         if (keep)
         {

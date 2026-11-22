@@ -28,13 +28,6 @@ internal sealed class IngestionRunner
     /// <summary>How many same-bytes, same-recipe rows one document tries before it embeds instead.</summary>
     private const int MaxReuseCandidates = 4;
 
-    // The content hashes the collection holds Indexed, read once per run on the first document
-    // that has anything to embed, and kept current with what this run indexes. A filter, not a
-    // source of truth: a hit is confirmed against the state table before anything is reused, so
-    // a stale entry costs one query. Null until needed - a run over an unchanged corpus never
-    // reaches an embed and never reads it.
-    private HashSet<ContentHash>? _indexedHashes;
-
     private readonly IngestionRegistration _registration;
     private readonly IngestionStateStore _state;
     private readonly IEdgeDatabase _database;
@@ -127,13 +120,15 @@ internal sealed class IngestionRunner
         var configuredBatch = options.WriteBatchSize ?? opts.WriteBatchSize;
         var failFast = options.FailFast || !opts.ContinueOnDocumentError;
 
+        // What every document and every gate of this run reads, built once. It lives exactly as
+        // long as the run, so none of it is reset by hand.
+        var scope = new RunScope(runId, recipe, options, configuredBatch, budget, counters, startTimestamp);
+
         var outcome = IngestionRunOutcome.Completed;
         string? suspendReason = null;
         IngestionFailure? runFailure = null;
         var consecutiveErrors = 0;
-        var loggedRecipeDrift = false;
         var lastProgress = startTimestamp;
-        _indexedHashes = null;
 
         await _state.VerifyAsync(cancellationToken).ConfigureAwait(false);
         await _state.BeginRunAsync(
@@ -149,8 +144,7 @@ internal sealed class IngestionRunner
             {
                 Report(IngestionStage.Enumerating, currentDocumentId: null, force: false);
 
-                var gate = await AwaitGateAsync(
-                    budget, configuredBatch, counters, startTimestamp, documentBoundary: true, cancellationToken)
+                var gate = await AwaitGateAsync(scope, documentBoundary: true, cancellationToken)
                     .ConfigureAwait(false);
                 if (gate.Stop)
                 {
@@ -201,19 +195,8 @@ internal sealed class IngestionRunner
                 DocumentRun documentRun;
                 try
                 {
-                    documentRun = await ProcessDocumentAsync(
-                        source,
-                        item,
-                        runId,
-                        recipe,
-                        options,
-                        configuredBatch,
-                        budget,
-                        counters,
-                        startTimestamp,
-                        () => loggedRecipeDrift,
-                        () => loggedRecipeDrift = true,
-                        cancellationToken).ConfigureAwait(false);
+                    documentRun = await ProcessDocumentAsync(source, item, scope, cancellationToken)
+                        .ConfigureAwait(false);
                 }
                 catch (EdgeIngestionException ex) when (ex.Code is EdgeErrorCode.IngestionRecipeChanged)
                 {
@@ -373,7 +356,6 @@ internal sealed class IngestionRunner
         finally
         {
             _control.EndRun();
-            _indexedHashes = null;
 
             // Spec 12's activeRun* keys read this off the registration, so it has to be cleared on
             // EVERY exit - including the two that rethrow - or a faulted run stays "active" in
@@ -583,17 +565,12 @@ internal sealed class IngestionRunner
     private async Task<DocumentRun> ProcessDocumentAsync(
         IngestionSource source,
         DocumentSourceItem item,
-        string runId,
-        IngestionRecipe recipe,
-        IngestionRunOptions options,
-        int configuredBatch,
-        IngestionBudget budget,
-        RunCounters counters,
-        long startTimestamp,
-        Func<bool> driftLogged,
-        Action markDriftLogged,
+        RunScope scope,
         CancellationToken cancellationToken)
     {
+        var runId = scope.RunId;
+        var options = scope.Options;
+        var counters = scope.Counters;
         var opts = _registration.Options;
         var collection = opts.CollectionName;
         var started = _time.GetTimestamp();
@@ -607,7 +584,7 @@ internal sealed class IngestionRunner
         // registering an extractor for it later retries it automatically.
         _ = _extractors.TryResolve(item, out var extractor);
         var documentRecipe = RecipeComposition.WithExtractor(
-            recipe,
+            scope.Recipe,
             extractor is null ? RecipeComposition.NoExtractor : RecipeComposition.Fingerprint(extractor));
 
         // ---- Size gate, enforcement point 1: the source declared a size, so the file is never
@@ -739,9 +716,9 @@ internal sealed class IngestionRunner
                 };
             }
 
-            if (!driftLogged())
+            if (!scope.RecipeDriftLogged)
             {
-                markDriftLogged();
+                scope.RecipeDriftLogged = true;
                 IngestionLog.RecipeChanged(_logger, stored.RecipeHash.ToHex(), documentRecipe.Hash);
             }
         }
@@ -892,14 +869,13 @@ internal sealed class IngestionRunner
         // prune - is a donor for its new one within the same run.
         var donor = diff.Added.Count == 0
             ? null
-            : await FindReuseDonorAsync(collection, source.Id, item.DocumentId, hash, documentRecipe, identified, cancellationToken)
+            : await FindReuseDonorAsync(scope, collection, source.Id, item.DocumentId, hash, documentRecipe, identified, cancellationToken)
                 .ConfigureAwait(false);
 
         // ---- a. windowed embed + upsert, with the three evaluations before EACH window.
         for (var offset = 0; offset < diff.Added.Count;)
         {
-            var gate = await AwaitGateAsync(
-                budget, configuredBatch, counters, startTimestamp, documentBoundary: false, cancellationToken)
+            var gate = await AwaitGateAsync(scope, documentBoundary: false, cancellationToken)
                 .ConfigureAwait(false);
             if (gate.Stop)
             {
@@ -976,7 +952,7 @@ internal sealed class IngestionRunner
             IngestionDocumentStatus.Indexed, error: null, cancellationToken).ConfigureAwait(false);
 
         // This document is now a donor too: a duplicate later in the same run reuses it.
-        _indexedHashes?.Add(hash);
+        scope.IndexedHashes?.Add(hash);
 
         if (reused != 0)
         {
@@ -1045,6 +1021,7 @@ internal sealed class IngestionRunner
     /// unreadable is "no donor": this never fails the document, it only declines to save the embed.
     /// </summary>
     private async Task<ReuseDonor?> FindReuseDonorAsync(
+        RunScope scope,
         string collection,
         string sourceId,
         string documentId,
@@ -1055,9 +1032,9 @@ internal sealed class IngestionRunner
     {
         try
         {
-            _indexedHashes ??= await _state.ListIndexedContentHashesAsync(collection, cancellationToken)
+            var indexed = scope.IndexedHashes ??= await _state.ListIndexedContentHashesAsync(collection, cancellationToken)
                 .ConfigureAwait(false);
-            if (!_indexedHashes.Contains(hash))
+            if (!indexed.Contains(hash))
             {
                 return null;
             }
@@ -1295,21 +1272,16 @@ internal sealed class IngestionRunner
     /// </para>
     /// </summary>
     private async ValueTask<GateDecision> AwaitGateAsync(
-        IngestionBudget budget,
-        int configuredBatch,
-        RunCounters counters,
-        long startTimestamp,
+        RunScope scope,
         bool documentBoundary,
         CancellationToken cancellationToken)
     {
-        var gate = Evaluate(
-            budget, configuredBatch, counters, startTimestamp, documentBoundary, cancellationToken);
+        var gate = Evaluate(scope, documentBoundary, cancellationToken);
 
         while (!gate.Stop && gate.Paused)
         {
             await Task.Delay(gate.Delay, _time, cancellationToken).ConfigureAwait(false);
-            gate = Evaluate(
-                budget, configuredBatch, counters, startTimestamp, documentBoundary, cancellationToken);
+            gate = Evaluate(scope, documentBoundary, cancellationToken);
         }
 
         if (!gate.Stop && gate.Delay > TimeSpan.Zero)
@@ -1325,13 +1297,14 @@ internal sealed class IngestionRunner
     /// Cancellation is checked HERE, before any transaction is opened, and never inside one.
     /// </summary>
     private GateDecision Evaluate(
-        IngestionBudget budget,
-        int configuredBatch,
-        RunCounters counters,
-        long startTimestamp,
+        RunScope scope,
         bool documentBoundary,
         CancellationToken cancellationToken)
     {
+        var budget = scope.Budget;
+        var configuredBatch = scope.ConfiguredBatch;
+        var counters = scope.Counters;
+
         if (_control.Stop is { Reason: { } stopReason } stop)
         {
             // Spec 10.2 step 1: a stop that came FROM LIFECYCLE is Suspended; Cancelled is the
@@ -1352,7 +1325,7 @@ internal sealed class IngestionRunner
                 true, IngestionRunOutcome.Cancelled, SuspendCallerStop, configuredBatch, TimeSpan.Zero);
         }
 
-        var elapsed = _time.GetElapsedTime(startTimestamp);
+        var elapsed = _time.GetElapsedTime(scope.StartTimestamp);
         if (budget.MaxDuration is { } maxDuration && elapsed >= maxDuration)
         {
             return Suspend("budget:duration");
@@ -1526,6 +1499,53 @@ internal sealed class IngestionRunner
     /// <param name="DocumentId">The donor document.</param>
     /// <param name="KeyByChunk">This document's chunk key to the donor row holding its vector.</param>
     private sealed record ReuseDonor(string SourceId, string DocumentId, IReadOnlyDictionary<string, string> KeyByChunk);
+
+    /// <summary>
+    /// What one run carries into every document and every gate. Built once in
+    /// <see cref="RunAsync"/> and dropped with it, so nothing in it is reset by hand between runs.
+    /// </summary>
+    /// <param name="runId">The run's id.</param>
+    /// <param name="recipe">The extractor-independent baseline recipe each document composes its own from.</param>
+    /// <param name="options">The caller's options for this run.</param>
+    /// <param name="configuredBatch">The write batch before any throttle shrink.</param>
+    /// <param name="budget">The run's budget.</param>
+    /// <param name="counters">The run's counters.</param>
+    /// <param name="startTimestamp">When the run started, on the runner's clock.</param>
+    private sealed class RunScope(
+        string runId,
+        IngestionRecipe recipe,
+        IngestionRunOptions options,
+        int configuredBatch,
+        IngestionBudget budget,
+        RunCounters counters,
+        long startTimestamp)
+    {
+        public string RunId { get; } = runId;
+
+        public IngestionRecipe Recipe { get; } = recipe;
+
+        public IngestionRunOptions Options { get; } = options;
+
+        public int ConfiguredBatch { get; } = configuredBatch;
+
+        public IngestionBudget Budget { get; } = budget;
+
+        public RunCounters Counters { get; } = counters;
+
+        public long StartTimestamp { get; } = startTimestamp;
+
+        /// <summary>Whether event 915 has been logged: a recipe change is logged once per run, not once per document.</summary>
+        public bool RecipeDriftLogged { get; set; }
+
+        /// <summary>
+        /// The content hashes the collection holds Indexed, read once per run on the first document
+        /// that has anything to embed, and kept current with what this run indexes. A filter, not a
+        /// source of truth: a hit is confirmed against the state table before anything is reused, so
+        /// a stale entry costs one query. Null until needed - a run over an unchanged corpus never
+        /// reaches an embed and never reads it.
+        /// </summary>
+        public HashSet<ContentHash>? IndexedHashes { get; set; }
+    }
 
     private sealed record DocumentRun(
         IngestionDocumentResult Result, bool Abandoned, string? SuspendReason, Exception? Thrown)
