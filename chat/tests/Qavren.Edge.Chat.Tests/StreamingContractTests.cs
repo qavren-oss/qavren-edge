@@ -200,6 +200,68 @@ public class StreamingContractTests
         Assert.Equal("a", response.Text);
     }
 
+    [Theory]
+    [InlineData(true, EdgeChatStopReason.Suspended)]
+    [InlineData(false, EdgeChatStopReason.MemoryPressure)]
+    public async Task ATerminateThatLandsInsideTheNativeStepCompletesWithTheLifecycleReason(bool suspended, EdgeChatStopReason expected)
+    {
+        // GenAI reports a terminate that arrives mid-step as a throw out of GenerateNextToken. The
+        // host's flag explains it, so it is the stop that was asked for, not a 7104.
+        using var harness = ClientHarness.Build(script: ["a", "b", "c"]);
+        harness.Session.OnGeneratorCreated = generator =>
+        {
+            generator.ThrowAt = (1, FakeGenerator.NativeFailure("Exiting due to terminate flag being set to true"));
+            generator.BeforeGenerate = (_, index) =>
+            {
+                if (index == 1)
+                {
+                    harness.Host.SuspendRequested = suspended;
+                    harness.Host.TerminateActiveGeneration();
+                }
+            };
+        };
+
+        var response = await harness.Client.GetResponseAsync(Ask(), null, TestContext.Current.CancellationToken).ConfigureAwait(true);
+
+        var status = response.GetTurnStatus()!;
+        Assert.Equal(expected, status.StopReason);
+        Assert.Equal(1, status.GeneratedTokens);
+        Assert.Equal("a", response.Text);
+        Assert.Equal(ChatFinishReason.Stop, response.FinishReason);
+        Assert.True(harness.Logger.Logged(EdgeChatEventIds.TurnTerminated));
+    }
+
+    [Theory]
+    [InlineData(true, EdgeChatStopReason.Suspended)]
+    [InlineData(false, EdgeChatStopReason.MemoryPressure)]
+    public async Task ATerminateThatLandsBetweenTheFlagCheckAndIsDoneIsStillReportedAsTheTermination(bool suspended, EdgeChatStopReason expected)
+    {
+        // The loop leaves through IsDone() because the terminate latched the generator after the
+        // flag was last read. "The model stopped" would be the wrong reason.
+        using var harness = ClientHarness.Build(script: ["a", "b", "c"]);
+        harness.Session.OnGeneratorCreated = generator =>
+        {
+            var calls = 0;
+            generator.BeforeIsDone = _ =>
+            {
+                if (++calls == 2)
+                {
+                    harness.Host.SuspendRequested = suspended;
+                    harness.Host.TerminateActiveGeneration();
+                }
+            };
+        };
+
+        var response = await harness.Client.GetResponseAsync(Ask(), null, TestContext.Current.CancellationToken).ConfigureAwait(true);
+
+        var status = response.GetTurnStatus()!;
+        Assert.Equal(expected, status.StopReason);
+        Assert.Equal(1, status.GeneratedTokens);
+        Assert.Equal("a", response.Text);
+        Assert.Equal(ChatFinishReason.Stop, response.FinishReason);
+        Assert.True(harness.Logger.Logged(EdgeChatEventIds.TurnTerminated));
+    }
+
     [Fact]
     public async Task ATerminateWhileTheModelLoadsStopsTheTurnBeforeItGeneratesAnything()
     {
