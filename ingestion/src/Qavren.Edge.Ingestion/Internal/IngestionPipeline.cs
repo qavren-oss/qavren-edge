@@ -3,6 +3,7 @@ using Microsoft.Extensions.AI;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using Qavren.Edge.Hosting;
 using Qavren.Edge.Sqlite;
 using Qavren.Edge.VectorData;
 using MEVD = Microsoft.Extensions.VectorData;
@@ -138,6 +139,7 @@ internal sealed class IngestionPipeline : IIngestionPipeline
         string? collectionName = null, CancellationToken ct = default)
     {
         var registration = _registry.Resolve(collectionName);
+        await EnsureStartedAsync(ct).ConfigureAwait(false);
         var recipe = RequireRecipe(registration);
         var database = Database(registration);
         var state = new IngestionStateStore(database, registration.Options.StateTablePrefix);
@@ -166,10 +168,12 @@ internal sealed class IngestionPipeline : IIngestionPipeline
     }
 
     /// <inheritdoc />
-    public ValueTask<IngestionRecipe> GetRecipeAsync(CancellationToken ct = default)
+    public async ValueTask<IngestionRecipe> GetRecipeAsync(CancellationToken ct = default)
     {
         ct.ThrowIfCancellationRequested();
-        return ValueTask.FromResult(RequireRecipe(_registry.Resolve(null)));
+        var registration = _registry.Resolve(null);
+        await EnsureStartedAsync(ct).ConfigureAwait(false);
+        return RequireRecipe(registration);
     }
 
     private async Task<IngestionRunResult> RunCoreAsync(
@@ -178,6 +182,7 @@ internal sealed class IngestionPipeline : IIngestionPipeline
         IngestionRunOptions options,
         CancellationToken cancellationToken)
     {
+        await EnsureStartedAsync(cancellationToken).ConfigureAwait(false);
         var runner = Build(registration);
 
         // The id is minted HERE, before the gate closes, so 6008 can name the run that is actually
@@ -258,6 +263,16 @@ internal sealed class IngestionPipeline : IIngestionPipeline
             };
         }
     }
+
+    /// <summary>
+    /// <see cref="IEdgeHost"/>'s contract for every entry point. The order-400 task freezes the
+    /// recipe, so reading it without this refused a call made while startup was still running -
+    /// the MAUI bridges call <c>Start()</c> and never await it - and reported a faulted startup as
+    /// the "did not run" 6001 instead of its own error. Called after
+    /// <see cref="IngestionRegistry.Resolve"/>, so 6002 still comes before any open.
+    /// </summary>
+    private ValueTask EnsureStartedAsync(CancellationToken ct) =>
+        _services.GetRequiredService<IEdgeHost>().EnsureStartedAsync(ct);
 
     private IngestionRunner Build(IngestionRegistration registration)
     {
