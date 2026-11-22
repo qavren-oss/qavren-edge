@@ -166,23 +166,10 @@ internal sealed class OnnxSessionHost : IOnnxSessionHost, IDisposable
         ArgumentException.ThrowIfNullOrWhiteSpace(modelId);
 
         // SP1's contract: a startup failure surfaces here with its real cause rather than as a
-        // mysterious missing native two frames deeper.
+        // mysterious missing native two frames deeper. From inside a startup task - the order-220
+        // warm-up is one - this returns at once, so the warm-up takes this same path.
         await _host.EnsureStartedAsync(cancellationToken).ConfigureAwait(false);
-        return await AcquireCoreAsync(modelId, cancellationToken).ConfigureAwait(false);
-    }
 
-    /// <summary>
-    /// Everything <see cref="AcquireAsync"/> does EXCEPT awaiting <c>IEdgeHost.Started</c>. The
-    /// order-220 warm-up task is itself a startup task, so awaiting startup from inside it would
-    /// deadlock on the task's own completion.
-    /// </summary>
-    /// <param name="modelId">The registered model id.</param>
-    /// <param name="cancellationToken">Cancellation.</param>
-    /// <returns>A lease that must be disposed.</returns>
-    internal async ValueTask<OnnxSessionLease> AcquireCoreAsync(
-        string modelId,
-        CancellationToken cancellationToken)
-    {
         if (!_registrations.TryGetValue(modelId, out var registration))
         {
             throw new EdgeOnnxException(

@@ -12,9 +12,9 @@ namespace Qavren.Edge.Onnx.Internal;
 /// <remarks>
 /// <see cref="IServiceProvider"/> rather than the session host itself for the same reason as the
 /// provisioning task: <c>EdgeHost</c>'s constructor eagerly resolves every startup task, and the
-/// session host depends on <c>IEdgeHost</c>. It also calls <c>AcquireCoreAsync</c> rather than
-/// <c>AcquireAsync</c>, because awaiting <c>IEdgeHost.Started</c> from inside a startup task would
-/// deadlock on this task's own completion.
+/// session host depends on <c>IEdgeHost</c>. It acquires through the ordinary <c>AcquireAsync</c>:
+/// <c>IEdgeHost.EnsureStartedAsync</c> returns at once when a startup task calls it, so the acquire
+/// does not wait on this task's own completion.
 /// </remarks>
 internal sealed class OnnxWarmUpStartupTask(IServiceProvider services, string modelId) : IEdgeStartupTask
 {
@@ -30,6 +30,6 @@ internal sealed class OnnxWarmUpStartupTask(IServiceProvider services, string mo
         var host = services.GetRequiredService<OnnxSessionHost>();
 
         // Taken and returned immediately: warm-up wants the session created, not held.
-        using var lease = await host.AcquireCoreAsync(modelId, cancellationToken).ConfigureAwait(false);
+        using var lease = await host.AcquireAsync(modelId, cancellationToken).ConfigureAwait(false);
     }
 }

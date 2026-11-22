@@ -144,11 +144,10 @@ public interface IChatModelHost
     ValueTask<ChatModelLease> AcquireAsync(CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Everything <see cref="AcquireAsync"/> does <b>except</b> awaiting host startup, so an
-    /// <c>IEdgeStartupTask</c> can drive a load without deadlocking on its own completion. Public
-    /// on purpose: sub-project 2 documents this exact hole as unclosable from L1 because its
-    /// equivalent is <c>internal</c> to another assembly. Sub-project 4's host and its warm-up task
-    /// are in the same assembly, so sub-project 4 does not inherit it.
+    /// Everything <see cref="AcquireAsync"/> does <b>except</b> awaiting host startup, and no lease is
+    /// held once it completes: the model is left resident for the first turn. An
+    /// <c>IEdgeStartupTask</c> may call either this or <see cref="AcquireAsync"/>, because
+    /// <c>IEdgeHost.EnsureStartedAsync</c> returns at once when a startup task calls it.
     /// </summary>
     /// <param name="cancellationToken">Cancellation.</param>
     /// <returns>A task that completes once the model is resident.</returns>

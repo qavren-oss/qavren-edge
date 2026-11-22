@@ -46,8 +46,8 @@ public static class OnnxEdgeBuilderExtensions
 #endif
 
         // The concrete type is registered and the interface forwards to it, so DI owns exactly one
-        // instance and disposes it, while the internals that need the concrete type (the warm-up
-        // task's AcquireCoreAsync, the observer's CancelLoadsInFlight) can still reach it.
+        // instance and disposes it, while the internals that use the concrete type (the warm-up
+        // task, the observer's CancelLoadsInFlight) can still reach it.
         builder.Services.TryAddSingleton<OnnxModelStore>();
         builder.Services.TryAddSingleton<IOnnxModelStore>(sp => sp.GetRequiredService<OnnxModelStore>());
         builder.Services.TryAddSingleton<OnnxSessionHost>();

@@ -20,13 +20,12 @@ namespace Qavren.Edge.Embeddings.Onnx.Internal;
 /// that wants the graph loaded at startup too calls that method itself with the preset's model id.
 /// </para>
 /// <para>
-/// It does NOT embed a dummy string, which spec 7 and spec 14.1's order table both ask for. That
-/// is a layer boundary rather than a choice: <c>GenerateAsync</c> acquires a session through
-/// <c>IOnnxSessionHost.AcquireAsync</c>, which awaits <c>IEdgeHost.EnsureStartedAsync</c>, and a
-/// startup task awaiting startup deadlocks on its own completion. The load path that skips that
-/// await, <c>OnnxSessionHost.AcquireCoreAsync</c>, is <c>internal</c> to <c>Qavren.Edge.Onnx</c>
-/// and reaches test assemblies only, so nothing in this package can drive it. Closing the gap
-/// needs an owner ruling - amend spec 7 and 14.1, or have L0 expose a load path L1 can call.
+/// It does NOT embed a dummy string, which spec 7 and spec 14.1's order table both ask for. This
+/// was first written up as a layer boundary - <c>GenerateAsync</c> acquires through
+/// <c>IOnnxSessionHost.AcquireAsync</c>, which awaits <c>IEdgeHost.EnsureStartedAsync</c> - but
+/// that await now returns at once when a startup task makes it, so nothing stops this task from
+/// embedding. Whether it should is a behaviour change and the owner's call: amend spec 7 and 14.1,
+/// or add the dummy batch here.
 /// </para>
 /// </remarks>
 internal sealed class EmbeddingsWarmUpStartupTask(IServiceProvider services, string? name) : IEdgeStartupTask

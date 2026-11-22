@@ -373,9 +373,10 @@ internal sealed class ChatModelHost : IChatTurnHost, IChatLifecycleTarget, IDisp
     }
 
     /// <summary>
-    /// Everything <see cref="AcquireAsync"/> does EXCEPT awaiting <c>IEdgeHost.Started</c>. The
-    /// order-420 warm-up task is itself a startup task, so awaiting startup from inside it would
-    /// deadlock on the task's own completion.
+    /// Everything <see cref="AcquireAsync"/> does EXCEPT awaiting <c>IEdgeHost.Started</c>, which is
+    /// the public contract of <see cref="PreloadAsync"/>. It is not what keeps the order-420 warm-up
+    /// task from waiting on itself: <c>IEdgeHost.EnsureStartedAsync</c> returns at once when a
+    /// startup task calls it, so <see cref="AcquireAsync"/> would not wait there either.
     /// </summary>
     /// <param name="cancellationToken">Cancellation.</param>
     /// <returns>A lease that must be disposed.</returns>

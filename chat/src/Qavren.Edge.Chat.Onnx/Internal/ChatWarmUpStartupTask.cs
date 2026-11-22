@@ -8,11 +8,9 @@ namespace Qavren.Edge.Chat.Internal;
 /// provisioning.
 /// </summary>
 /// <remarks>
-/// It goes through <c>IChatModelHost.PreloadAsync</c> rather than <c>AcquireAsync</c>: a startup
-/// task that awaited <c>IEdgeHost.Started</c> would deadlock on its own completion. Sub-project 2
-/// documents that hole as unclosable from L1 because its equivalent is <c>internal</c> to another
-/// assembly; sub-project 4's host and this task are in the same assembly, so sub-project 4 does not
-/// inherit it.
+/// It goes through <c>IChatModelHost.PreloadAsync</c>, which loads the model and hands no lease
+/// back. <c>AcquireAsync</c> would not deadlock here either: <c>IEdgeHost.EnsureStartedAsync</c>
+/// returns at once when a startup task calls it.
 /// <para>
 /// It runs <b>no generation</b>. One token on a 1B model is 30 ms of decode on top of a 1.6 s load,
 /// and nothing about the decode loop is proven by doing it twice - the guidance probe is the one
