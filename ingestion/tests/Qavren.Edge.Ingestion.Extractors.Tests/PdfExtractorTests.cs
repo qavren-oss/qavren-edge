@@ -53,6 +53,26 @@ public class PdfExtractorTests
         Assert.True(document.Blocks[0].End < document.Blocks[1].Start);
     }
 
+    [Fact]
+    public async Task ASecondPagesBlocksAreOffsetIntoTheWholeBufferAndCarryOnlyTheirPageNumber()
+    {
+        // Each page is split on its own and shifted by where the page starts in the buffer, so the
+        // numbers - not just the slices - are what keep a two-page document's chunk boundaries put.
+        const string content = "Page content shared by both pages of this fixture.";
+        var (document, _) = await ExtractAsync(FixtureCorpus.Item("pdf/two-pages.pdf"));
+
+        var first = document.Text.IndexOf(content, StringComparison.Ordinal);
+        var second = document.Text.IndexOf(content, first + content.Length, StringComparison.Ordinal);
+        Assert.True(first >= 0 && second > first, document.Text);
+
+        DocumentBlock[] expected =
+        [
+            new(DocumentBlockKind.Paragraph, first, first + content.Length, HeadingLevel: null, PageNumber: 1),
+            new(DocumentBlockKind.Paragraph, second, second + content.Length, HeadingLevel: null, PageNumber: 2),
+        ];
+        Assert.Equal(expected, document.Blocks);
+    }
+
     [Theory]
     [InlineData(PdfReadingOrderMode.ContentOrder)]
     [InlineData(PdfReadingOrderMode.Layout)]
