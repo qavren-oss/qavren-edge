@@ -251,9 +251,11 @@ public sealed partial class PdfTextExtractor : IDocumentExtractor
             text.Append(PageSeparator);
         }
 
+        // Paragraph blocks split on blank lines by the rule PlainTextExtractor applies - the same
+        // linked source file - with the page number stamped on every block.
         var baseOffset = text.Length;
         text.Append(pageText);
-        SplitParagraphs(pageText, baseOffset, page.Number, blocks);
+        ParagraphSplitter.Split(pageText, baseOffset, page.Number, blocks);
     }
 
     /// <summary>
@@ -280,98 +282,6 @@ public sealed partial class PdfTextExtractor : IDocumentExtractor
         }
 
         return builder.ToString();
-    }
-
-    /// <summary>
-    /// Paragraph blocks split on blank lines, the same rule <c>PlainTextExtractor</c> applies, with
-    /// the page number stamped on every block.
-    /// </summary>
-    private static void SplitParagraphs(string pageText, int baseOffset, int pageNumber, List<DocumentBlock> blocks)
-    {
-        var start = -1;
-        var end = -1;
-        var i = 0;
-
-        while (i <= pageText.Length)
-        {
-            var lineEnd = pageText.IndexOf('\n', i);
-            var hasNewline = lineEnd >= 0;
-            var stop = hasNewline ? lineEnd : pageText.Length;
-
-            if (i >= pageText.Length && !hasNewline && i > 0)
-            {
-                break;
-            }
-
-            if (IsBlank(pageText, i, stop))
-            {
-                if (start >= 0)
-                {
-                    blocks.Add(new DocumentBlock(DocumentBlockKind.Paragraph, baseOffset + start, baseOffset + end, null, pageNumber));
-                    start = -1;
-                }
-            }
-            else
-            {
-                if (start < 0)
-                {
-                    start = FirstNonWhitespace(pageText, i, stop);
-                }
-
-                end = LastNonWhitespaceExclusive(pageText, i, stop);
-            }
-
-            if (!hasNewline)
-            {
-                break;
-            }
-
-            i = lineEnd + 1;
-        }
-
-        if (start >= 0)
-        {
-            blocks.Add(new DocumentBlock(DocumentBlockKind.Paragraph, baseOffset + start, baseOffset + end, null, pageNumber));
-        }
-    }
-
-    private static bool IsBlank(string text, int start, int end)
-    {
-        for (var i = start; i < end; i++)
-        {
-            if (!char.IsWhiteSpace(text[i]))
-            {
-                return false;
-            }
-        }
-
-        return true;
-    }
-
-    private static int FirstNonWhitespace(string text, int start, int end)
-    {
-        for (var i = start; i < end; i++)
-        {
-            if (!char.IsWhiteSpace(text[i]))
-            {
-                return i;
-            }
-        }
-
-        return start;
-    }
-
-    private static int LastNonWhitespaceExclusive(string text, int start, int end)
-    {
-        for (var i = end - 1; i >= start; i--)
-        {
-            if (!char.IsWhiteSpace(text[i]))
-            {
-                return i + 1;
-            }
-        }
-
-        return end;
     }
 
     private static Dictionary<string, string> Metadata(PdfDocument document)

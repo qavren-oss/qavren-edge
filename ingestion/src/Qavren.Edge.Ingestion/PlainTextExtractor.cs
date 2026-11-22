@@ -96,111 +96,19 @@ public sealed class PlainTextExtractor : IDocumentExtractor
             LogEncodingFallback(context.Logger, item.DocumentId, null);
         }
 
+        // Paragraphs are runs of non-blank lines; the separating newlines belong to no block.
+        var blocks = new List<DocumentBlock>();
+        ParagraphSplitter.Split(text, baseOffset: 0, pageNumber: null, blocks);
+
         return new ExtractedDocument(
             item.DocumentId,
             Id,
             Version,
             string.IsNullOrEmpty(item.MediaType) ? IngestionMediaTypes.PlainText : item.MediaType,
             text,
-            SplitParagraphs(text),
+            blocks,
             new Dictionary<string, string>(StringComparer.Ordinal),
             PageCount: null,
             HasTextLayer: true);
-    }
-
-    /// <summary>
-    /// Paragraphs are runs of non-blank lines. A block's <c>[Start, End)</c> ends at the last
-    /// non-blank character of the run, so the separating newlines belong to no block.
-    /// </summary>
-    private static List<DocumentBlock> SplitParagraphs(string text)
-    {
-        var blocks = new List<DocumentBlock>();
-        var start = -1;
-        var end = -1;
-        var i = 0;
-
-        while (i <= text.Length)
-        {
-            var lineEnd = text.IndexOf('\n', i);
-            var hasNewline = lineEnd >= 0;
-            var stop = hasNewline ? lineEnd : text.Length;
-
-            if (i >= text.Length && !hasNewline && i > 0)
-            {
-                break;
-            }
-
-            var blank = IsBlank(text, i, stop);
-            if (blank)
-            {
-                if (start >= 0)
-                {
-                    blocks.Add(new DocumentBlock(DocumentBlockKind.Paragraph, start, end));
-                    start = -1;
-                }
-            }
-            else
-            {
-                if (start < 0)
-                {
-                    start = FirstNonWhitespace(text, i, stop);
-                }
-
-                end = LastNonWhitespaceExclusive(text, i, stop);
-            }
-
-            if (!hasNewline)
-            {
-                break;
-            }
-
-            i = lineEnd + 1;
-        }
-
-        if (start >= 0)
-        {
-            blocks.Add(new DocumentBlock(DocumentBlockKind.Paragraph, start, end));
-        }
-
-        return blocks;
-    }
-
-    private static bool IsBlank(string text, int start, int end)
-    {
-        for (var i = start; i < end; i++)
-        {
-            if (!char.IsWhiteSpace(text[i]))
-            {
-                return false;
-            }
-        }
-
-        return true;
-    }
-
-    private static int FirstNonWhitespace(string text, int start, int end)
-    {
-        for (var i = start; i < end; i++)
-        {
-            if (!char.IsWhiteSpace(text[i]))
-            {
-                return i;
-            }
-        }
-
-        return start;
-    }
-
-    private static int LastNonWhitespaceExclusive(string text, int start, int end)
-    {
-        for (var i = end - 1; i >= start; i--)
-        {
-            if (!char.IsWhiteSpace(text[i]))
-            {
-                return i + 1;
-            }
-        }
-
-        return end;
     }
 }

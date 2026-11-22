@@ -1,5 +1,6 @@
 using System.Text;
 using Microsoft.Extensions.Logging.Testing;
+using Qavren.Edge.Ingestion.Internal;
 using Xunit;
 
 namespace Qavren.Edge.Ingestion.Tests.Extraction;
@@ -38,5 +39,23 @@ public class ParagraphRuleTests
 
         Assert.Equal(text, document.Text);
         Assert.Equal(expected, document.Blocks);
+    }
+
+    [Fact]
+    public void TheSharedSplitterShiftsEveryOffsetAndStampsThePageWithoutTouchingWhatIsAlreadyThere()
+    {
+        // The PDF satellite links this same file and calls it once per page, appending to one list.
+        var existing = new DocumentBlock(DocumentBlockKind.Paragraph, 0, 5, HeadingLevel: null, PageNumber: 1);
+        var blocks = new List<DocumentBlock> { existing };
+
+        ParagraphSplitter.Split("  alpha\nbeta  \n\n \t \n\ngamma\n", baseOffset: 100, pageNumber: 3, blocks);
+
+        DocumentBlock[] expected =
+        [
+            existing,
+            new(DocumentBlockKind.Paragraph, 102, 112, HeadingLevel: null, PageNumber: 3),
+            new(DocumentBlockKind.Paragraph, 121, 126, HeadingLevel: null, PageNumber: 3),
+        ];
+        Assert.Equal(expected, blocks);
     }
 }
